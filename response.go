@@ -14,12 +14,16 @@ type Response[T any] struct {
 
 type Body[T any] struct {
 	Success bool   `json:"success"` // 响应状态：true 成功, false 失败
-	Code    int    `json:"code"`    // 响应识别码（常用于识别响应信息来源，便于开发人员排查）
+	Code    int    `json:"code"`    // 响应识别码
 	Message string `json:"message"` // 响应信息
 	Data    T      `json:"data"`    // 响应数据
 }
 
 // Success 成功响应返回Json数据
+//
+//	code 响应识别码
+//	data 响应数据
+//	message 响应信息
 func (r *Response[T]) Success(code int, data T, message ...string) {
 	r.Body.Success = true // 成功状态
 	r.Code = code
@@ -42,6 +46,10 @@ func (r *Response[T]) Success(code int, data T, message ...string) {
 }
 
 // Fail 失败响应返回Json数据
+//
+//	code 响应识别码
+//	message 响应信息
+//	data 响应数据
 func (r *Response[T]) Fail(code int, message string, data ...T) {
 	r.Body.Success = false // 失败状态
 	r.Code = code
@@ -143,7 +151,7 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 
 // Show 响应显示文件内容：如图片
 func (r *Response[T]) Show(filePath string) {
-	// 打开图片文件
+	// 打开文件
 	file, err := os.Open(filePath)
 	if err != nil {
 		// 处理错误
@@ -213,41 +221,48 @@ func (r *Response[T]) Encode() ([]byte, error) {
 }
 
 // JsonResp 响应Json数据
-func JsonResp[T any](w http.ResponseWriter, StatusCode ...int) *Response[T] {
+//
+//	statusCode 响应状态码：默认响应 200
+func JsonResp[T any](w http.ResponseWriter, statusCode ...int) *Response[T] {
 	resp := &Response[T]{
 		writer:     w,
 		statusCode: http.StatusOK,
 	}
 
-	if len(StatusCode) > 0 {
-		resp.statusCode = StatusCode[0]
+	if len(statusCode) > 0 {
+		resp.statusCode = statusCode[0]
 	}
 
 	return resp.ContentType("application/json")
 }
 
 // View 响应文本视图
-func View(w http.ResponseWriter, StatusCode ...int) *Response[string] {
+//
+//	statusCode 响应状态码：默认响应 200
+func View(w http.ResponseWriter, statusCode ...int) *Response[string] {
 	resp := &Response[string]{
 		writer:     w,
 		statusCode: http.StatusOK,
 	}
 
-	if len(StatusCode) > 0 {
-		resp.statusCode = StatusCode[0]
+	if len(statusCode) > 0 {
+		resp.statusCode = statusCode[0]
 	}
 	return resp
 }
 
-// Redirect 重定向, 状态码默认302
-func Redirect(w http.ResponseWriter, url string, StatusCode ...int) {
+// Redirect 重定向
+//
+//	url 重定向地址
+//	statusCode 响应状态码：默认响应 302
+func Redirect(w http.ResponseWriter, url string, statusCode ...int) {
 	resp := &Response[string]{
 		writer:     w,
 		statusCode: http.StatusFound,
 	}
 
-	if len(StatusCode) > 0 {
-		resp.statusCode = StatusCode[0]
+	if len(statusCode) > 0 {
+		resp.statusCode = statusCode[0]
 	}
 
 	resp.writer.Header().Set("Location", url)

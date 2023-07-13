@@ -38,18 +38,18 @@ func TestResponse(t *testing.T) {
 		}
 
 		if queryParam == "fail" {
-			// 写入响应数据
+			// 错误响应
 			JsonResp[User](w, http.StatusNotAcceptable).Fail(2000, "fail", user)
 			return
 		}
-		// 写入响应数据
+		// 成功响应
 		JsonResp[User](w).Success(1000, user)
 	})
 
 	// 响应html
 	http.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
 
-		// 写入响应数据
+		// 响应html数据
 		View(w).Html("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 	})
 
@@ -74,45 +74,40 @@ func TestResponse(t *testing.T) {
 			return
 		}
 
-		// 写入响应数据
+		// 响应xml数据
 		View(w).Xml(string(xmlData))
 	})
 
 	// 响应text
 	http.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
-		// 写入响应数据
+		// 响应text数据
 		View(w).Text("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 	})
 
-	// 响应image
+	// 显示image
 	http.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
-		queryParam := r.URL.Query().Get("v")
-		if IsExist(queryParam) {
-			// 写入响应数据
-			View(w).
-				//Herder(func(header http.Header) {
-				//	header.Set("X-Lang", "ZH-CN")
-				//}).
-				//ContentType("image/png").
-				Show(queryParam)
+		file := r.URL.Query().Get("file")
+		if IsExist(file) {
+			// 显示文件内容
+			View(w).Show(file)
 			return
 		}
 		// 处理错误
-		http.Error(w, "不存在的文件："+queryParam, http.StatusNotFound)
+		View(w, http.StatusNotFound).Text("不存在的文件：" + file)
 	})
 
-	// 响应文件
+	// 下载文件
 	http.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
-		queryParam := r.URL.Query().Get("v")
-		if IsExist(queryParam) {
-			// 写入响应数据
-			View(w).Download(queryParam)
+		file := r.URL.Query().Get("file")
+		if IsExist(file) {
+			// 下载文件数据
+			View(w).Download(file)
 			return
 		}
 		// 处理错误
-		http.Error(w, "不存在的文件："+queryParam, http.StatusNotFound)
+		View(w, http.StatusNotFound).Text("不存在的文件：" + file)
 	})
 
 	// 启动HTTP服务器，监听在指定端口
