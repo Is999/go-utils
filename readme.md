@@ -3374,11 +3374,205 @@ func (c *Curl) Post(url string) (err error)
 
 ------
 
-## 12. 打包压缩
+## 12. http/response
 
 ------
 
-### 12.1 zip
+### 12.1 重定向
+
+------
+
+#### func    [utils.Redirect](https://github.com/Is999/go-utils/blob/master/response.go#L258)
+
+```go
+func Redirect(w http.ResponseWriter, url string, statusCode ...int)
+```
+
+| 参数         | 描述             |
+|------------|----------------|
+| url        | 重定向地址          |
+| statusCode | 响应状态码：默认响应 302 |
+
+```go
+http.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Request) {
+		// 重定向
+		utils.Redirect(w, "/response/json")
+	})
+```
+
+备注：重定向。
+
+------
+
+### 12.2 响应JSON
+
+------
+
+#### func    [utils.JsonResp](https://github.com/Is999/go-utils/blob/master/response.go#L258)
+
+```go
+// JsonResp 响应Json数据
+func JsonResp[T any](w http.ResponseWriter, statusCode ...int) *Response[T]
+
+// Success 成功响应返回Json数据
+func (r *Response[T]) Success(code int, data T, message ...string)
+
+// Fail 失败响应返回Json数据
+func (r *Response[T]) Fail(code int, message string, data ...T)
+```
+
+示例：
+
+```go
+// 响应json数据
+http.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
+
+  // 获取URL查询字符串参数
+  queryParam := r.URL.Query().Get("v")
+
+  // 响应的数据
+  user := User{
+    Name:      "张三",
+    Age:       22,
+    Sex:       "男",
+    IsMarried: false,
+    Address:   "北京市",
+    phone:     "131188889999",
+  }
+
+  if queryParam == "fail" {
+    // 错误响应
+    utils.JsonResp[User](w, http.StatusNotAcceptable).Fail(2000, "fail", user)
+    return
+  }
+  // 成功响应
+  utils.JsonResp[User](w).Success(1000, user)
+})
+```
+
+备注：响应JSON数据，响应成功：JsonResp().Success()，响应失败：JsonResp().Fail()。
+
+------
+
+### 12.3 响应HTML
+
+------
+
+```go
+// 响应html
+http.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
+
+  // 响应html数据
+  utils.View(w).Html("<p>这是一个<b style=\"color: red\">段落!</b></p>")
+})
+```
+
+备注：响应HTML文本 View().Html()。
+
+------
+
+### 12.4 响应XML
+
+------
+
+```go
+// 响应xml
+http.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
+
+  // 响应的数据
+  user := User{
+    Name:      "张三",
+    Age:       22,
+    Sex:       "男",
+    IsMarried: false,
+    Address:   "北京市",
+    phone:     "131188889999",
+  }
+
+  // 将Person对象转换为XML格式数据
+  xmlData, err := xml.MarshalIndent(user, "", "  ")
+  if err != nil {
+    // 处理错误
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+  }
+
+  // 响应xml数据
+  utils.View(w).Xml(string(xmlData))
+})
+```
+
+备注：响应XML文本 View().Xml()。
+
+------
+
+### 12.5 响应TEXT
+
+------
+
+```go
+// 响应text
+http.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
+  // 响应text数据
+ utils.View(w).Text("<p>这是一个<b style=\"color: red\">段落!</b></p>")
+})
+```
+
+备注：响应TEXT文本 View().Text()。
+
+------
+
+### 12.6 显示图片
+
+------
+
+```go
+// 响应image
+http.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
+  // 获取URL查询字符串参数
+  file := r.URL.Query().Get("file")
+  if IsExist(file) {
+    // 显示文件内容
+    View(w).Show(file)
+    return
+  }
+  // 处理错误
+  View(w, http.StatusNotFound).Text("不存在的文件：" + file)
+})
+```
+
+备注：显示文件内容 View().Show()。
+
+------
+
+### 12.7 下载文件
+
+------
+
+```go
+// 下载文件
+http.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Request) {
+  // 获取URL查询字符串参数
+  file := r.URL.Query().Get("file")
+  if IsExist(file) {
+    // 下载文件数据
+    View(w).Download(file)
+    return
+  }
+  // 处理错误
+  View(w, http.StatusNotFound).Text("不存在的文件：" + file)
+})
+```
+
+备注：下载文件 View().Download()。
+
+------
+
+## 13. 打包压缩
+
+------
+
+### 13.1 zip
 
 ------
 
@@ -3412,7 +3606,7 @@ func UnZip(zipFile, destDir string) error
 
 ------
 
-### 12.2 tar
+### 13.2 tar
 
 ------
 
@@ -3461,13 +3655,13 @@ func UnTar(tarFile, destDir string) error
 
 ------
 
-## 13. 日志
+## 14. 日志
 
 > Debug 级别调试，Info 级别信息，Warning 级别警告，Error 级别错误，Fatal 级别致命错误，将调用 os.Exit(1) 退出程序
 
 ------
 
-### 13.1 默认日志（使用标准库的 `log` 包来记录日志）
+### 14.1 默认日志（使用标准库的 `log` 包来记录日志）
 
 ------
 
@@ -3542,11 +3736,11 @@ func Fatalf(format string, v ...any)
 
 ####  
 
-## 14. 杂项
+## 15. 杂项
 
 ------
 
-### 14.1 环境变量
+### 15.1 环境变量
 
 ------
 
@@ -3597,7 +3791,7 @@ func Unsetenv(key string) error
 
 ####       
 
-### 14.2 IP
+### 15.2 IP
 
 ------
 
@@ -3631,7 +3825,7 @@ func ClientIP(r *http.Request) string
 
 ------
 
-### 14.3 三目运算
+### 15.3 三目运算
 
 ------
 
@@ -3649,7 +3843,7 @@ func Ternary[T any](expr bool, trueVal, falseVal T) T
 
 备注：类似于三目运算的函数。
 
-### 14.4 获取当前行号、方法名、文件地址
+### 15.4 获取当前行号、方法名、文件地址
 
 ------
 
