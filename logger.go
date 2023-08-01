@@ -21,6 +21,7 @@ var (
 	// pid
 	pid = os.Getpid()
 
+	// 默认使用标准库log
 	std = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 
 	// 用户自定义输出日志
@@ -99,6 +100,7 @@ func Output(depth int, level Level, format string, v ...any) {
 		line = 0
 	}
 
+	// pool中获取meta
 	metai, meta := metaPoolGet()
 
 	*meta = Meta{
@@ -112,11 +114,12 @@ func Output(depth int, level Level, format string, v ...any) {
 
 	// 输出日志
 	if logOutput != nil {
-
 		logOutput(meta, format, v...)
 	} else {
 		defOutput(meta, format, v...)
 	}
+
+	// 放入pool
 	metaPool.Put(metai)
 }
 
