@@ -201,7 +201,7 @@ func (c *Curl) SetParams(params map[string]string) *Curl {
 	return c
 }
 
-// AddParam 对params键添加多个值（键应该加上“[]”，如："multivalued[]"，方可传递多个值）
+// AddParam 对params键添加多个值
 func (c *Curl) AddParam(key string, values ...string) *Curl {
 	for _, value := range values {
 		c.params.Add(key, value)
@@ -209,7 +209,7 @@ func (c *Curl) AddParam(key string, values ...string) *Curl {
 	return c
 }
 
-// AddParams 对params键添加多个值（键应该加上“[]”，如："multivalued[]"，方可传递多个值）
+// AddParams 对params键添加多个值
 func (c *Curl) AddParams(params map[string][]string) *Curl {
 	for key, values := range params {
 		if values != nil && len(values) > 0 {
@@ -418,7 +418,7 @@ func (c *Curl) Done(f func(client *http.Client, request *http.Request, response 
 
 // Print 记录日志
 //
-//	level 日志级别。 设置了output方法 ERROR 级别日志必输出，其它级别日志需开启isOutPut才会记录输出
+//	level 日志级别
 func (c *Curl) Print(level Level, val ...interface{}) {
 	if level < c.logLevel {
 		return
@@ -431,7 +431,7 @@ func (c *Curl) Print(level Level, val ...interface{}) {
 
 // Printf 记录日志
 //
-//	level 日志级别。 设置了output方法 ERROR 级别日志必输出，其它级别日志需开启isOutPut才会记录输出
+//	level 日志级别
 func (c *Curl) Printf(level Level, format string, val ...interface{}) {
 	if level < c.logLevel {
 		return
@@ -484,8 +484,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 实例 Request
 	req, err = http.NewRequest(method, url, body)
 	if err != nil {
-		c.Printf(ERROR, "http.NewRequest() err: %v", err.Error())
-		return err
+		return fmt.Errorf("http.NewRequest() err: %v", err.Error())
 	}
 
 	// 设置 header
@@ -512,8 +511,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	if c.request != nil {
 		c.Print(DEBUG, "HTTP request()")
 		if err = c.request(req); err != nil {
-			c.Printf(ERROR, "request() err: %v", err.Error())
-			return err
+			return fmt.Errorf("request() err: %v", err.Error())
 		}
 	}
 
@@ -523,8 +521,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			// 使用httputil.DumpRequestOut记录日志
 			dump, err := httputil.DumpRequestOut(req, true)
 			if err != nil {
-				c.Printf(ERROR, "httputil.DumpRequestOut() err: %v", err.Error())
-				return err
+				return fmt.Errorf("httputil.DumpRequestOut() err: %v", err.Error())
 			}
 			c.Print(INFO, "httputil.DumpRequestOut() ", string(dump))
 		} else {
@@ -537,7 +534,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 				var reqBody []byte
 				reqBody, req.Body, err = DrainBody(req.Body)
 				if err != nil {
-					c.Printf(ERROR, "DrainBody(req.Body) err: %v", err.Error())
+					return fmt.Errorf("DrainBody(req.Body) err: %v", err.Error())
 				}
 				b.Write(reqBody)
 			}
@@ -563,8 +560,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		if len(c.proxyURL) > 0 {
 			c.Print(DEBUG, "ProxyURL()")
 			if err = ProxyURL(tr, c.proxyURL); err != nil {
-				c.Printf(ERROR, "ProxyURL() err: %v", err.Error())
-				return err
+				return fmt.Errorf("ProxyURL() err: %v", err.Error())
 			}
 		}
 
@@ -585,8 +581,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			}
 
 			if err = RootCAs(tr.TLSClientConfig, c.rootCAs); err != nil {
-				c.Printf(ERROR, "RootCAs() err: %v", err.Error())
-				return err
+				return fmt.Errorf("RootCAs() err: %v", err.Error())
 			}
 		}
 
@@ -598,8 +593,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			}
 
 			if err = Certificate(tr.TLSClientConfig, c.cert, c.key); err != nil {
-				c.Print(ERROR, "Certificate() err: %v", err.Error())
-				return err
+				return fmt.Errorf("Certificate() err: %v", err.Error())
 			}
 		}
 
@@ -611,8 +605,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		c.Print(DEBUG, "client()")
 		err = c.client(c.cli)
 		if err != nil {
-			c.Printf(ERROR, "client() err: %v", err.Error())
-			return err
+			return fmt.Errorf("client() err: %v", err.Error())
 		}
 	}
 
@@ -638,8 +631,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	c.Printf(DEBUG, "client end: time spent %v", time.Since(t1).String())
 	if err != nil {
-		c.Printf(ERROR, "BadRetry[%d,%d] client.Do() err: %v", maxRetry, maxRetry, err.Error())
-		return err
+		return fmt.Errorf("BadRetry[%d,%d] client.Do() err: %v", maxRetry, maxRetry, err.Error())
 	}
 
 	// 返回body内容
@@ -651,8 +643,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			// 使用httputil.DumpResponse记录返回信息
 			dump, err := httputil.DumpResponse(resp, true)
 			if err != nil {
-				c.Printf(ERROR, "httputil.DumpResponse() err: %v", err.Error())
-				return err
+				return fmt.Errorf("httputil.DumpResponse() err: %v", err.Error())
 			}
 			c.Print(INFO, "httputil.DumpResponse() ", string(dump))
 		} else {
@@ -664,8 +655,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			// 读取body内容
 			respBody, resp.Body, err = DrainBody(resp.Body)
 			if err != nil {
-				c.Printf(ERROR, "DrainBody(resp.Body) err: %v", err.Error())
-				return err
+				return fmt.Errorf("DrainBody(resp.Body) err: %v", err.Error())
 			}
 			b.Write(respBody)
 			c.Print(INFO, "DrainBody(resp.Body) ", b.String())
@@ -674,8 +664,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 判断状态码是否是200正常状态及已标记的状态码
 	if resp.StatusCode != 200 && !IsHas(resp.StatusCode, c.statusCode) {
-		c.Printf(ERROR, "Response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
-		return err
+		return fmt.Errorf("Response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
 	}
 
 	// 在发送请求之后可以对Response处理方法
@@ -683,8 +672,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		c.Print(DEBUG, "response()")
 		isDone, err := c.response(resp)
 		if err != nil {
-			c.Printf(ERROR, "response() err: %v", err.Error())
-			return err
+			return fmt.Errorf("response() err: %v", err.Error())
 		}
 
 		// isDone 返回true 终止执行后续代码; 返回false 继续执行后续代码
@@ -702,15 +690,14 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			//respBody, err := io.ReadAll(resp.Body)
 			_, err = buf.ReadFrom(resp.Body)
 			if err != nil {
-				c.Printf(ERROR, "buf.ReadFrom(resp.Body) err: %v", err.Error())
-				return err
+				return fmt.Errorf("buf.ReadFrom(resp.Body) err: %v", err.Error())
 			}
 			respBody = buf.Bytes()
 		}
 
 		err = c.resolve(respBody)
 		if err != nil {
-			c.Printf(ERROR, "resolve() err: %v", err.Error())
+			return fmt.Errorf("resolve() err: %v", err.Error())
 		}
 	}
 	c.Printf(DEBUG, "HTTP END: total time spent %v", time.Since(t).String())
@@ -867,7 +854,7 @@ func (f *Form) SetParams(params map[string]string) *Form {
 	return f
 }
 
-// AddParam 对Params键添加多个值（键应该加上“[]”，如："multivalued[]"，方可传递多个值）
+// AddParam 对Params键添加多个值
 func (f *Form) AddParam(key string, values ...string) *Form {
 	for _, value := range values {
 		f.Params.Add(key, value)
@@ -875,7 +862,7 @@ func (f *Form) AddParam(key string, values ...string) *Form {
 	return f
 }
 
-// AddParams 对Params键添加多个值（键应该加上“[]”，如："multivalued[]"，方可传递多个值）
+// AddParams 对Params键添加多个值
 func (f *Form) AddParams(params map[string][]string) *Form {
 	for key, values := range params {
 		if values != nil && len(values) > 0 {
@@ -906,7 +893,7 @@ func (f *Form) SetFiles(files map[string]string) *Form {
 	return f
 }
 
-// AddFile 对Files键添加多个值（键应该加上“[]”，如："multivalued[]"，方可传递多个值）
+// AddFile 对Files键添加多个值
 func (f *Form) AddFile(fileName string, filePath ...string) *Form {
 	for _, path := range filePath {
 		f.Files.Add(fileName, path)
@@ -914,7 +901,7 @@ func (f *Form) AddFile(fileName string, filePath ...string) *Form {
 	return f
 }
 
-// AddFiles 对Files键添加多个值（键应该加上“[]”，如："multivalued[]"，方可传递多个值）
+// AddFiles 对Files键添加多个值
 func (f *Form) AddFiles(files map[string][]string) *Form {
 	for name, paths := range files {
 		if paths != nil && len(paths) > 0 {
@@ -931,7 +918,7 @@ func (f *Form) DelFiles(fileNames ...string) {
 	}
 }
 
-// Reader 以键值对上传文件和表单
+// Reader 读取Form内容，转换为以键值对上传文件和表单的body及content-type
 func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 	if f.Files == nil || len(f.Files) == 0 {
 		return strings.NewReader(f.Params.Encode()), "application/x-www-form-urlencoded", nil
