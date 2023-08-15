@@ -2,6 +2,7 @@ package utils
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 )
@@ -38,7 +39,7 @@ func (r *Response[T]) Success(code int, data T, message ...string) {
 	body, err := r.Encode()
 	if err != nil {
 		uid := UniqId(16)
-		Errorf("%s Response Encode() Error: %v", uid, err.Error())
+		slog.Error("Response Encode()", "UID", uid, "err", err.Error())
 		http.Error(r.writer, "Encode error: "+uid, http.StatusInternalServerError)
 		return
 	}
@@ -61,7 +62,7 @@ func (r *Response[T]) Fail(code int, message string, data ...T) {
 	body, err := r.Encode()
 	if err != nil {
 		uid := UniqId(16)
-		Errorf("%s Response Encode() Error: %v", uid, err.Error())
+		slog.Error("Response Encode()", "UID", uid, "err", err.Error())
 		http.Error(r.writer, "Encode error: "+uid, http.StatusInternalServerError)
 		return
 	}
@@ -96,7 +97,7 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 	if err != nil {
 		// 处理错误
 		uid := UniqId(16)
-		Errorf("%s Response File Open() path: %s, Error: %s", uid, filePath, err.Error())
+		slog.Error("Response File Open()", "UID", uid, "filePath", filePath, "err", err.Error())
 		http.Error(r.writer, "Open file error: "+uid, http.StatusInternalServerError)
 		return
 	}
@@ -110,7 +111,7 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 		if err != nil {
 			// 处理错误
 			uid := UniqId(16)
-			Errorf("%s Response File Stat() path: %s, Error: %s", uid, filePath, err.Error())
+			slog.Error("Response File Stat()", "UID", uid, "filePath", filePath, "err", err.Error())
 			http.Error(r.writer, "Stat file error: "+uid, http.StatusInternalServerError)
 			return
 		}
@@ -121,11 +122,11 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 
 	// 设置Content-Type为文件的MIME类型
 	if ctype := r.writer.Header().Get("Content-Type"); ctype == "" {
-		ctype, err = GetFileType(file)
+		ctype, err = FileType(file)
 		if err != nil {
 			// 处理错误
 			uid := UniqId(16)
-			Errorf("%s Response File GetFileType() path: %s, Error: %s", uid, filePath, err.Error())
+			slog.Error("Response File FileType()", "UID", uid, "filePath", filePath, "err", err.Error())
 			http.Error(r.writer, "file type error: "+uid, http.StatusInternalServerError)
 			return
 		}
@@ -143,7 +144,7 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 	if err != nil {
 		// 处理错误
 		uid := UniqId(16)
-		Errorf("%s Response File Copy() Error: %v", uid, err.Error())
+		slog.Error("Response File Copy()", "UID", uid, "err", err.Error())
 		http.Error(r.writer, "io file error: "+uid, http.StatusInternalServerError)
 		return
 	}
@@ -156,7 +157,7 @@ func (r *Response[T]) Show(filePath string) {
 	if err != nil {
 		// 处理错误
 		uid := UniqId(16)
-		Errorf("%s Response File Open() path: %s, Error: %s", uid, filePath, err.Error())
+		slog.Error("Response File Open()", "UID", uid, "filePath", filePath, "err", err.Error())
 		http.Error(r.writer, "Open file error: "+uid, http.StatusInternalServerError)
 		return
 	}
@@ -164,11 +165,11 @@ func (r *Response[T]) Show(filePath string) {
 
 	// 设置Content-Type为文件的MIME类型
 	if ctype := r.writer.Header().Get("Content-Type"); ctype == "" {
-		ctype, err = GetFileType(file)
+		ctype, err = FileType(file)
 		if err != nil {
 			// 处理错误
 			uid := UniqId(16)
-			Errorf("%s Response File GetFileType() path: %s, Error: %s", uid, filePath, err.Error())
+			slog.Error("Response File FileType()", "UID", uid, "filePath", filePath, "err", err.Error())
 			http.Error(r.writer, "file type error: "+uid, http.StatusInternalServerError)
 			return
 		}
@@ -180,7 +181,7 @@ func (r *Response[T]) Show(filePath string) {
 	if err != nil {
 		// 处理错误
 		uid := UniqId(16)
-		Errorf("%s Response File Copy() Error: %v", uid, err.Error())
+		slog.Error("Response File Copy()", "UID", uid, "filePath", filePath, "err", err.Error())
 		http.Error(r.writer, "io file error: "+uid, http.StatusInternalServerError)
 		return
 	}
@@ -192,7 +193,7 @@ func (r *Response[T]) Write(body []byte) {
 	_, err := r.writer.Write(body)
 	if err != nil {
 		uid := UniqId(16)
-		Errorf("%s Response Write() Error: %v", uid, err.Error())
+		slog.Error("Response Write()", "UID", uid, "err", err.Error())
 		http.Error(r.writer, "write error: "+uid, http.StatusInternalServerError)
 	}
 }

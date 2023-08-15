@@ -1,6 +1,9 @@
-package utils
+package utils_test
 
-import "testing"
+import (
+	"github.com/Is999/go-utils"
+	"testing"
+)
 
 func TestAmount(t *testing.T) {
 	type args struct {
@@ -32,7 +35,7 @@ func TestAmount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Amount(tt.args.value, tt.args.decimal, tt.args.signed); got != tt.want {
+			if got := utils.Amount(tt.args.value, tt.args.decimal, tt.args.signed); got != tt.want {
 				t.Errorf("Amount() = %v, want %v", got, tt.want)
 			}
 		})
@@ -65,7 +68,7 @@ func TestEmail(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Email(tt.args.value); got != tt.want {
+			if got := utils.Email(tt.args.value); got != tt.want {
 				t.Errorf("Email() = %v, want %v", got, tt.want)
 			}
 		})
@@ -91,7 +94,7 @@ func TestAlphaNum(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := AlphaNum(tt.args.value); got != tt.want {
+			if got := utils.AlphaNum(tt.args.value); got != tt.want {
 				t.Errorf("AlphaNum() = %v, want %v", got, tt.want)
 			}
 		})
@@ -118,7 +121,7 @@ func TestAlpha(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Alpha(tt.args.value); got != tt.want {
+			if got := utils.Alpha(tt.args.value); got != tt.want {
 				t.Errorf("Alpha() = %v, want %v", got, tt.want)
 			}
 		})
@@ -150,7 +153,7 @@ func TestUnInteger(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := UnInteger(tt.args.value); got != tt.want {
+			if got := utils.UnInteger(tt.args.value); got != tt.want {
 				t.Errorf("UnInteger() = %v, want %v", got, tt.want)
 			}
 		})
@@ -176,7 +179,7 @@ func TestMixStr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := MixStr(tt.args.value); got != tt.want {
+			if got := utils.MixStr(tt.args.value); got != tt.want {
 				t.Errorf("MixStr() = %v, want %v", got, tt.want)
 			}
 		})
@@ -199,7 +202,7 @@ func TestMobile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Mobile(tt.args.value); got != tt.want {
+			if got := utils.Mobile(tt.args.value); got != tt.want {
 				t.Errorf("Mobile() = %v, want %v", got, tt.want)
 			}
 		})
@@ -224,7 +227,7 @@ func TestEmpty(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Empty(tt.args.value); got != tt.want {
+			if got := utils.Empty(tt.args.value); got != tt.want {
 				t.Errorf("Empty() = %v, want %v", got, tt.want)
 			}
 		})
@@ -254,7 +257,7 @@ func TestNumeric(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Numeric(tt.args.value); got != tt.want {
+			if got := utils.Numeric(tt.args.value); got != tt.want {
 				t.Errorf("Numeric() = %v, want %v", got, tt.want)
 			}
 		})
@@ -283,7 +286,7 @@ func TestPhone(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Phone(tt.args.value); got != tt.want {
+			if got := utils.Phone(tt.args.value); got != tt.want {
 				t.Errorf("Phone() = %v, want %v", got, tt.want)
 			}
 		})
@@ -310,7 +313,7 @@ func TestQQ(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := QQ(tt.args.value); got != tt.want {
+			if got := utils.QQ(tt.args.value); got != tt.want {
 				t.Errorf("QQ() = %v, want %v", got, tt.want)
 			}
 		})
@@ -355,7 +358,7 @@ func TestTimeDay(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := TimeDay(tt.args.value); got != tt.want {
+			if got := utils.TimeDay(tt.args.value); got != tt.want {
 				t.Errorf("TimeDay() = %v, want %v", got, tt.want)
 			}
 		})
@@ -385,7 +388,7 @@ func TestTimeMonth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := TimeMonth(tt.args.value); got != tt.want {
+			if got := utils.TimeMonth(tt.args.value); got != tt.want {
 				t.Errorf("TimeMonth() = %v, want %v", got, tt.want)
 			}
 		})
@@ -436,7 +439,7 @@ func TestTimestamp(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Timestamp(tt.args.value); got != tt.want {
+			if got := utils.Timestamp(tt.args.value); got != tt.want {
 				t.Errorf("Timestamp() = %v, want %v", got, tt.want)
 			}
 		})
@@ -468,7 +471,7 @@ func TestUnNumeric(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := UnNumeric(tt.args.value); got != tt.want {
+			if got := utils.UnNumeric(tt.args.value); got != tt.want {
 				t.Errorf("UnNumeric() = %v, want %v", got, tt.want)
 			}
 		})
@@ -500,7 +503,7 @@ func TestZeroUint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ZeroUint(tt.args.value); got != tt.want {
+			if got := utils.ZeroUint(tt.args.value); got != tt.want {
 				t.Errorf("ZeroUint() = %v, want %v", got, tt.want)
 			}
 		})
@@ -525,7 +528,7 @@ func TestZh(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Zh(tt.args.value); got != tt.want {
+			if got := utils.Zh(tt.args.value); got != tt.want {
 				t.Errorf("Zh() = %v, want %v", got, tt.want)
 			}
 		})
@@ -554,7 +557,7 @@ func TestDomain(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Domain(tt.args.value); got != tt.want {
+			if got := utils.Domain(tt.args.value); got != tt.want {
 				t.Errorf("Domain() = %v, want %v", got, tt.want)
 			}
 		})
@@ -585,11 +588,11 @@ func TestPassWord(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := PassWord(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
-				t.Errorf("PassWord() err = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
+			if err := utils.PassWord(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
+				t.Errorf("PassWord() WrapError = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
 			} else {
 				if err != nil {
-					//t.Logf("PassWord() err = %v, length = %v", err, len(tt.args.value))
+					//t.Logf("PassWord() WrapError = %v, length = %v", WrapError, len(tt.args.value))
 				}
 			}
 		})
@@ -623,11 +626,11 @@ func TestPassWord2(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := PassWord2(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
-				t.Errorf("PassWord2() err = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
+			if err := utils.PassWord2(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
+				t.Errorf("PassWord2() WrapError = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
 			} else {
 				if err != nil {
-					//t.Logf("PassWord2() err = %v, length = %v", err, len(tt.args.value))
+					//t.Logf("PassWord2() WrapError = %v, length = %v", WrapError, len(tt.args.value))
 				}
 			}
 		})
@@ -659,11 +662,11 @@ func TestPassWord3(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := PassWord3(tt.args.value, 8, 12); (err == nil) != tt.want {
-				t.Errorf("PassWord3() err = %v, want %v, length = %v", err, tt.want, len(tt.args.value))
+			if err := utils.PassWord3(tt.args.value, 8, 12); (err == nil) != tt.want {
+				t.Errorf("PassWord3() WrapError = %v, want %v, length = %v", err, tt.want, len(tt.args.value))
 			} else {
 				if err != nil {
-					//t.Logf("PassWord3() err = %v, length = %v", err, len(tt.args.value))
+					//t.Logf("PassWord3() WrapError = %v, length = %v", WrapError, len(tt.args.value))
 				}
 			}
 		})
@@ -694,11 +697,11 @@ func TestAccount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Account(tt.args.value, tt.args.min, tt.args.max); (err == nil) != tt.wantErr {
+			if err := utils.Account(tt.args.value, tt.args.min, tt.args.max); (err == nil) != tt.wantErr {
 				t.Errorf("Account() error = %v, wantErr %v", err, tt.wantErr)
 			} else {
 				if err != nil {
-					//t.Logf("Account() err = %v, length = %v", err, len(tt.args.value))
+					//t.Logf("Account() WrapError = %v, length = %v", WrapError, len(tt.args.value))
 				}
 			}
 		})
@@ -732,7 +735,7 @@ func Test_hasSymbols(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := HasSymbols(tt.args.value); got != tt.want {
+			if got := utils.HasSymbols(tt.args.value); got != tt.want {
 				t.Errorf("HasSymbols() = %v, want %v", got, tt.want)
 			}
 		})

@@ -1,6 +1,7 @@
-package utils
+package utils_test
 
 import (
+	"github.com/Is999/go-utils"
 	"net/http"
 	"testing"
 )
@@ -14,7 +15,7 @@ func TestServerIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotIp := ServerIP()
+			gotIp := utils.ServerIP()
 			if tt.wantIp != "" && gotIp != tt.wantIp {
 				t.Errorf("ServerIP() gotIp = %v, want %v", gotIp, tt.wantIp)
 			} else {
@@ -33,7 +34,7 @@ func TestLocalIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotIp := LocalIP()
+			gotIp := utils.LocalIP()
 			if tt.wantIp != "" && gotIp != tt.wantIp {
 				t.Errorf("LocalIP() gotIp = %v, want %v", gotIp, tt.wantIp)
 			} else {
@@ -77,7 +78,7 @@ func TestClientIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ClientIP(tt.args.req); got != tt.want {
+			if got := utils.ClientIP(tt.args.req); got != tt.want {
 				t.Errorf("ClientIp() = %v, want %v", got, tt.want)
 			}
 		})

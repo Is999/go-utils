@@ -10,7 +10,7 @@ func UrlPath(urlPath string, params url.Values) (string, error) {
 	if params != nil && len(params) > 0 {
 		Url, err := url.Parse(urlPath)
 		if err != nil {
-			return "", err
+			return "", Wrap(err)
 		}
 		query := Url.Query()
 		for key, val := range params {

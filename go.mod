@@ -1,3 +1,3 @@
 module github.com/Is999/go-utils
 
-go 1.18
+go 1.21

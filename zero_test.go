@@ -1,6 +1,7 @@
-package utils
+package utils_test
 
 import (
+	"github.com/Is999/go-utils"
 	"reflect"
 	"testing"
 )
@@ -24,7 +25,7 @@ func TestZeroPadding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ZeroPadding(tt.args.data, tt.args.blockSize); !reflect.DeepEqual(got, tt.want) {
+			if got := utils.ZeroPadding(tt.args.data, tt.args.blockSize); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ZeroPadding() = %v, want %v", got, tt.want)
 			}
 		})
@@ -50,7 +51,7 @@ func TestZeroUnPadding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ZeroUnPadding(tt.args.data)
+			got, err := utils.ZeroUnPadding(tt.args.data)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ZeroUnPadding() error = %v, wantErr %v", err, tt.wantErr)
 				return

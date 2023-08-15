@@ -1,6 +1,9 @@
-package utils
+package utils_test
 
-import "testing"
+import (
+	"github.com/Is999/go-utils"
+	"testing"
+)
 
 func TestTar(t *testing.T) {
 	type args struct {
@@ -16,7 +19,7 @@ func TestTar(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Tar(tt.args.zipFileName, tt.args.zipFiles); (err != nil) != tt.wantErr {
+			if err := utils.Tar(tt.args.zipFileName, tt.args.zipFiles); (err != nil) != tt.wantErr {
 				t.Errorf("Tar() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -37,7 +40,7 @@ func TestTarGz(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := TarGz(tt.args.zipFileName, tt.args.zipFiles); (err != nil) != tt.wantErr {
+			if err := utils.TarGz(tt.args.zipFileName, tt.args.zipFiles); (err != nil) != tt.wantErr {
 				t.Errorf("TarGz() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -59,7 +62,7 @@ func TestUnTar(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := UnTar(tt.args.zipFile, tt.args.destDir); (err != nil) != tt.wantErr {
+			if err := utils.UnTar(tt.args.zipFile, tt.args.destDir); (err != nil) != tt.wantErr {
 				t.Errorf("UnTar() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

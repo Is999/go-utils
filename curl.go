@@ -2,10 +2,12 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httputil"
@@ -68,13 +70,13 @@ type Curl struct {
 	requestId string
 
 	// 失败重连次数: 默认2次，最大5次
-	maxBadRetry uint8
+	maxRetry uint8
 
 	// dump 模式：使用httputil包下的 DumpRequestOut, DumpResponse 记录请求和响应的详细信息
 	dump bool
 
-	// 记录日志级别
-	logLevel Level
+	// 日志
+	Logger *slog.Logger
 }
 
 func NewCurl() *Curl {
@@ -98,11 +100,11 @@ func NewCurl() *Curl {
 		response:           nil,
 		resolve:            nil,
 		requestId:          "",
-		maxBadRetry:        2,
+		maxRetry:           2,
 		dump:               false,
-		logLevel:           defLevel,
 	}
 	c.SetContentType("application/json")
+	c.SetRequestId()
 	return c
 }
 
@@ -357,6 +359,11 @@ func (c *Curl) SetRequestId(requestId ...string) *Curl {
 	} else {
 		c.requestId = strings.TrimSpace(requestId[0])
 	}
+
+	// 设置日志X-Request-Id
+	c.Logger = slog.With("X-Request-Id", c.requestId)
+
+	// 设置 header X-Request-Id
 	c.SetHeader("X-Request-Id", c.requestId)
 	return c
 }
@@ -366,21 +373,15 @@ func (c *Curl) GetRequestId() string {
 	return c.requestId
 }
 
-// SetMaxBadRetry 设置失败重连次数
-func (c *Curl) SetMaxBadRetry(max uint8) *Curl {
-	c.maxBadRetry = max
+// SetMaxRetry 设置失败重连次数
+func (c *Curl) SetMaxRetry(max uint8) *Curl {
+	c.maxRetry = max
 	return c
 }
 
 // SetDump dump模式会详细打印请求和响应的信息，否则只记录关键信息
 func (c *Curl) SetDump(dump bool) *Curl {
 	c.dump = dump
-	return c
-}
-
-// SetLogLevel 设置记录日志级别，不能小于系统设定级别
-func (c *Curl) SetLogLevel(level Level) *Curl {
-	c.logLevel = Ternary(level > defLevel, level, defLevel)
 	return c
 }
 
@@ -404,7 +405,7 @@ func (c *Curl) Response(f func(response *http.Response) (isDone bool, err error)
 	return c
 }
 
-// Resolve 在发送请求之后可以对Response.Boay处理方法
+// Resolve 在发送请求之后可以对Response.Body处理方法
 func (c *Curl) Resolve(f func(body []byte) error) *Curl {
 	c.resolve = f
 	return c
@@ -414,29 +415,6 @@ func (c *Curl) Resolve(f func(body []byte) error) *Curl {
 func (c *Curl) Done(f func(client *http.Client, request *http.Request, response *http.Response)) *Curl {
 	c.done = f
 	return c
-}
-
-// Print 记录日志
-//
-//	level 日志级别
-func (c *Curl) Print(level Level, val ...interface{}) {
-	if level < c.logLevel {
-		return
-	}
-	values := make([]interface{}, 0, len(val)+1)
-	values = append(values, c.requestId)
-	values = append(values, val...)
-	Output(1, level, Format(values), values...)
-}
-
-// Printf 记录日志
-//
-//	level 日志级别
-func (c *Curl) Printf(level Level, format string, val ...interface{}) {
-	if level < c.logLevel {
-		return
-	}
-	Output(1, level, c.requestId+" "+format, val...)
 }
 
 // Send 发起请求
@@ -453,7 +431,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	// 记录请求日志
-	c.Printf(DEBUG, "HTTP START TIME: %v", t.Format(MicrosecondDash))
+	c.Logger.Debug("HTTP START", "time", t.Format(MicrosecondDash))
 
 	var (
 		req  *http.Request
@@ -468,15 +446,15 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 				return
 			}
 
-			c.Print(DEBUG, "Close Response Body")
+			c.Logger.Debug("Close Response Body")
 			if err := resp.Body.Close(); err != nil {
-				c.Printf(ERROR, "Body.Close() err: %v", err.Error())
+				c.Logger.Error("Body.Close()", "err", err.Error())
 			}
 		}()
 
 		// 执行 done
 		if c.done != nil {
-			c.Print(DEBUG, "Done()")
+			c.Logger.Debug("done()")
 			c.done(c.cli, req, resp)
 		}
 	}()
@@ -484,18 +462,18 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 实例 Request
 	req, err = http.NewRequest(method, url, body)
 	if err != nil {
-		return fmt.Errorf("http.NewRequest() err: %v", err.Error())
+		return Wrap(err)
 	}
 
 	// 设置 header
 	if c.header != nil && len(c.header) > 0 {
-		c.Print(DEBUG, "SetHeader")
+		c.Logger.Debug("set header")
 		req.Header = c.header
 	}
 
 	// 设置 Cookie
 	if c.cookies != nil && len(c.cookies) > 0 {
-		c.Print(DEBUG, "AddCookie()")
+		c.Logger.Debug("AddCookie()")
 		for _, cookie := range c.cookies {
 			req.AddCookie(cookie)
 		}
@@ -503,27 +481,27 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 设置 BasicAuth 认证
 	if c.username != "" && c.password != "" {
-		c.Print(DEBUG, "SetBasicAuth()")
+		c.Logger.Debug("SetBasicAuth()")
 		req.SetBasicAuth(c.username, c.password)
 	}
 
 	// 在发送请求之前对Request处理方法
 	if c.request != nil {
-		c.Print(DEBUG, "HTTP request()")
+		c.Logger.Debug("request()")
 		if err = c.request(req); err != nil {
-			return fmt.Errorf("request() err: %v", err.Error())
+			return Wrap(err)
 		}
 	}
 
 	// 记录请求日志
-	if c.logLevel <= INFO {
+	if slog.Default().Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
 			// 使用httputil.DumpRequestOut记录日志
 			dump, err := httputil.DumpRequestOut(req, true)
 			if err != nil {
-				return fmt.Errorf("httputil.DumpRequestOut() err: %v", err.Error())
+				return Wrap(err)
 			}
-			c.Print(INFO, "httputil.DumpRequestOut() ", string(dump))
+			c.Logger.Info("httputil.DumpRequestOut()", "request", string(dump))
 		} else {
 			// 只记录关键性日志
 			var b strings.Builder
@@ -534,17 +512,17 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 				var reqBody []byte
 				reqBody, req.Body, err = DrainBody(req.Body)
 				if err != nil {
-					return fmt.Errorf("DrainBody(req.Body) err: %v", err.Error())
+					return Wrap(err)
 				}
 				b.Write(reqBody)
 			}
-			c.Print(INFO, "DrainBody(req.Body) ", b.String())
+			c.Logger.Info("DrainBody(req.Body)", "body", b.String())
 		}
 	}
 
 	// 如果Client未初始化进行初始化
 	if c.cli == nil {
-		c.Print(DEBUG, "Init Client")
+		c.Logger.Debug("Init Client")
 		c.cli = &http.Client{}
 	}
 
@@ -553,20 +531,20 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 初始化Transport
 	if c.cli.Transport == nil {
-		c.Print(DEBUG, "Init Transport")
+		c.Logger.Debug("Init Transport")
 		tr := &http.Transport{}
 
 		// 设置代理
 		if len(c.proxyURL) > 0 {
-			c.Print(DEBUG, "ProxyURL()")
+			c.Logger.Debug("ProxyURL()")
 			if err = ProxyURL(tr, c.proxyURL); err != nil {
-				return fmt.Errorf("ProxyURL() err: %v", err.Error())
+				return Wrap(err)
 			}
 		}
 
 		// 跳过https不安全验证
 		if c.insecureSkipVerify {
-			c.Print(DEBUG, "InsecureSkipVerify")
+			c.Logger.Debug("InsecureSkipVerify")
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
@@ -575,25 +553,25 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 		// 根证书
 		if len(c.rootCAs) > 0 {
-			c.Print(DEBUG, "RootCAs")
+			c.Logger.Debug("RootCAs()")
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
 
 			if err = RootCAs(tr.TLSClientConfig, c.rootCAs); err != nil {
-				return fmt.Errorf("RootCAs() err: %v", err.Error())
+				return Wrap(err)
 			}
 		}
 
 		// 证书
 		if len(c.cert) > 0 && len(c.key) > 0 {
-			c.Print(DEBUG, "Certificate")
+			c.Logger.Debug("Certificate()")
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
 
 			if err = Certificate(tr.TLSClientConfig, c.cert, c.key); err != nil {
-				return fmt.Errorf("Certificate() err: %v", err.Error())
+				return Wrap(err)
 			}
 		}
 
@@ -602,19 +580,19 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 在发送请求之前对Client处理方法
 	if c.client != nil {
-		c.Print(DEBUG, "client()")
+		c.Logger.Debug("client()")
 		err = c.client(c.cli)
 		if err != nil {
-			return fmt.Errorf("client() err: %v", err.Error())
+			return Wrap(err)
 		}
 	}
 
 	// 失败重连次数: 默认2次, 最大5次
-	maxRetry := Ternary(c.maxBadRetry > 0, int(c.maxBadRetry), 2)
+	maxRetry := Ternary(c.maxRetry > 0, int(c.maxRetry), 2)
 	maxRetry = Ternary(maxRetry > 5, 5, maxRetry)
 
 	t1 := time.Now()
-	c.Printf(DEBUG, "client start time: %v", t1.Format(MicrosecondDash))
+	c.Logger.Debug("client start", "time", t1.Format(MicrosecondDash))
 
 	// 发送请求
 	for i := 1; i <= maxRetry; i++ {
@@ -624,28 +602,28 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			break
 		}
 		if i < maxRetry {
-			c.Printf(ERROR, "BadRetry[%d,%d] client.Do() err: %v", maxRetry, i, err.Error())
+			c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error())
 			time.Sleep(time.Millisecond * time.Duration(2<<(2*i))) // 间隔 8, 32, 128, 512 毫秒
 		}
 	}
 
-	c.Printf(DEBUG, "client end: time spent %v", time.Since(t1).String())
+	c.Logger.Debug("client end", " time spent", time.Since(t1).String())
 	if err != nil {
-		return fmt.Errorf("BadRetry[%d,%d] client.Do() err: %v", maxRetry, maxRetry, err.Error())
+		return Error("client.Do() Retry %d times err: %v", maxRetry, err.Error())
 	}
 
 	// 返回body内容
 	var respBody []byte
 
 	// 记录返回日志
-	if c.logLevel <= INFO {
+	if slog.Default().Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
 			// 使用httputil.DumpResponse记录返回信息
 			dump, err := httputil.DumpResponse(resp, true)
 			if err != nil {
-				return fmt.Errorf("httputil.DumpResponse() err: %v", err.Error())
+				return Wrap(err)
 			}
-			c.Print(INFO, "httputil.DumpResponse() ", string(dump))
+			c.Logger.Info("httputil.DumpResponse()", "response", string(dump))
 		} else {
 			// 只记录返回的关键信息
 			var b strings.Builder
@@ -655,24 +633,24 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			// 读取body内容
 			respBody, resp.Body, err = DrainBody(resp.Body)
 			if err != nil {
-				return fmt.Errorf("DrainBody(resp.Body) err: %v", err.Error())
+				return Wrap(err)
 			}
 			b.Write(respBody)
-			c.Print(INFO, "DrainBody(resp.Body) ", b.String())
+			c.Logger.Info("DrainBody(resp.Body)", "Body", b.String())
 		}
 	}
 
 	// 判断状态码是否是200正常状态及已标记的状态码
 	if resp.StatusCode != 200 && !IsHas(resp.StatusCode, c.statusCode) {
-		return fmt.Errorf("Response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
+		return Error("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
 	}
 
 	// 在发送请求之后可以对Response处理方法
 	if c.response != nil {
-		c.Print(DEBUG, "response()")
+		c.Logger.Debug("response()")
 		isDone, err := c.response(resp)
 		if err != nil {
-			return fmt.Errorf("response() err: %v", err.Error())
+			return Wrap(err)
 		}
 
 		// isDone 返回true 终止执行后续代码; 返回false 继续执行后续代码
@@ -681,26 +659,25 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		}
 	}
 
-	// 在发送请求之后对Response.Boay处理方法
+	// 在发送请求之后对Response.Body处理方法
 	if c.resolve != nil {
-		c.Print(DEBUG, "resolve()")
+		c.Logger.Debug("resolve()")
 		if respBody == nil {
 			// 读取body内容
 			var buf bytes.Buffer
-			//respBody, err := io.ReadAll(resp.Body)
+			//respBody, WrapError := io.ReadAll(resp.Body)
 			_, err = buf.ReadFrom(resp.Body)
 			if err != nil {
-				return fmt.Errorf("buf.ReadFrom(resp.Body) err: %v", err.Error())
+				return Wrap(err)
 			}
 			respBody = buf.Bytes()
 		}
 
-		err = c.resolve(respBody)
-		if err != nil {
-			return fmt.Errorf("resolve() err: %v", err.Error())
+		if err = c.resolve(respBody); err != nil {
+			return Wrap(err)
 		}
 	}
-	c.Printf(DEBUG, "HTTP END: total time spent %v", time.Since(t).String())
+	c.Logger.Debug("HTTP END", "total time spent", time.Since(t).String())
 	return nil
 }
 
@@ -716,7 +693,7 @@ func (c *Curl) CloseIdleConnections() {
 func (c *Curl) Get(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	return c.Send(http.MethodGet, url, c.body)
 }
@@ -725,7 +702,7 @@ func (c *Curl) Get(url string) (err error) {
 func (c *Curl) Post(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	return c.Send(http.MethodPost, url, c.body)
 }
@@ -739,7 +716,7 @@ func (c *Curl) PostForm(url string) error {
 func (c *Curl) Put(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	return c.Send(http.MethodPut, url, c.body)
 }
@@ -748,7 +725,7 @@ func (c *Curl) Put(url string) (err error) {
 func (c *Curl) Patch(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	return c.Send(http.MethodPatch, url, c.body)
 }
@@ -762,7 +739,7 @@ func (c *Curl) Head(url string) error {
 func (c *Curl) Delete(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	return c.Send(http.MethodDelete, url, c.body)
 }
@@ -771,7 +748,7 @@ func (c *Curl) Delete(url string) (err error) {
 func (c *Curl) Options(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	return c.Send(http.MethodOptions, url, c.body)
 }
@@ -784,10 +761,10 @@ func DrainBody(b io.ReadCloser) ([]byte, io.ReadCloser, error) {
 	}
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(b); err != nil {
-		return nil, b, err
+		return nil, b, Wrap(err)
 	}
 	if err := b.Close(); err != nil {
-		return nil, b, err
+		return nil, b, Wrap(err)
 	}
 	return buf.Bytes(), io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
@@ -799,7 +776,7 @@ func RootCAs(config *tls.Config, rootCAs string) error {
 	// 根证书
 	cert, err := os.ReadFile(rootCAs)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	// 证书池
 	certPool := x509.NewCertPool()
@@ -817,7 +794,7 @@ func Certificate(config *tls.Config, certFile, keyFile string) error {
 	// 加载证书
 	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 
 	config.Certificates = []tls.Certificate{certificate}
@@ -828,7 +805,7 @@ func Certificate(config *tls.Config, certFile, keyFile string) error {
 func ProxyURL(transport *http.Transport, proxyURL string) error {
 	proxy, err := url.Parse(proxyURL)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	transport.Proxy = http.ProxyURL(proxy)
 	return nil
@@ -935,12 +912,12 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 			if len(values) > 1 {
 				for _, value := range values {
 					if err := writer.WriteField(key, value); err != nil {
-						return nil, "", err
+						return nil, "", Wrap(err)
 					}
 				}
 			} else {
 				if err := writer.WriteField(key, values[0]); err != nil {
-					return nil, "", err
+					return nil, "", Wrap(err)
 				}
 			}
 		}
@@ -951,14 +928,14 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 		//打开要上传的文件
 		file, err := os.Open(filePath)
 		if err != nil {
-			return err
+			return Wrap(err)
 		}
 		defer file.Close()
 
 		// 使用给出的属性名fieldName和文件名filePath创建一个新的form-data头
 		part, err := writer.CreateFormFile(fieldName, filePath)
 		if err != nil {
-			return err
+			return Wrap(err)
 		}
 
 		_, err = io.Copy(part, file)
@@ -970,19 +947,19 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 		if len(files) > 1 {
 			for _, file := range files {
 				if err := createFormFile(writer, fieldName, file); err != nil {
-					return nil, "", err
+					return nil, "", Wrap(err)
 				}
 			}
 		} else {
 			if err := createFormFile(writer, fieldName, files[0]); err != nil {
-				return nil, "", err
+				return nil, "", Wrap(err)
 			}
 		}
 	}
 
 	// 关闭
 	if err := writer.Close(); err != nil {
-		return nil, "", err
+		return nil, "", Wrap(err)
 	}
 
 	return b, writer.FormDataContentType(), nil

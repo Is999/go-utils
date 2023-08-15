@@ -2,7 +2,6 @@ package utils
 
 import (
 	"crypto/aes"
-	"fmt"
 )
 
 // AES AES加密解密
@@ -12,7 +11,7 @@ import (
 func AES(key string, isRandIV ...bool) (*Cipher, error) {
 	switch len(key) {
 	default:
-		return nil, fmt.Errorf("AES秘钥的长度只能是16、24或32字节。当前预设置的秘钥[%s]长度: %d", key, len(key))
+		return nil, Error("AES秘钥的长度只能是16、24或32字节。当前预设置的秘钥[%s]长度: %d", key, len(key))
 	case 16, 24, 32:
 	}
 

@@ -80,3 +80,17 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 
 	return s
 }
+
+// LogArgsFormat 根据参数生成Format
+func LogArgsFormat(args []any) string {
+	if len(args) == 0 {
+		return "\n"
+	}
+
+	b := make([]byte, 0, len(args)*3)
+	for range args {
+		b = append(b, "%v "...)
+	}
+	b[len(b)-1] = '\n' // Replace the last space with a newline.
+	return string(b)
+}

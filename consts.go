@@ -57,13 +57,3 @@ const (
 	MicrosecondSlash = MillisecondSlash + "000"   // 2006/01/02 15:04:05.000000
 	NanosecondSlash  = MicrosecondSlash + "000"   // 2006/01/02 15:04:05.000000000
 )
-
-// 日志级别
-const (
-	DEBUG   = Level(iota) // Debug 级别调试
-	INFO                  // Info 级别信息
-	WARNING               // Warning 级别警告
-	ERROR                 // Error 级别错误
-	FATAL                 // Fatal 级别致命错误，将调用 os.Exit(1) 退出程序。
-	DISABLE               // 禁用日志打印
-)

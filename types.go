@@ -84,7 +84,7 @@ type (
 	// ReadScan 处理scan扫描的行数据
 	//	 - num 行号: 当前扫描到第几行
 	//	 - line 行数据: 当前扫描的行数据
-	//	 - err 扫描错误信息
+	//	 - WrapError 扫描错误信息
 	//	返回值 - error 处理错误信息: 返回的 error == DONE 代表正确处理完数据并终止扫描
 	ReadScan func(num int, line []byte, err error) error
 
@@ -95,6 +95,3 @@ type (
 	//	返回值 - error 处理错误信息: 返回的 error == DONE 代表正确处理完数据并终止扫描
 	ReadLine func(num int, line []byte, lineDone bool) error
 )
-
-// Level 级别类型
-type Level uint8

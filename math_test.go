@@ -1,59 +1,12 @@
-package utils
+package utils_test
 
 import (
+	"github.com/Is999/go-utils"
 	"math/rand"
 	"sync"
 	"testing"
 	"time"
 )
-
-func TestMax(t *testing.T) {
-	type args[T Number] struct {
-		nums []float64
-	}
-	tests := []struct {
-		name string
-		args args[float64]
-		want float64
-	}{
-		{name: "000", args: args[float64]{nums: []float64{}}, want: 0},
-		{name: "001", args: args[float64]{nums: []float64{3}}, want: 3},
-		{name: "002", args: args[float64]{nums: []float64{3, 1}}, want: 3},
-		{name: "003", args: args[float64]{nums: []float64{3, 1, 5}}, want: 5},
-		{name: "004", args: args[float64]{nums: []float64{3, 1, 5, 3, 2, 1}}, want: 5},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Max(tt.args.nums...); got != tt.want {
-				t.Errorf("Max() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMin(t *testing.T) {
-	type args struct {
-		nums []int8
-	}
-	tests := []struct {
-		name string
-		args args
-		want int8
-	}{
-		{name: "000", args: args{nums: []int8{}}, want: 0},
-		{name: "001", args: args{nums: []int8{3}}, want: 3},
-		{name: "002", args: args{nums: []int8{3, 1}}, want: 1},
-		{name: "003", args: args{nums: []int8{3, 1, 5}}, want: 1},
-		{name: "004", args: args{nums: []int8{3, 1, 5, 3, 2, -1, 4}}, want: -1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Min(tt.args.nums...); got != tt.want {
-				t.Errorf("Min() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestRand(t *testing.T) {
 	type args struct {
@@ -80,9 +33,9 @@ func TestRand(t *testing.T) {
 	r := rand.NewSource(time.Now().UnixNano())
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var min, max = tt.args.min, tt.args.max
-			if min > max {
-				min, max = max, min
+			var minInt, maxInt = tt.args.min, tt.args.max
+			if minInt > maxInt {
+				minInt, maxInt = maxInt, minInt
 			}
 			var wg = &sync.WaitGroup{}
 			for i := 0; i < 10; i++ {
@@ -90,14 +43,14 @@ func TestRand(t *testing.T) {
 				go func(min, max int64, i int, tt testCase) {
 					defer wg.Done()
 					for j := 0; j < 10; j++ {
-						if got := Rand(tt.args.min, tt.args.max, r); !(got >= min && got <= max) {
+						if got := utils.Rand(tt.args.min, tt.args.max, r); !(got >= min && got <= max) {
 							t.Errorf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.min, tt.args.max)
 							break
 						} else {
-							//t.Logf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.min, tt.args.max)
+							//t.Logf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.minInt, tt.args.maxInt)
 						}
 					}
-				}(min, max, i, tt)
+				}(minInt, maxInt, i, tt)
 			}
 			wg.Wait()
 		})
@@ -122,7 +75,7 @@ func BenchmarkRand(t *testing.B) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.B) {
 			for n := 0; n < t.N; n++ {
-				if got := Rand(tt.args.min, tt.args.max, r); !(got >= tt.args.min && got <= tt.args.max) {
+				if got := utils.Rand(tt.args.min, tt.args.max, r); !(got >= tt.args.min && got <= tt.args.max) {
 					t.Errorf("Rand() = %v, want %v-%v", got, tt.args.min, tt.args.max)
 					break
 				}
@@ -164,7 +117,7 @@ func TestRound(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Round(tt.args.value, tt.args.precision); got != tt.want {
+			if got := utils.Round(tt.args.value, tt.args.precision); got != tt.want {
 				t.Errorf("Round() = %v, want %v", got, tt.want)
 			}
 		})

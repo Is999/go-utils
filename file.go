@@ -3,7 +3,6 @@ package utils
 import (
 	"bufio"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"mime"
@@ -43,7 +42,7 @@ func IsExist(path string) bool {
 func Size(filepath string) (int64, error) {
 	f, err := os.Stat(filepath)
 	if err != nil {
-		return 0, err
+		return 0, Wrap(err)
 	}
 	return f.Size(), nil
 }
@@ -56,26 +55,29 @@ func Copy(src, dst string) error {
 	// 打开source文件
 	f1, err := os.Open(src)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	defer f1.Close()
 
 	// 获取文件权限
 	stat, err := f1.Stat()
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 
 	// 创建或打开拷贝文件
 	f2, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, stat.Mode())
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	defer f2.Close()
 
 	// 拷贝文件
-	_, e := io.Copy(f2, f1)
-	return e
+	_, err = io.Copy(f2, f1)
+	if err != nil {
+		return Wrap(err)
+	}
+	return nil
 }
 
 // FileInfo 文件信息
@@ -122,29 +124,21 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 					for i := 0; i < len(regs); i++ {
 						compile, err := regexp.Compile(regs[i])
 						if err != nil {
-							return nil, fmt.Errorf("格式错误的表达式[%s]: %s", regs[i], err.Error())
+							return nil, Error("格式错误的表达式[%s]: %s", regs[i], err.Error())
 						}
 						compiles = append(compiles, compile)
 					}
 				}
 			}
 		} else {
-			return files, fmt.Errorf("match第一个参数[%s]错误的规则\n"+
-				"请参考以下示例:\n"+
-				"- `无参` : 匹配所有文件名 FindFiles(path, depth);\n"+
-				"- `*`   : 匹配所有文件名 FindFiles(path, depth, `*`);\n"+
-				"- `文件完整名`      : 精准匹配文件名 FindFiles(path, depth, fullFileName);\n"+
-				"- `e`, `文件完整名` : 精准匹配文件名 FindFiles(path, depth, `e`, fullFileName);\n"+
-				"- `p`, `文件前缀名` : 匹配前缀文件名 FindFiles(path, depth, `p`, fileNamePrefix);\n"+
-				"- `s`, `文件后缀名` : 匹配后缀文件名 FindFiles(path, depth, `s`, fileNameSuffix);\n"+
-				"- `r`, `正则表达式` : 正则匹配文件名 FindFiles(path, depth, `r`, fileNameReg)", match[0])
+			return files, Error("match第一个参数[%s]错误的规则", match[0])
 		}
 	}
 
 	// 处理文件匹配
 	var fc fs.WalkDirFunc = func(filePath string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return Wrap(err)
 		}
 
 		if d.IsDir() {
@@ -185,13 +179,13 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 		if ok {
 			info, err := d.Info()
 			if err != nil {
-				return err
+				return Wrap(err)
 			}
 
 			// 获取绝对路径
 			absPath, err := filepath.Abs(filePath)
 			if err != nil {
-				return err
+				return Wrap(err)
 			}
 			files = append(files, FileInfo{info, absPath})
 		}
@@ -206,7 +200,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 		// 当前模式读取当前目录
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return files, err
+			return files, Wrap(err)
 		}
 
 		// 处理目录路径末尾路径分割符
@@ -252,7 +246,7 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error {
 			if err == DONE {
 				return nil
 			}
-			return err
+			return Wrap(err)
 		}
 	}
 	return scan.Err()
@@ -277,13 +271,13 @@ func Line(r io.Reader, handle ReadLine) error {
 				if err == DONE {
 					return nil
 				}
-				return err
+				return Wrap(err)
 			}
 		} else {
 			if err == io.EOF {
 				err = nil
 			}
-			return err
+			return Wrap(err)
 		}
 	}
 }
@@ -298,7 +292,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 				if err == DONE {
 					err = nil
 				}
-				return err
+				return Wrap(err)
 			}
 		}
 
@@ -306,7 +300,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 			if err == io.EOF {
 				err = nil
 			}
-			return err
+			return Wrap(err)
 		}
 		if n == 0 {
 			return nil
@@ -335,7 +329,7 @@ func NewWrite(fileName string, isAppend bool, perm ...os.FileMode) (*WriteFile, 
 		// 创建目录
 		err := os.MkdirAll(path, premDir)
 		if err != nil {
-			return nil, err
+			return nil, Wrap(err)
 		}
 	}
 
@@ -350,7 +344,7 @@ func NewWrite(fileName string, isAppend bool, perm ...os.FileMode) (*WriteFile, 
 	// 打开文件没有则创建
 	file, err := os.OpenFile(fileName, flag, permFile)
 	if err != nil {
-		return nil, err
+		return nil, Wrap(err)
 	}
 
 	return &WriteFile{File: file}, nil
@@ -437,19 +431,19 @@ func SizeFormat(size int64, decimals uint) string {
 	}
 }
 
-// GetFileType 文件类型
-func GetFileType(f *os.File) (string, error) {
+// FileType 文件类型
+func FileType(f *os.File) (string, error) {
 	ctype := mime.TypeByExtension(filepath.Ext(f.Name()))
 	if ctype == "" {
 		var buf [512]byte
-		n, err := io.ReadFull(f, buf[:])
-		if err != nil {
-			return "", err
-		}
+		n, _ := io.ReadFull(f, buf[:])
+
 		ctype = http.DetectContentType(buf[:n])
-		_, err = f.Seek(0, io.SeekStart) // rewind to output whole file
+
+		// 重置文件指针到原点
+		_, err := f.Seek(0, io.SeekStart)
 		if err != nil {
-			return "", err
+			return "", Wrap(err)
 		}
 	}
 	return ctype, nil

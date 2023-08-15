@@ -1,6 +1,9 @@
-package utils
+package utils_test
 
-import "testing"
+import (
+	"github.com/Is999/go-utils"
+	"testing"
+)
 
 func TestGetEnv(t *testing.T) {
 	type args struct {
@@ -16,7 +19,7 @@ func TestGetEnv(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GetEnv(tt.args.key, tt.args.defaultVal...); got != tt.want {
+			if got := utils.GetEnv(tt.args.key, tt.args.defaultVal...); got != tt.want {
 				t.Errorf("GetEnv() = %v, want %v", got, tt.want)
 			}
 		})

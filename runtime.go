@@ -1,6 +1,8 @@
 package utils
 
-import "runtime"
+import (
+	"runtime"
+)
 
 type RuntimeInfo struct {
 	Func string //方法名
@@ -16,9 +18,10 @@ func GetRuntimeInfo(skip int) RuntimeInfo {
 		return info
 	}
 
+	fPC := runtime.FuncForPC(pc)
 	info = RuntimeInfo{
 		File: file,
-		Func: runtime.FuncForPC(pc).Name(),
+		Func: fPC.Name(),
 		Line: line,
 	}
 	return info
