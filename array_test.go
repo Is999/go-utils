@@ -1,6 +1,7 @@
-package utils
+package utils_test
 
 import (
+	"github.com/Is999/go-utils"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -8,12 +9,12 @@ import (
 )
 
 func TestIsHas(t *testing.T) {
-	type args[T Ordered] struct {
+	type args[T utils.Ordered] struct {
 		s   T
 		arr []T
 	}
 
-	type testCase[T Ordered] struct {
+	type testCase[T utils.Ordered] struct {
 		name string
 		args args[T]
 		want bool
@@ -26,7 +27,7 @@ func TestIsHas(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsHas(tt.args.s, tt.args.arr); got != tt.want {
+			if got := utils.IsHas(tt.args.s, tt.args.arr); got != tt.want {
 				t.Errorf("Has() = %v, want %v", got, tt.want)
 			}
 		})
@@ -39,7 +40,7 @@ func TestIsHas(t *testing.T) {
 	}
 	for _, tt1 := range tests1 {
 		t.Run(tt1.name, func(t *testing.T) {
-			if got1 := IsHas(tt1.args.s, tt1.args.arr); got1 != tt1.want {
+			if got1 := utils.IsHas(tt1.args.s, tt1.args.arr); got1 != tt1.want {
 				t.Errorf("IsHas() = %v, want %v", got1, tt1.want)
 			}
 		})
@@ -52,7 +53,7 @@ func TestIsHas(t *testing.T) {
 	}
 	for _, tt2 := range tests2 {
 		t.Run(tt2.name, func(t *testing.T) {
-			if got2 := IsHas(tt2.args.s, tt2.args.arr); got2 != tt2.want {
+			if got2 := utils.IsHas(tt2.args.s, tt2.args.arr); got2 != tt2.want {
 				t.Errorf("IsHas() = %v, want %v", got2, tt2.want)
 			}
 		})
@@ -67,7 +68,7 @@ func TestIsHas(t *testing.T) {
 
 	for _, tt3 := range tests3 {
 		t.Run(tt3.name, func(t *testing.T) {
-			if got3 := IsHas(tt3.args.s, tt3.args.arr); got3 != tt3.want {
+			if got3 := utils.IsHas(tt3.args.s, tt3.args.arr); got3 != tt3.want {
 				t.Errorf("IsHas() = %v, want %v", got3, tt3.want)
 			}
 		})
@@ -90,7 +91,7 @@ func TestHasCount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if gotCount := HasCount(tt.args.s, tt.args.arr); gotCount != tt.wantCount {
+			if gotCount := utils.HasCount(tt.args.s, tt.args.arr); gotCount != tt.wantCount {
 				t.Errorf("HasCount() = %v, want %v", gotCount, tt.wantCount)
 			}
 		})
@@ -98,10 +99,10 @@ func TestHasCount(t *testing.T) {
 }
 
 func TestArrUnique(t *testing.T) {
-	type args[T Ordered] struct {
+	type args[T utils.Ordered] struct {
 		a []T
 	}
-	type testCase[T Ordered] struct {
+	type testCase[T utils.Ordered] struct {
 		name string
 		args args[T]
 		want int
@@ -112,7 +113,7 @@ func TestArrUnique(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ArrUnique(tt.args.a); len(got) != tt.want {
+			if got := utils.ArrUnique(tt.args.a); len(got) != tt.want {
 				t.Errorf("ArrUnique() = %v, want %v", got, tt.want)
 			}
 		})
@@ -123,7 +124,7 @@ func TestArrUnique(t *testing.T) {
 	}
 	for _, tt2 := range tests2 {
 		t.Run(tt2.name, func(t *testing.T) {
-			if got2 := ArrUnique(tt2.args.a); len(got2) != tt2.want {
+			if got2 := utils.ArrUnique(tt2.args.a); len(got2) != tt2.want {
 				t.Errorf("ArrUnique() = %v, want %v", got2, tt2.want)
 			}
 		})
@@ -136,21 +137,21 @@ func BenchmarkArrUnique(t *testing.B) {
 	var s1 = make([]int64, 0, l)
 	r := rand.NewSource(time.Now().UnixNano())
 	for i := 0; i < l; i++ {
-		s1 = append(s1, Rand(int64(l), int64(l)*2, r))
+		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 	}
 	t.StartTimer()
 	for i := 0; i < t.N; i++ {
-		ArrUnique(s1)
+		utils.ArrUnique(s1)
 	}
 	t.StopTimer()
 }
 
 func TestArrDiff(t *testing.T) {
-	type args[T Ordered] struct {
+	type args[T utils.Ordered] struct {
 		s1 []T
 		s2 []T
 	}
-	type testCase[T Ordered] struct {
+	type testCase[T utils.Ordered] struct {
 		name string
 		args args[T]
 		want []T
@@ -161,7 +162,7 @@ func TestArrDiff(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ArrDiff(tt.args.s1, tt.args.s2); !reflect.DeepEqual(got, tt.want) {
+			if got := utils.ArrDiff(tt.args.s1, tt.args.s2); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ArrDiff() = %v, want %v", got, tt.want)
 			}
 		})
@@ -172,7 +173,7 @@ func TestArrDiff(t *testing.T) {
 	}
 	for _, tt2 := range tests2 {
 		t.Run(tt2.name, func(t *testing.T) {
-			if got2 := ArrDiff(tt2.args.s1, tt2.args.s2); !reflect.DeepEqual(got2, tt2.want) {
+			if got2 := utils.ArrDiff(tt2.args.s1, tt2.args.s2); !reflect.DeepEqual(got2, tt2.want) {
 				t.Errorf("ArrDiff() = %+v, want %+v", got2, tt2.want)
 			}
 		})
@@ -186,22 +187,22 @@ func BenchmarkArrDiff(b *testing.B) {
 	var s2 = make([]int64, 0, l)
 	r := rand.NewSource(time.Now().UnixNano())
 	for i := 0; i < 200; i++ {
-		s1 = append(s1, Rand(int64(l), int64(l)*2, r))
-		s2 = append(s2, Rand(int64(l), int64(l)*2, r))
+		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
+		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
 	}
 	//b.Logf("s1 = %v, \ns2 = %v, \ndiff %v\n", s1, s2, ArrDiff(s1, s2))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ArrDiff(s1, s2)
+		utils.ArrDiff(s1, s2)
 	}
 }
 
 func TestArrIntersect(t *testing.T) {
-	type args[T Ordered] struct {
+	type args[T utils.Ordered] struct {
 		s1 []T
 		s2 []T
 	}
-	type testCase[T Ordered] struct {
+	type testCase[T utils.Ordered] struct {
 		name string
 		args args[T]
 		want []T
@@ -211,7 +212,7 @@ func TestArrIntersect(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ArrIntersect(tt.args.s1, tt.args.s2); !reflect.DeepEqual(got, tt.want) {
+			if got := utils.ArrIntersect(tt.args.s1, tt.args.s2); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ArrIntersect() = %v, want %v", got, tt.want)
 			}
 		})
@@ -222,7 +223,7 @@ func TestArrIntersect(t *testing.T) {
 	}
 	for _, tt2 := range tests2 {
 		t.Run(tt2.name, func(t *testing.T) {
-			if got2 := ArrIntersect(tt2.args.s1, tt2.args.s2); !reflect.DeepEqual(got2, tt2.want) {
+			if got2 := utils.ArrIntersect(tt2.args.s1, tt2.args.s2); !reflect.DeepEqual(got2, tt2.want) {
 				t.Errorf("ArrIntersect() = %v, want %v", got2, tt2.want)
 			}
 		})

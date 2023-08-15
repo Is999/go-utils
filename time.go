@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -145,7 +144,7 @@ func DateInfo(addTimes string, unix ...int64) (map[string]interface{}, error) {
 			v = strings.TrimSpace(v)
 			add, err := strconv.Atoi(strings.TrimSpace(v[:len(v)-1]))
 			if err != nil {
-				return nil, err
+				return nil, Wrap(err)
 			}
 			switch v[len(v)-1] {
 			case 'Y':
@@ -167,7 +166,7 @@ func DateInfo(addTimes string, unix ...int64) (map[string]interface{}, error) {
 			case 'N':
 				t = t.Add(time.Nanosecond * time.Duration(add))
 			default:
-				return nil, errors.New("addTimes 参数错误！")
+				return nil, Error("addTimes 参数错误！")
 			}
 		}
 	}
@@ -344,7 +343,7 @@ func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error
 				return t, nil
 			}
 		}
-		err = errors.New("无法解析的时间格式：" + parse[0])
+		err = Error("无法解析的时间格式：" + parse[0])
 	} else if len(parse) > 1 {
 		// 直接解析
 		t, err = TimeParse(timeZone, parse[0], parse[1])
@@ -357,6 +356,8 @@ func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error
 		if err == nil {
 			return t, nil
 		}
+
+		err = Wrap(err)
 	}
 	return time.Now().In(timeZone), err
 }

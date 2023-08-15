@@ -1,18 +1,19 @@
-package utils
+package utils_test
 
 import (
+	"github.com/Is999/go-utils"
 	"reflect"
 	"testing"
 )
 
 func TestTernary(t *testing.T) {
-	type args[T Ordered] struct {
+	type args[T utils.Ordered] struct {
 		condition bool
 		trueVal   T
 		falseVal  T
 	}
 
-	type testCase[T Ordered] struct {
+	type testCase[T utils.Ordered] struct {
 		name string
 		args args[T]
 		want T
@@ -24,7 +25,7 @@ func TestTernary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Ternary(tt.args.condition, tt.args.trueVal, tt.args.falseVal); !reflect.DeepEqual(got, tt.want) {
+			if got := utils.Ternary(tt.args.condition, tt.args.trueVal, tt.args.falseVal); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Ternary() = %v, want %v", got, tt.want)
 			}
 		})
@@ -37,7 +38,7 @@ func TestTernary(t *testing.T) {
 	}
 	for _, tt1 := range tests1 {
 		t.Run(tt1.name, func(t *testing.T) {
-			if got1 := Ternary(tt1.args.condition, tt1.args.trueVal, tt1.args.falseVal); !reflect.DeepEqual(got1, tt1.want) {
+			if got1 := utils.Ternary(tt1.args.condition, tt1.args.trueVal, tt1.args.falseVal); !reflect.DeepEqual(got1, tt1.want) {
 				t.Errorf("Ternary() = %v, want %v", got1, tt1.want)
 			}
 		})
@@ -74,7 +75,7 @@ func TestNumberFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NumberFormat(tt.args.number, tt.args.decimals, tt.args.decPoint, tt.args.thousandsSep); got != tt.want {
+			if got := utils.NumberFormat(tt.args.number, tt.args.decimals, tt.args.decPoint, tt.args.thousandsSep); got != tt.want {
 				t.Errorf("NumberFormat() = %v, want %v", got, tt.want)
 			}
 		})

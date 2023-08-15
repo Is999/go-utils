@@ -1,6 +1,9 @@
-package utils
+package utils_test
 
-import "testing"
+import (
+	"github.com/Is999/go-utils"
+	"testing"
+)
 
 func TestZip(t *testing.T) {
 	type args struct {
@@ -16,7 +19,7 @@ func TestZip(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Zip(tt.args.zipFileName, tt.args.zipFiles); (err != nil) != tt.wantErr {
+			if err := utils.Zip(tt.args.zipFileName, tt.args.zipFiles); (err != nil) != tt.wantErr {
 				t.Errorf("Zip() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -37,7 +40,7 @@ func TestUnZip(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := UnZip(tt.args.zipFile, tt.args.destDir); (err != nil) != tt.wantErr {
+			if err := utils.UnZip(tt.args.zipFile, tt.args.destDir); (err != nil) != tt.wantErr {
 				t.Errorf("UnZip() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

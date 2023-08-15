@@ -1,6 +1,7 @@
-package utils
+package utils_test
 
 import (
+	"github.com/Is999/go-utils"
 	"reflect"
 	"testing"
 )
@@ -24,7 +25,7 @@ func TestPkcs7Padding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Pkcs7Padding(tt.args.data, tt.args.blockSize); !reflect.DeepEqual(got, tt.want) {
+			if got := utils.Pkcs7Padding(tt.args.data, tt.args.blockSize); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Pkcs7Padding() = %v, want %v", got, tt.want)
 			}
 		})
@@ -50,7 +51,7 @@ func TestPkcs7UnPadding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Pkcs7UnPadding(tt.args.data)
+			got, err := utils.Pkcs7UnPadding(tt.args.data)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Pkcs7UnPadding() error = %v, wantErr %v", err, tt.wantErr)
 				return

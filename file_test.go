@@ -1,8 +1,9 @@
-package utils
+package utils_test
 
 import (
 	"bufio"
 	"fmt"
+	"github.com/Is999/go-utils"
 	"io"
 	"os"
 	"sync"
@@ -33,8 +34,8 @@ func TestFindFiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			//t.Logf("FindFiles 匹配规则 path = %v, match = %v", tt.args.path, tt.args.match)
-			//got, err := FindFiles(tt.args.path, tt.args.depth, tt.args.match...)
-			_, err := FindFiles(tt.args.path, tt.args.depth, tt.args.match...)
+			//got, WrapError := utils.FindFiles(tt.args.path, tt.args.depth, tt.args.match...)
+			_, err := utils.FindFiles(tt.args.path, tt.args.depth, tt.args.match...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FindFiles() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -60,7 +61,7 @@ func TestIsDir(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsDir(tt.args.path); got != tt.want {
+			if got := utils.IsDir(tt.args.path); got != tt.want {
 				t.Errorf("IsDir() = %v, want %v", got, tt.want)
 			}
 		})
@@ -81,7 +82,7 @@ func TestIsFile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsFile(tt.args.path); got != tt.want {
+			if got := utils.IsFile(tt.args.path); got != tt.want {
 				t.Errorf("IsFile() = %v, want %v", got, tt.want)
 			}
 		})
@@ -104,11 +105,11 @@ func TestIsExist(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsExist(tt.args.path); got != tt.want {
+			if got := utils.IsExist(tt.args.path); got != tt.want {
 				t.Errorf("IsExist() = %v, want %v", got, tt.want)
 			}
-			if size, err := Size(tt.args.path); (err != nil) == tt.want {
-				t.Errorf("Size() path = %v, size = %v, err %v", tt.args.path, SizeFormat(size, 4), err)
+			if size, err := utils.Size(tt.args.path); (err != nil) == tt.want {
+				t.Errorf("Size() path = %v, size = %v, WrapError %v", tt.args.path, utils.SizeFormat(size, 4), err)
 			} else {
 				//t.Logf("Size() path = %v, size = %d, Humane = %v", tt.args.path, size, SizeFormat(size, 4))
 			}
@@ -130,7 +131,7 @@ func TestCopy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Copy(tt.args.source, tt.args.dest); (err != nil) != tt.wantErr {
+			if err := utils.Copy(tt.args.source, tt.args.dest); (err != nil) != tt.wantErr {
 				t.Errorf("Copy() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -149,20 +150,20 @@ func TestScan(t *testing.T) {
 		wantErr bool
 	}
 	tests := []test{
-		{name: "001", args: args{name: "./file.go", size: []int{int(MB)}}},
+		{name: "001", args: args{name: "./file.go", size: []int{int(utils.MB)}}},
 	}
 
 	var f = func(t *testing.T, tt test) {
 		// 打开文件
 		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
 		if err != nil {
-			t.Errorf("Open() err %v", err)
+			t.Errorf("Open() WrapError %v", err)
 			return
 		}
 		// 关闭文件
 		defer func() {
 			if err := open.Close(); err != nil {
-				t.Errorf("Close() err %v", err)
+				t.Errorf("Close() WrapError %v", err)
 			}
 		}()
 
@@ -172,9 +173,9 @@ func TestScan(t *testing.T) {
 		var handle = func(num int, line []byte, err error) error {
 			if err != nil {
 				if err == io.EOF {
-					return DONE
+					return utils.DONE
 				}
-				t.Errorf("handle() err %v", err)
+				t.Errorf("handle() WrapError %v", err)
 				return err
 			}
 
@@ -190,7 +191,7 @@ func TestScan(t *testing.T) {
 			return nil
 		}
 
-		if err := Scan(open, handle, tt.args.size...); (err != nil) != tt.wantErr {
+		if err := utils.Scan(open, handle, tt.args.size...); (err != nil) != tt.wantErr {
 			t.Errorf("Scan() error = %v, wantErr %v", err, tt.wantErr)
 		}
 		//t.Logf("content size = %v, fileSize = %v", len(content), stat.Size())
@@ -217,20 +218,20 @@ func BenchmarkScan(t *testing.B) {
 		wantErr bool
 	}
 	tests := []test{
-		{name: "001", args: args{name: "./file.go", size: []int{int(MB)}}},
+		{name: "001", args: args{name: "./file.go", size: []int{int(utils.MB)}}},
 	}
 
 	var f = func(t *testing.B, tt test) {
 		// 打开文件
 		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
 		if err != nil {
-			t.Errorf("Open() err %v", err)
+			t.Errorf("Open() WrapError %v", err)
 			return
 		}
 		// 关闭文件
 		defer func() {
 			if err := open.Close(); err != nil {
-				t.Errorf("Close() err %v", err)
+				t.Errorf("Close() WrapError %v", err)
 			}
 		}()
 
@@ -240,9 +241,9 @@ func BenchmarkScan(t *testing.B) {
 		var handle = func(num int, line []byte, err error) error {
 			if err != nil {
 				if err == io.EOF {
-					return DONE
+					return utils.DONE
 				}
-				t.Errorf("handle() err %v", err)
+				t.Errorf("handle() WrapError %v", err)
 				return err
 			}
 
@@ -258,7 +259,7 @@ func BenchmarkScan(t *testing.B) {
 			return nil
 		}
 
-		if err := Scan(open, handle, tt.args.size...); (err != nil) != tt.wantErr {
+		if err := utils.Scan(open, handle, tt.args.size...); (err != nil) != tt.wantErr {
 			t.Errorf("Scan() error = %v, wantErr %v", err, tt.wantErr)
 		}
 		//t.Logf("content size = %v, fileSize = %v", len(content), stat.Size())
@@ -292,13 +293,13 @@ func TestLine(t *testing.T) {
 		// 打开文件
 		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
 		if err != nil {
-			t.Errorf("Open() err %v", err)
+			t.Errorf("Open() WrapError %v", err)
 			return
 		}
 		// 关闭文件
 		defer func() {
 			if err := open.Close(); err != nil {
-				t.Errorf("Close() err %v", err)
+				t.Errorf("Close() WrapError %v", err)
 			}
 		}()
 
@@ -307,7 +308,7 @@ func TestLine(t *testing.T) {
 		var content = make([]byte, 0, stat.Size())
 		var handle = func(num int, line []byte, lineDone bool) error {
 			if err != nil {
-				t.Errorf("handle() err %v", err)
+				t.Errorf("handle() WrapError %v", err)
 				return err
 			}
 
@@ -318,7 +319,7 @@ func TestLine(t *testing.T) {
 			return nil
 		}
 
-		if err := Line(open, handle); (err != nil) != tt.wantErr {
+		if err := utils.Line(open, handle); (err != nil) != tt.wantErr {
 			t.Errorf("Line() error = %v, wantErr %v", err, tt.wantErr)
 		}
 		//t.Logf("content size = %v, fileSize = %v", len(content), stat.Size())
@@ -351,13 +352,13 @@ func BenchmarkLine(t *testing.B) {
 		// 打开文件
 		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
 		if err != nil {
-			t.Errorf("Open() err %v", err)
+			t.Errorf("Open() WrapError %v", err)
 			return
 		}
 		// 关闭文件
 		defer func() {
 			if err := open.Close(); err != nil {
-				t.Errorf("Close() err %v", err)
+				t.Errorf("Close() WrapError %v", err)
 			}
 			return
 		}()
@@ -367,7 +368,7 @@ func BenchmarkLine(t *testing.B) {
 		//var content = make([]byte, 0, stat.Size())
 		var handle = func(num int, line []byte, lineDone bool) error {
 			if err != nil {
-				t.Errorf("handle() err %v", err)
+				t.Errorf("handle() WrapError %v", err)
 				return err
 			}
 
@@ -378,7 +379,7 @@ func BenchmarkLine(t *testing.B) {
 			return nil
 		}
 
-		if err := Line(open, handle); (err != nil) != tt.wantErr {
+		if err := utils.Line(open, handle); (err != nil) != tt.wantErr {
 			t.Errorf("Line() error = %v, wantErr %v", err, tt.wantErr)
 		}
 	}
@@ -410,13 +411,13 @@ func TestRead(t *testing.T) {
 		// 打开文件
 		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
 		if err != nil {
-			t.Errorf("Open() err %v", err)
+			t.Errorf("Open() WrapError %v", err)
 			return
 		}
 		// 关闭文件
 		defer func() {
 			if err := open.Close(); err != nil {
-				t.Errorf("Close() err %v", err)
+				t.Errorf("Close() WrapError %v", err)
 			}
 		}()
 
@@ -429,7 +430,7 @@ func TestRead(t *testing.T) {
 			return nil
 		}
 
-		if err := Read(open, handle); (err != nil) != tt.wantErr {
+		if err := utils.Read(open, handle); (err != nil) != tt.wantErr {
 			t.Errorf("Read() error = %v, wantErr %v", err, tt.wantErr)
 		}
 		// t.Logf("content \n%v", string(content))
@@ -461,13 +462,13 @@ func BenchmarkRead(t *testing.B) {
 		// 打开文件
 		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
 		if err != nil {
-			t.Errorf("Open() err %v", err)
+			t.Errorf("Open() WrapError %v", err)
 			return
 		}
 		// 关闭文件
 		defer func() {
 			if err := open.Close(); err != nil {
-				t.Errorf("Close() err %v", err)
+				t.Errorf("Close() WrapError %v", err)
 			}
 		}()
 
@@ -480,7 +481,7 @@ func BenchmarkRead(t *testing.B) {
 			return nil
 		}
 
-		if err := Read(open, handle); (err != nil) != tt.wantErr {
+		if err := utils.Read(open, handle); (err != nil) != tt.wantErr {
 			t.Errorf("Read() error = %v, wantErr %v", err, tt.wantErr)
 		}
 	}
@@ -512,7 +513,7 @@ func TestWrite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w, err := NewWrite(tt.args.fileName, tt.args.isAppend, tt.args.perm)
+			w, err := utils.NewWrite(tt.args.fileName, tt.args.isAppend, tt.args.perm)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewWrite() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -520,7 +521,7 @@ func TestWrite(t *testing.T) {
 			// 关闭文件
 			defer func() {
 				if err := w.Close(); err != nil {
-					t.Errorf("Close() err %v", err)
+					t.Errorf("Close() WrapError %v", err)
 				}
 			}()
 
@@ -569,16 +570,16 @@ func TestWrite(t *testing.T) {
 			}
 			group.Wait()
 
-			/*open, err := os.Open(tt.args.fileName)
-			if err != nil {
-				t.Errorf("Open() error = %v", err)
+			/*open, WrapError := os.Open(tt.args.fileName)
+			if WrapError != nil {
+				t.Errorf("Open() error = %v", WrapError)
 			}
 
-			if err := Line(open, func(num int, line []byte, lineDone bool) error {
+			if WrapError := Line(open, func(num int, line []byte, lineDone bool) error {
 				t.Logf("第%d行 %v\n", num, string(line))
 				return nil
-			}); err != nil {
-				t.Errorf("Line() error = %v", err)
+			}); WrapError != nil {
+				t.Errorf("Line() error = %v", WrapError)
 			}*/
 
 		})
@@ -602,14 +603,14 @@ func BenchmarkWrite(t *testing.B) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.B) {
-			w, err := NewWrite(tt.args.fileName, tt.args.isAppend, tt.args.perm)
+			w, err := utils.NewWrite(tt.args.fileName, tt.args.isAppend, tt.args.perm)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewWrite() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			defer func() {
 				if err := w.Close(); err != nil {
-					t.Errorf("Close() err %v", err)
+					t.Errorf("Close() WrapError %v", err)
 				}
 			}()
 
@@ -633,9 +634,9 @@ func BenchmarkWrite(t *testing.B) {
 
 				// 加锁
 				/*for j := 0; j < 10; j++ {
-					_, err := w.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
-					if err != nil {
-						t.Errorf("WriteString() error = %v", err)
+					_, WrapError := w.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
+					if WrapError != nil {
+						t.Errorf("WriteString() error = %v", WrapError)
 						return
 					}
 					//t.Logf("WriteString content size = %v", size)
@@ -643,9 +644,9 @@ func BenchmarkWrite(t *testing.B) {
 
 				// 不加锁
 				/*for j := 0; j < 10; j++ {
-					_, err := w.File.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
-					if err != nil {
-						t.Errorf("File.WriteString() error = %v", err)
+					_, WrapError := w.File.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
+					if WrapError != nil {
+						t.Errorf("File.WriteString() error = %v", WrapError)
 						return
 					}
 					//t.Logf("WriteString content size = %v", size)
@@ -653,9 +654,9 @@ func BenchmarkWrite(t *testing.B) {
 
 				// 加锁
 				/*for j := 0; j < 10; j++ {
-					_, err := w.Write([]byte("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n"))
-					if err != nil {
-						t.Errorf("Write() error = %v", err)
+					_, WrapError := w.Write([]byte("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n"))
+					if WrapError != nil {
+						t.Errorf("Write() error = %v", WrapError)
 						return
 					}
 					// t.Logf("Write content size = %v", size)
@@ -663,9 +664,9 @@ func BenchmarkWrite(t *testing.B) {
 
 				// 不加锁
 				/*for j := 0; j < 10; j++ {
-					_, err := w.File.Write([]byte("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n"))
-					if err != nil {
-						t.Errorf("Write() error = %v", err)
+					_, WrapError := w.File.Write([]byte("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n"))
+					if WrapError != nil {
+						t.Errorf("Write() error = %v", WrapError)
 						return
 					}
 					// t.Logf("Write content size = %v", size)

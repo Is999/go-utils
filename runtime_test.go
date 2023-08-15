@@ -1,6 +1,7 @@
-package utils
+package utils_test
 
 import (
+	"github.com/Is999/go-utils"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ func TestGetRuntimeInfo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			GetRuntimeInfo(tt.args.skip)
+			utils.GetRuntimeInfo(tt.args.skip)
 			//t.Logf("GetRuntimeInfo() = %+v", got)
 		})
 	}

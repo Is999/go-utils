@@ -1,13 +1,14 @@
-package utils
+package utils_test
 
 import (
+	"github.com/Is999/go-utils"
 	"reflect"
 	"sort"
 	"testing"
 )
 
 func TestMapKeys(t *testing.T) {
-	type args[K Ordered] struct {
+	type args[K utils.Ordered] struct {
 		elements map[K]string
 	}
 
@@ -26,7 +27,7 @@ func TestMapKeys(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var got Slice[string] = MapKeys(tt.args.elements)
+			var got utils.Slice[string] = utils.MapKeys(tt.args.elements)
 			sort.Sort(got)
 			sort.Strings(tt.want)
 			if !reflect.DeepEqual([]string(got), tt.want) {
@@ -37,14 +38,14 @@ func TestMapKeys(t *testing.T) {
 }
 
 func TestMapValues(t *testing.T) {
-	type args[K Ordered, V any] struct {
+	type args[K utils.Ordered, V any] struct {
 		m         map[K]V
 		isReverse bool
 	}
 	tests := []struct {
 		name string
 		args args[string, string]
-		want Slice[string]
+		want utils.Slice[string]
 	}{
 		{name: "001", args: args[string, string]{m: map[string]string{
 			"key01": "001",
@@ -83,7 +84,7 @@ func TestMapValues(t *testing.T) {
 			} else {
 				sort.Sort(tt.want)
 			}
-			if got := MapValues(tt.args.m, tt.args.isReverse); !reflect.DeepEqual(got, []string(tt.want)) {
+			if got := utils.MapValues(tt.args.m, tt.args.isReverse); !reflect.DeepEqual(got, []string(tt.want)) {
 				t.Errorf("MapValues() = %v, want %v", got, tt.want)
 			}
 		})
@@ -91,11 +92,11 @@ func TestMapValues(t *testing.T) {
 }
 
 func TestMapDiff(t *testing.T) {
-	type args[K Ordered, V Ordered] struct {
+	type args[K utils.Ordered, V utils.Ordered] struct {
 		m1 map[K]V
 		m2 map[K]V
 	}
-	type testCase[K Ordered, V Ordered] struct {
+	type testCase[K utils.Ordered, V utils.Ordered] struct {
 		name string
 		args args[K, V]
 		want []V
@@ -117,7 +118,7 @@ func TestMapDiff(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := MapDiff(tt.args.m1, tt.args.m2)
+			got := utils.MapDiff(tt.args.m1, tt.args.m2)
 			sort.Strings(got)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("MapDiff() = %v, want %v", got, tt.want)
@@ -127,11 +128,11 @@ func TestMapDiff(t *testing.T) {
 }
 
 func TestMapIntersect(t *testing.T) {
-	type args[K Ordered, V Ordered] struct {
+	type args[K utils.Ordered, V utils.Ordered] struct {
 		m1 map[K]V
 		m2 map[K]V
 	}
-	type testCase[K Ordered, V Ordered] struct {
+	type testCase[K utils.Ordered, V utils.Ordered] struct {
 		name string
 		args args[K, V]
 		want []V
@@ -153,7 +154,7 @@ func TestMapIntersect(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := MapIntersect(tt.args.m1, tt.args.m2)
+			got := utils.MapIntersect(tt.args.m1, tt.args.m2)
 			sort.Strings(got)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("MapIntersect() = %v, want %v", got, tt.want)
@@ -163,11 +164,11 @@ func TestMapIntersect(t *testing.T) {
 }
 
 func TestMapDiffKey(t *testing.T) {
-	type args[K Ordered, V any] struct {
+	type args[K utils.Ordered, V any] struct {
 		m1 map[K]V
 		m2 map[K]V
 	}
-	type testCase[K Ordered, V any] struct {
+	type testCase[K utils.Ordered, V any] struct {
 		name string
 		args args[K, V]
 		want []K
@@ -189,7 +190,7 @@ func TestMapDiffKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := MapDiffKey(tt.args.m1, tt.args.m2)
+			got := utils.MapDiffKey(tt.args.m1, tt.args.m2)
 			sort.Strings(got)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("MapDiffKey() = %v, want %v", got, tt.want)
@@ -199,11 +200,11 @@ func TestMapDiffKey(t *testing.T) {
 }
 
 func TestMapIntersectKey(t *testing.T) {
-	type args[K Ordered, V any] struct {
+	type args[K utils.Ordered, V any] struct {
 		m1 map[K]V
 		m2 map[K]V
 	}
-	type testCase[K Ordered, V any] struct {
+	type testCase[K utils.Ordered, V any] struct {
 		name string
 		args args[K, V]
 		want []K
@@ -225,7 +226,7 @@ func TestMapIntersectKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := MapIntersectKey(tt.args.m1, tt.args.m2)
+			got := utils.MapIntersectKey(tt.args.m1, tt.args.m2)
 			sort.Strings(got)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("MapIntersectKey() = %v, want %v", got, tt.want)
@@ -235,11 +236,11 @@ func TestMapIntersectKey(t *testing.T) {
 }
 
 func TestMapFilter(t *testing.T) {
-	type args[K Ordered, V any] struct {
+	type args[K utils.Ordered, V any] struct {
 		m map[K]V
 		f func(key K, val V) bool
 	}
-	type testCase[K Ordered, V any] struct {
+	type testCase[K utils.Ordered, V any] struct {
 		name string
 		args args[K, V]
 		want map[K]V
@@ -264,7 +265,7 @@ func TestMapFilter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := MapFilter(tt.args.m, tt.args.f); !reflect.DeepEqual(got, tt.want) {
+			if got := utils.MapFilter(tt.args.m, tt.args.f); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("MapFilter() = %v, want %v", got, tt.want)
 			}
 		})
@@ -272,12 +273,12 @@ func TestMapFilter(t *testing.T) {
 }
 
 func TestMapRange(t *testing.T) {
-	type args[K Ordered, V any] struct {
+	type args[K utils.Ordered, V any] struct {
 		m         map[K]V
 		f         func(key K, val V) bool
 		isReverse bool
 	}
-	type testCase[K Ordered, V any] struct {
+	type testCase[K utils.Ordered, V any] struct {
 		name string
 		args args[K, V]
 	}
@@ -311,7 +312,7 @@ func TestMapRange(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			MapRange(tt.args.m, tt.args.f, tt.args.isReverse)
+			utils.MapRange(tt.args.m, tt.args.f, tt.args.isReverse)
 		})
 	}
 }

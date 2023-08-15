@@ -1,52 +1,156 @@
-package utils
+package utils_test
 
 import (
+	"context"
 	"fmt"
+	"github.com/Is999/go-utils"
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
 	"reflect"
+	"syscall"
 	"testing"
+	"time"
 )
 
-var apiUrl = "http://localhost:8080/curl"
+var apiUrl = "http://localhost:54334"
 
-type User struct {
-	Name      string `json:"name" xml:"name"`
-	Age       int    `json:"age" xml:"age"`
-	Sex       string `json:"sex" xml:"sex"`
-	IsMarried bool   `json:"is_married" xml:"isMarried"`
-	Address   string `json:"address" xml:"address"`
-	phone     string
+func curlResponse() {
+	// 退出
+	exit := make(chan os.Signal)
+
+	// 请求该路由退出
+	// http://localhost:54333/response/exit
+	http.HandleFunc("/curl/exit", func(w http.ResponseWriter, r *http.Request) {
+		// 退出信号
+		exit <- syscall.Signal(1)
+	})
+
+	http.HandleFunc("/curl/get", func(w http.ResponseWriter, r *http.Request) {
+		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
+
+		// 响应的数据
+		user := User{
+			Name:      r.URL.Query().Get("Name"),
+			Age:       utils.Str2Int(r.URL.Query().Get("Age")),
+			Sex:       r.URL.Query().Get("Sex"),
+			IsMarried: r.URL.Query().Get("IsMarried") == "true",
+			Address:   r.URL.Query().Get("Address"),
+			phone:     r.URL.Query().Get("phone"),
+		}
+
+		if r.URL.Query().Get("success") == "false" {
+			// 写入响应数据
+			utils.JsonResp[User](w, http.StatusNotAcceptable).Fail(20000, "fail", user)
+			return
+		}
+
+		// 写入响应数据
+		utils.JsonResp[User](w).Success(10000, user)
+	})
+
+	http.HandleFunc("/curl/post", func(w http.ResponseWriter, r *http.Request) {
+		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
+		if r.Method == http.MethodPost {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				// 写入响应数据
+				utils.JsonResp[string](w, http.StatusInternalServerError).Fail(2000, "Failed to read request body")
+				return
+			}
+
+			// 处理接收到的 POST 数据
+			slog.Info("Received POST", "body", string(body))
+
+			// 解析body
+			user := new(User)
+			utils.Unmarshal(body, user)
+
+			// 返回响应
+			if r.URL.Query().Get("success") == "false" {
+				// 写入响应数据
+				utils.JsonResp[*User](w, http.StatusNotAcceptable).Fail(2000, "fail", user)
+				return
+			}
+
+			// 写入响应数据
+			utils.JsonResp[*User](w).Success(1000, user)
+		} else {
+			utils.JsonResp[string](w, http.StatusMethodNotAllowed).Fail(2000, "Method not allowed")
+			return
+		}
+	})
+
+	//使用默认路由创建 http server
+	srv := http.Server{
+		Addr:    ":54334",
+		Handler: http.DefaultServeMux,
+	}
+
+	//监听 Ctrl+C 信号
+	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		timer := time.NewTimer(180 * time.Second)
+		for {
+			select {
+			case <-exit:
+				fmt.Println("Exit...")
+				srv.Shutdown(context.Background())
+			case <-timer.C:
+				fmt.Println("Delayed 5s Exit...")
+				//使用context控制srv.Shutdown的超时时间
+				//ctx, _ := context.WithTimeout(context.Background(), time.Second)
+				srv.Shutdown(context.Background())
+			default:
+				time.Sleep(time.Second)
+				fmt.Println("default 1s...")
+			}
+		}
+	}()
+
+	// 启动HTTP服务器，监听在指定端口
+	err := srv.ListenAndServe()
+	if err != nil {
+		fmt.Println("HTTP server failed to start:", err)
+	}
+
+}
+
+func setLogConfig() {
+	// 日志等级
+	levelVar := &slog.LevelVar{}
+	levelVar.Set(slog.LevelDebug)
+
+	opts := &slog.HandlerOptions{
+		AddSource: true,     // 输出日志的文件和行号
+		Level:     levelVar, // 日志等级
+	}
+
+	// 日志输出格式
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	//handler := slog.NewJSONHandler(os.Stdout, opts)
+
+	// 修改默认的日志输出方式
+	slog.SetDefault(slog.New(handler))
 }
 
 func TestGet(t *testing.T) {
-	// 设置日志格式级等级
-	SetLevel(DEBUG)
+	// 日志配置
+	setLogConfig()
 
-	//http.HandleFunc("/curl", func(w http.ResponseWriter, r *http.Request) {
-	//	Info(r.URL.Query())
-	//
-	//	// 响应的数据
-	//	user := User{
-	//		Name:      r.URL.Query().Get("Name"),
-	//		Age:       Str2Int(r.URL.Query().Get("Age")),
-	//		Sex:       r.URL.Query().Get("Sex"),
-	//		IsMarried: r.URL.Query().Get("IsMarried") == "true",
-	//		Address:   r.URL.Query().Get("Address"),
-	//		phone:     r.URL.Query().Get("phone"),
-	//	}
-	//
-	//	if r.URL.Query().Get("success") == "false" {
-	//		// 写入响应数据
-	//		JsonResp[User](w, http.StatusNotAcceptable).Fail(2000, "fail", user)
-	//		return
-	//	}
-	//
-	//	// 写入响应数据
-	//	JsonResp[User](w).Success(1000, user)
-	//})
+	// 启动http服务器
+	go curlResponse()
+
+	// 关闭启动的http服务
+	defer func() {
+		utils.NewCurl().Head(apiUrl + "/curl/exit")
+	}()
 
 	// 创建一个curl
-	curl := NewCurl()
+	curl := utils.NewCurl()
 
 	type args struct {
 		url         string
@@ -61,18 +165,18 @@ func TestGet(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: apiUrl,
+			url: apiUrl + "/curl/get",
 			resolve: func(body []byte) error {
-				res := &Body[User]{}
-				if err := Unmarshal(body, res); err != nil {
-					return err
+				res := &utils.Body[User]{}
+				if err := utils.Unmarshal(body, res); err != nil {
+					return utils.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
-					curl.Printf(ERROR, "resolve res error Status: %#v", res)
+					curl.Logger.Error("失败", "body", res)
 				} else {
 					// 正常处理
-					curl.Printf(INFO, "resolve res: %#v", res.Data)
+					curl.Logger.Info("成功", "body", res)
 				}
 				return nil
 			},
@@ -87,18 +191,18 @@ func TestGet(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "002", args: args{
-			url: apiUrl,
+			url: apiUrl + "/curl/get",
 			resolve: func(body []byte) error {
-				res := &Body[User]{}
-				if err := Unmarshal(body, res); err != nil {
-					return err
+				res := &utils.Body[User]{}
+				if err := utils.Unmarshal(body, res); err != nil {
+					return utils.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
-					curl.Printf(ERROR, "resolve res error Status: %#v", res)
+					curl.Logger.Error("失败", "body", res)
 				} else {
 					// 正常处理
-					curl.Printf(INFO, "resolve res: %#v", res.Data)
+					curl.Logger.Info("成功", "body", res)
 				}
 				return nil
 			},
@@ -113,18 +217,18 @@ func TestGet(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "003", args: args{
-			url: apiUrl,
+			url: apiUrl + "/curl/get",
 			resolve: func(body []byte) error {
-				res := &Body[User]{}
-				if err := Unmarshal(body, res); err != nil {
-					return err
+				res := &utils.Body[User]{}
+				if err := utils.Unmarshal(body, res); err != nil {
+					return utils.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
-					curl.Printf(ERROR, "resolve res error Status: %#v", res)
+					curl.Logger.Error("失败", "body", res)
 				} else {
 					// 正常处理
-					curl.Printf(INFO, "resolve res: %#v", res.Data)
+					curl.Logger.Info("成功", "body", res)
 				}
 				return nil
 			},
@@ -143,23 +247,20 @@ func TestGet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			//defer func() {
 			//	// 关闭连接
-			//	curl.CloseIdleConnections()
+			//	Curl.CloseIdleConnections()
 			//}()
 
 			// 设置请求ID
 			curl.SetRequestId()
 
 			// 设置记录日志模式
-			//curl.SetDump(true)
-
-			// 设置日志等级
-			//curl.SetLogLevel(INFO)
+			//Curl.SetDump(true)
 
 			// 设置重试次数
-			//curl.SetMaxBadRetry(5)
+			//Curl.SetMaxRetry(5)
 
 			// 设置ContentType
-			//curl.SetContentType("application/json")
+			//Curl.SetContentType("application/json")
 
 			// 添加请求参数
 			curl.SetParam("success", fmt.Sprint(tt.args.wantSuccess))
@@ -184,46 +285,15 @@ func TestGet(t *testing.T) {
 			}
 		})
 	}
+
 }
 
 func TestPost(t *testing.T) {
-	// 设置日志格式级等级
-	SetLevel(DEBUG)
-
-	//func handlePost(w http.ResponseWriter, r *http.Request) {
-	//	Info(r.URL.Query())
-	//	if r.Method == http.MethodPost {
-	//		body, err := ioutil.ReadAll(r.Body)
-	//		if err != nil {
-	//			// 写入响应数据
-	//			JsonResp[string](w, http.StatusInternalServerError).Fail(2000, "Failed to read request body")
-	//			return
-	//		}
-	//
-	//		// 处理接收到的 POST 数据
-	//		Info("Received POST data:", string(body))
-	//
-	//		// 解析body
-	//		user := new(User)
-	//		Unmarshal(body, user)
-	//
-	//		// 返回响应
-	//		if r.URL.Query().Get("success") == "false" {
-	//			// 写入响应数据
-	//			JsonResp[*User](w, http.StatusNotAcceptable).Fail(2000, "fail", user)
-	//			return
-	//		}
-	//
-	//		// 写入响应数据
-	//		JsonResp[*User](w).Success(1000, user)
-	//	} else {
-	//		JsonResp[string](w, http.StatusMethodNotAllowed).Fail(2000, "Method not allowed")
-	//		return
-	//	}
-	//}
+	// 启动http服务器
+	go curlResponse()
 
 	// 创建一个curl
-	curl := NewCurl()
+	curl := utils.NewCurl()
 
 	type args struct {
 		url         string
@@ -238,18 +308,18 @@ func TestPost(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: apiUrl,
+			url: apiUrl + "/curl/post",
 			resolve: func(body []byte) error {
-				res := &Body[User]{}
-				if err := Unmarshal(body, res); err != nil {
-					return err
+				res := &utils.Body[User]{}
+				if err := utils.Unmarshal(body, res); err != nil {
+					return utils.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
-					curl.Printf(ERROR, "resolve res error Status: %#v", res)
+					curl.Logger.Error("失败", "body", res)
 				} else {
 					// 正常处理
-					curl.Printf(INFO, "resolve res: %#v", res.Data)
+					curl.Logger.Info("成功", "body", res)
 				}
 				return nil
 			},
@@ -264,18 +334,18 @@ func TestPost(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "002", args: args{
-			url: apiUrl,
+			url: apiUrl + "/curl/post",
 			resolve: func(body []byte) error {
-				res := &Body[User]{}
-				if err := Unmarshal(body, res); err != nil {
-					return err
+				res := &utils.Body[User]{}
+				if err := utils.Unmarshal(body, res); err != nil {
+					return utils.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
-					curl.Printf(ERROR, "resolve res error Status: %#v", res)
+					curl.Logger.Error("失败", "body", res)
 				} else {
 					// 正常处理
-					curl.Printf(INFO, "resolve res: %#v", res.Data)
+					curl.Logger.Info("成功", "body", res)
 				}
 				return nil
 			},
@@ -290,18 +360,18 @@ func TestPost(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "003", args: args{
-			url: apiUrl,
+			url: apiUrl + "/curl/post",
 			resolve: func(body []byte) error {
-				res := &Body[User]{}
-				if err := Unmarshal(body, res); err != nil {
-					return err
+				res := &utils.Body[User]{}
+				if err := utils.Unmarshal(body, res); err != nil {
+					return utils.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
-					curl.Printf(ERROR, "resolve res error Status: %#v", res)
+					curl.Logger.Error("失败", "body", res)
 				} else {
 					// 正常处理
-					curl.Printf(INFO, "resolve res: %#v", res.Data)
+					curl.Logger.Info("成功", "body", res)
 				}
 				return nil
 			},
@@ -318,13 +388,13 @@ func TestPost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			marshal, err := Marshal(tt.args.user)
+			marshal, err := utils.Marshal(tt.args.user)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("TestPost Marshal() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			defer func() {
 				// 关闭连接
-				// curl.CloseIdleConnections()
+				// Curl.CloseIdleConnections()
 
 				// 清空params
 				curl.ReSetParams(nil) // 清空params
@@ -336,11 +406,8 @@ func TestPost(t *testing.T) {
 			// 设置记录日志模式
 			curl.SetDump(true)
 
-			// 设置日志等级
-			curl.SetLogLevel(INFO)
-
 			// 设置重试次数
-			curl.SetMaxBadRetry(3)
+			curl.SetMaxRetry(3)
 
 			// 设置ContentType
 			curl.SetContentType("application/json")
@@ -367,11 +434,11 @@ func TestPost(t *testing.T) {
 }
 
 func TestPostForm(t *testing.T) {
-	// 设置日志格式级等级
-	SetLevel(DEBUG)
+	// 启动http服务器
+	go curlResponse()
 
 	// 创建一个curl
-	curl := NewCurl()
+	curl := utils.NewCurl()
 
 	type args struct {
 		url     string
@@ -384,18 +451,18 @@ func TestPostForm(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: apiUrl,
+			url: apiUrl + "/curl/form",
 			resolve: func(body []byte) error {
-				res := &Body[string]{}
-				if err := Unmarshal(body, res); err != nil {
-					return err
+				res := &utils.Body[string]{}
+				if err := utils.Unmarshal(body, res); err != nil {
+					return utils.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
-					curl.Printf(INFO, "resolve res error Status: %#v", res)
+					curl.Logger.Error("失败", "body", res)
 				} else {
 					// 正常处理
-					curl.Printf(INFO, "resolve res: %#v", res)
+					curl.Logger.Info("成功", "body", res)
 				}
 				return nil
 			},
@@ -407,11 +474,8 @@ func TestPostForm(t *testing.T) {
 			// 设置请求ID
 			curl.SetRequestId()
 
-			// 设置日志等级
-			curl.SetLogLevel(INFO)
-
 			// 设置重试次数
-			curl.SetMaxBadRetry(3)
+			curl.SetMaxRetry(3)
 
 			// 添加参数url pathinfo模式参数
 			curl.SetParams(map[string]string{
@@ -443,14 +507,11 @@ func TestPostForm(t *testing.T) {
 }
 
 func TestPostFile(t *testing.T) {
-	// 设置日志格式级等级
-	SetLevel(DEBUG)
+	// 启动http服务器
+	go curlResponse()
 
 	// 创建一个curl
-	curl := NewCurl()
-
-	// 设置curl日志等级
-	curl.SetLogLevel(ERROR)
+	curl := utils.NewCurl()
 
 	type args struct {
 		url     string
@@ -463,18 +524,18 @@ func TestPostFile(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: apiUrl,
+			url: apiUrl + "/curl/file",
 			resolve: func(body []byte) error {
-				res := &Body[string]{}
-				if err := Unmarshal(body, res); err != nil {
-					return err
+				res := &utils.Body[string]{}
+				if err := utils.Unmarshal(body, res); err != nil {
+					return utils.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
-					curl.Printf(INFO, "resolve res error Status: %#v", res)
+					curl.Logger.Error("失败", "body", res)
 				} else {
 					// 正常处理
-					curl.Printf(INFO, "resolve res: %#v", res)
+					curl.Logger.Info("成功", "body", res)
 				}
 				return nil
 			},
@@ -484,7 +545,7 @@ func TestPostFile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 创建一个form
-			form := Form{
+			form := utils.Form{
 				Params: map[string][]string{},
 				Files:  map[string][]string{},
 			}
@@ -510,17 +571,14 @@ func TestPostFile(t *testing.T) {
 			// 获取 body 和 contentType
 			body, contentType, err := form.Reader()
 			if err != nil {
-				t.Errorf("form.Reade() err %v", err)
+				t.Errorf("form.Reade() WrapError %v", err)
 			}
 
 			// 设置请求ID
 			curl.SetRequestId()
 
-			// 设置日志等级
-			curl.SetLogLevel(INFO)
-
 			// 设置重试次数
-			curl.SetMaxBadRetry(3)
+			curl.SetMaxRetry(3)
 
 			// 设置响应状态码
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)

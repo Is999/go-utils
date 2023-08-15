@@ -1,7 +1,8 @@
-package utils
+package utils_test
 
 import (
 	"encoding/base64"
+	"github.com/Is999/go-utils"
 	"reflect"
 	"testing"
 )
@@ -10,45 +11,46 @@ func TestAES(t *testing.T) {
 	type args struct {
 		key       string
 		iv        string
-		mode      McryptMode
-		encode    Encode
-		decode    Decode
-		padding   Padding
-		unPadding UnPadding
+		mode      utils.McryptMode
+		encode    utils.Encode
+		decode    utils.Decode
+		padding   utils.Padding
+		unPadding utils.UnPadding
 		data      string
+		enStr     string
 	}
 	tests := []struct {
 		name string
 		args args
 	}{
 		// key 16 bit
-		{name: "001", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "002", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "003", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "004", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "005", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "006", args: args{key: "0D03E9F1EFEDA1B3", mode: CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "007", args: args{key: "0D03E9F1EFEDA1B3", mode: ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "008", args: args{key: "0D03E9F1EFEDA1B3", mode: CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "009", args: args{key: "0D03E9F1EFEDA1B3", mode: CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "010", args: args{key: "0D03E9F1EFEDA1B3", mode: OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
+		{name: "001", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "+JxoH7FtkqIbUFSCiv8YYg=="}},
+		{name: "002", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "4Ry2UwtN8ubicYh1crqtOQ=="}},
+		{name: "003", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "2ui2buOQie8SsHEZEsYWTw=="}},
+		{name: "004", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "2ui2buOQie8SsHEZEsYWTw=="}},
+		{name: "005", args: args{key: "0D03E9F1EFEDA1B3", iv: "567FDEFD073F7D04", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "2ui2buOQie8SsHEZEsYWTw=="}},
+		{name: "006", args: args{key: "0D03E9F1EFEDA1B3", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "dxnrw6ZNku0UjrCy9PXQpg=="}},
+		{name: "007", args: args{key: "0D03E9F1EFEDA1B3", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "4Ry2UwtN8ubicYh1crqtOQ=="}},
+		{name: "008", args: args{key: "0D03E9F1EFEDA1B3", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "zC45BSMW77rjY+HzFKWAgQ=="}},
+		{name: "009", args: args{key: "0D03E9F1EFEDA1B3", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "zC45BSMW77rjY+HzFKWAgQ=="}},
+		{name: "010", args: args{key: "0D03E9F1EFEDA1B3", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "zC45BSMW77rjY+HzFKWAgQ=="}},
 		// key 24 bit
-		{name: "011", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "012", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "013", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "014", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "015", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
+		{name: "011", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "EAFUmwnzgoFf5LqcMoEGXQ=="}},
+		{name: "012", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "mTCgwi//jto7GT3NOl2Vxw=="}},
+		{name: "013", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "XKApjF+Whk8wpw3igKBe1Q=="}},
+		{name: "014", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "XKApjF+Whk8wpw3igKBe1Q=="}},
+		{name: "015", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "8048399BA52A2E40", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "XKApjF+Whk8wpw3igKBe1Q=="}},
 		// key 32 bit
-		{name: "021", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "022", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "023", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "024", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "025", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
+		{name: "021", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "HyflBLyZzsOOVTr2D6MUGA=="}},
+		{name: "022", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "KIkQdT/sPWOtZ0xDZnzrLg=="}},
+		{name: "023", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "umkKIG/KKMmT0pi3OpmHqw=="}},
+		{name: "024", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "umkKIG/KKMmT0pi3OpmHqw=="}},
+		{name: "025", args: args{key: "884100890d03e9f1efeda1b393ecba1b", iv: "8048399BA52A2E40", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456", enStr: "umkKIG/KKMmT0pi3OpmHqw=="}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化AES，并设置key
-			a, err := AES(tt.args.key, false)
+			a, err := utils.AES(tt.args.key, false)
 			if err != nil {
 				t.Errorf("NewAES() error = %v", err)
 				return
@@ -69,7 +71,13 @@ func TestAES(t *testing.T) {
 				return
 			}
 
-			// t.Logf("Encrypt() mode = %v encryptStr = %v", tt.args.mode, encryptStr)
+			t.Logf("Encrypt() mode = %v encryptStr = %v", tt.args.mode, encryptStr)
+
+			// 对比加密串
+			if tt.args.enStr != encryptStr {
+				t.Errorf("加密串不相同 want = %v got = %v", tt.args.enStr, encryptStr)
+				return
+			}
 
 			// 解密数据
 			got, err := a.Decrypt(encryptStr, tt.args.mode, tt.args.decode, tt.args.unPadding)
@@ -89,27 +97,27 @@ func TestAESRandIV(t *testing.T) {
 	type args struct {
 		key       string
 		iv        string
-		mode      McryptMode
-		encode    Encode
-		decode    Decode
-		padding   Padding
-		unPadding UnPadding
+		mode      utils.McryptMode
+		encode    utils.Encode
+		decode    utils.Decode
+		padding   utils.Padding
+		unPadding utils.UnPadding
 		data      string
 	}
 	tests := []struct {
 		name string
 		args args
 	}{
-		{name: "001", args: args{key: "1234567812345678", mode: CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "002", args: args{key: "1234567812345678", mode: ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "003", args: args{key: "1234567812345678", mode: CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "004", args: args{key: "1234567812345678", mode: CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "005", args: args{key: "1234567812345678", mode: OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
+		{name: "001", args: args{key: "1234567812345678", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "002", args: args{key: "1234567812345678", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "003", args: args{key: "1234567812345678", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "004", args: args{key: "1234567812345678", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "005", args: args{key: "1234567812345678", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化AES，并设置key
-			a, err := AES(tt.args.key, true)
+			a, err := utils.AES(tt.args.key, true)
 			if err != nil {
 				t.Errorf("NewAES() error = %v", err)
 				return

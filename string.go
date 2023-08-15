@@ -96,7 +96,7 @@ func RandStr(n int, r ...rand.Source) string {
 	}
 
 	if len(r) == 0 {
-		r = append(r, GetSource())
+		r = append(r, Source())
 		defer sourcePool.Put(r[0])
 	}
 
@@ -116,7 +116,7 @@ func RandStr2(n int, r ...rand.Source) string {
 		return ""
 	}
 	if len(r) == 0 {
-		r = append(r, GetSource())
+		r = append(r, Source())
 		defer sourcePool.Put(r[0])
 	}
 	s := make([]byte, n)
@@ -137,7 +137,7 @@ func RandStr3(n int, alpha string, r ...rand.Source) string {
 		return ""
 	}
 	if len(r) == 0 {
-		r = append(r, GetSource())
+		r = append(r, Source())
 		defer sourcePool.Put(r[0])
 	}
 	l := len(alpha)
@@ -177,7 +177,7 @@ func UniqId(l uint8, r ...rand.Source) string {
 
 	//r := rand.New(rand.NewSource(nano))
 	if len(r) == 0 {
-		r = append(r, GetSource())
+		r = append(r, Source())
 		defer sourcePool.Put(r[0])
 	}
 
@@ -207,7 +207,7 @@ var sourcePool = &sync.Pool{New: func() interface{} {
 	return rand.NewSource(time.Now().UnixNano())
 }}
 
-// GetSource 获取随机种子
-func GetSource() rand.Source {
+// Source 获取随机种子
+func Source() rand.Source {
 	return sourcePool.Get().(rand.Source)
 }
