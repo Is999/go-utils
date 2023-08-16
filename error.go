@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"runtime"
 	"strconv"
+	"strings"
 )
 
 // Wrap 错误信息：包装错误文件和行号
@@ -30,25 +31,6 @@ func Wrap(err error) error {
 	}
 }
 
-func LogError(err error) {
-	if err == nil {
-		return
-	}
-
-	_, file, line, ok := runtime.Caller(1)
-	if !ok {
-		file = "???"
-		line = 0
-	}
-
-	if _, ok := err.(*WrapError); ok {
-		err.(*WrapError).Trace = append(err.(*WrapError).Trace, fmt.Sprintf("%s:%d", file, line))
-		slog.Error(err.(*WrapError).Msg, "trace", err)
-	} else {
-		slog.Error(err.Error(), "trace", fmt.Sprintf("%s:%d", file, line))
-	}
-}
-
 // Error 错误信息：包装错误文件和行号
 func Error(format string, args ...any) error {
 	_, file, line, ok := runtime.Caller(1)
@@ -69,11 +51,23 @@ type WrapError struct {
 }
 
 func (e WrapError) Error() string {
-	return e.String()
+	return e.Msg
 }
 
 func (e WrapError) String() string {
-	return fmt.Sprintf("%s %+v", e.Msg, e.Trace)
+	b := strings.Builder{}
+	b.WriteString("{")
+	b.WriteString(`"msg":"` + e.Msg + `",`)
+	b.WriteString(`"trace":[`)
+	l := len(e.Trace)
+	for i, s := range e.Trace {
+		b.WriteString(`"` + s + `"`)
+		if i < l-1 {
+			b.WriteString(",")
+		}
+	}
+	b.WriteString("]}")
+	return b.String()
 }
 
 func (e WrapError) LogValue() slog.Value {

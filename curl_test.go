@@ -6,9 +6,11 @@ import (
 	"github.com/Is999/go-utils"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"reflect"
 	"syscall"
 	"testing"
@@ -28,6 +30,7 @@ func curlResponse() {
 		exit <- syscall.Signal(1)
 	})
 
+	// GET 请求
 	http.HandleFunc("/curl/get", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
 
@@ -51,12 +54,12 @@ func curlResponse() {
 		utils.JsonResp[User](w).Success(10000, user)
 	})
 
+	// POST 请求
 	http.HandleFunc("/curl/post", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
 		if r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				// 写入响应数据
 				utils.JsonResp[string](w, http.StatusInternalServerError).Fail(2000, "Failed to read request body")
 				return
 			}
@@ -77,6 +80,111 @@ func curlResponse() {
 
 			// 写入响应数据
 			utils.JsonResp[*User](w).Success(1000, user)
+		} else {
+			utils.JsonResp[string](w, http.StatusMethodNotAllowed).Fail(2000, "Method not allowed")
+			return
+		}
+	})
+
+	// POST FORM 请求
+	http.HandleFunc("/curl/form", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			// 解析表单数据
+			err := r.ParseForm()
+			if err != nil {
+				utils.JsonResp[string](w, http.StatusBadRequest).Fail(2000, "Error parsing form")
+				return
+			}
+			// 处理接收到的 POST 数据
+			slog.Info("Received POST FORM", "form", r.Form)
+
+			info := make(map[string]any)
+			// 获取表单字段的值
+			info["name"] = r.FormValue("name")
+			info["age"] = r.FormValue("age")
+			info["language"] = r.FormValue("language")
+
+			// 获取复选框字段的值
+			info["friends"] = r.Form["friends"]
+			info["hobby"] = r.Form["hobby"]
+
+			// 返回响应
+			if r.URL.Query().Get("success") == "false" {
+				// 写入响应数据
+				utils.JsonResp[map[string]any](w, http.StatusNotAcceptable).Fail(2000, "fail", info)
+				return
+			}
+
+			// 写入响应数据
+			utils.JsonResp[map[string]any](w).Success(1000, info)
+		} else {
+			utils.JsonResp[string](w, http.StatusMethodNotAllowed).Fail(2000, "Method not allowed")
+			return
+		}
+	})
+
+	// POST FILE 请求
+	http.HandleFunc("/curl/file", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			// 解析表单数据
+			err := r.ParseMultipartForm(10 << 20) // 10 MB limit for file upload
+			if err != nil {
+				utils.JsonResp[string](w, http.StatusBadRequest).Fail(2000, "Error parsing form")
+				return
+			}
+
+			// 处理接收到的 POST 数据
+			slog.Info("Received POST FORM", "form", r.Form)
+
+			info := make(map[string]any)
+			// 获取表单字段的值
+			info["name"] = r.FormValue("name")
+			info["age"] = r.FormValue("age")
+			info["language"] = r.FormValue("language")
+
+			// 获取复选框字段的值
+			info["friends"] = r.Form["friends"]
+			info["hobby"] = r.Form["hobby"]
+
+			// 处理接收到的 POST 数据
+			slog.Info("Received POST File", "File", r.MultipartForm.File)
+
+			// 处理上传的文件
+			_, fileHeader, err := r.FormFile("json_file")
+			if err != nil {
+				utils.JsonResp[string](w, http.StatusInternalServerError).Fail(2000, "Error retrieving file")
+				return
+			}
+			info["json_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
+
+			_, fileHeader, err = r.FormFile("env_file")
+			if err != nil {
+				utils.JsonResp[string](w, http.StatusInternalServerError).Fail(2000, "Error retrieving file")
+				return
+			}
+			info["env_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
+
+			// 处理上传的文件
+			files := r.MultipartForm.File["files"]
+			filesInfo := make([]map[string]any, len(files))
+			for i, fileHeader := range files {
+				filesInfo[i] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
+			}
+			info["files"] = filesInfo
+
+			// 创建本地文件
+
+			// 拷贝上传文件内容到本地文件
+
+			// 返回响应
+			if r.URL.Query().Get("success") == "false" {
+				// 写入响应数据
+				utils.JsonResp[map[string]any](w, http.StatusNotAcceptable).Fail(2000, "fail", info)
+				return
+			}
+
+			// 写入响应数据
+			utils.JsonResp[map[string]any](w).Success(1000, info)
 		} else {
 			utils.JsonResp[string](w, http.StatusMethodNotAllowed).Fail(2000, "Method not allowed")
 			return
@@ -281,6 +389,7 @@ func TestGet(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.Get(tt.args.url); (err != nil) != tt.wantErr {
+				slog.Error(err.Error(), "trace", err)
 				t.Errorf("TestGet() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -289,8 +398,16 @@ func TestGet(t *testing.T) {
 }
 
 func TestPost(t *testing.T) {
+	// 日志配置
+	setLogConfig()
+
 	// 启动http服务器
 	go curlResponse()
+
+	// 关闭启动的http服务
+	defer func() {
+		utils.NewCurl().Head(apiUrl + "/curl/exit")
+	}()
 
 	// 创建一个curl
 	curl := utils.NewCurl()
@@ -426,6 +543,7 @@ func TestPost(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.Post(tt.args.url); (err != nil) != tt.wantErr {
+				slog.Error(err.Error(), "trace", err)
 				t.Errorf("TestPost() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -434,8 +552,16 @@ func TestPost(t *testing.T) {
 }
 
 func TestPostForm(t *testing.T) {
+	// 日志配置
+	setLogConfig()
+
 	// 启动http服务器
 	go curlResponse()
+
+	// 关闭启动的http服务
+	defer func() {
+		utils.NewCurl().Head(apiUrl + "/curl/exit")
+	}()
 
 	// 创建一个curl
 	curl := utils.NewCurl()
@@ -453,7 +579,7 @@ func TestPostForm(t *testing.T) {
 		{name: "001", args: args{
 			url: apiUrl + "/curl/form",
 			resolve: func(body []byte) error {
-				res := &utils.Body[string]{}
+				res := &utils.Body[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return utils.Wrap(err)
 				}
@@ -499,6 +625,7 @@ func TestPostForm(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.PostForm(tt.args.url); (err != nil) != tt.wantErr {
+				slog.Error(err.Error(), "trace", err)
 				t.Errorf("TestPostForm() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -507,8 +634,16 @@ func TestPostForm(t *testing.T) {
 }
 
 func TestPostFile(t *testing.T) {
+	// 日志配置
+	setLogConfig()
+
 	// 启动http服务器
 	go curlResponse()
+
+	// 关闭启动的http服务
+	defer func() {
+		utils.NewCurl().Head(apiUrl + "/curl/exit")
+	}()
 
 	// 创建一个curl
 	curl := utils.NewCurl()
@@ -526,7 +661,7 @@ func TestPostFile(t *testing.T) {
 		{name: "001", args: args{
 			url: apiUrl + "/curl/file",
 			resolve: func(body []byte) error {
-				res := &utils.Body[string]{}
+				res := &utils.Body[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return utils.Wrap(err)
 				}
@@ -594,7 +729,8 @@ func TestPostFile(t *testing.T) {
 
 			// 发送请求
 			if err = curl.Post(tt.args.url); (err != nil) != tt.wantErr {
-				t.Errorf("TestPostFile() error = %v, wantErr %v", err, tt.wantErr)
+				slog.Error(err.Error(), "trace", err)
+				t.Errorf("TestPostFile() error = %#v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
