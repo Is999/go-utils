@@ -16,7 +16,7 @@ type User struct {
 }
 
 func ExampleRedirect() {
-	http.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Request) {
+	serveMux.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Request) {
 		// 重定向
 		utils.Redirect(w, "/response/json")
 	})
@@ -24,7 +24,7 @@ func ExampleRedirect() {
 
 func ExampleJsonResp() {
 	// 响应json数据
-	http.HandleFunc("/response/json", func(w http.ResponseWriter, r *http.Request) {
+	serveMux.HandleFunc("/response/json", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
 		queryParam := r.URL.Query().Get("v")
 		// 响应的数据
@@ -50,14 +50,14 @@ func ExampleJsonResp() {
 
 func ExampleView() {
 	// 响应html
-	http.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
+	serveMux.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
 
 		// 响应html数据
 		utils.View(w).Html("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 	})
 
 	// 响应xml
-	http.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
+	serveMux.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
 
 		// 响应的数据
 		user := User{
@@ -82,13 +82,13 @@ func ExampleView() {
 	})
 
 	// 响应text
-	http.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
+	serveMux.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
 		// 响应text数据
 		utils.View(w).Text("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 	})
 
 	// 显示image
-	http.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
+	serveMux.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
 		file := r.URL.Query().Get("file")
 		if utils.IsExist(file) {
@@ -102,7 +102,7 @@ func ExampleView() {
 	})
 
 	// 下载文件
-	http.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Request) {
+	serveMux.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
 		file := r.URL.Query().Get("file")
 		if utils.IsExist(file) {

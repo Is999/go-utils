@@ -11,46 +11,20 @@ import (
 	"time"
 )
 
-func TestResponse(t *testing.T) {
-	// 退出
-	exit := make(chan os.Signal)
+var serveMux = http.NewServeMux()
 
-	// 请求该路由退出
-	// http://localhost:54333/response/exit
-	http.HandleFunc("/response/exit", func(w http.ResponseWriter, r *http.Request) {
-		// 退出信号
-		exit <- syscall.Signal(1)
-	})
-
-	// 响应html、xml、text、file、image
-	// http://localhost:54333/response/html
-	// http://localhost:54333/response/xml
-	// http://localhost:54333/response/text
-	// http://localhost:54333/response/show?file=go.mod
-	// http://localhost:54333/response/show?file=golang_icon.png
-	// http://localhost:54333/response/download?file=go.mod
-	// http://localhost:54333/response/download?file=golang_icon.png
-	ExampleView()
-
-	// 响应json
-	// http://localhost:54333/response/json
-	ExampleJsonResp()
-
-	// 重定向
-	// http://localhost:54333/response/redirect
-	ExampleRedirect()
-
+func httpServer(addr string, header http.Handler, exit chan os.Signal) {
 	//使用默认路由创建 http server
 	srv := http.Server{
-		Addr:    ":54333",
-		Handler: http.DefaultServeMux,
+		Addr:    addr,
+		Handler: header,
 	}
 
 	//监听 Ctrl+C 信号
 	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		timer := time.NewTimer(5 * time.Second)
+		timer := time.NewTimer(30 * time.Second)
 		for {
 			select {
 			case <-exit:
@@ -73,4 +47,37 @@ func TestResponse(t *testing.T) {
 	if err != nil {
 		fmt.Println("HTTP server failed to start:", err)
 	}
+
+}
+
+func TestResponse(t *testing.T) {
+	// 退出
+	exit := make(chan os.Signal)
+
+	// 请求该路由退出
+	// http://localhost:54333/response/exit
+	serveMux.HandleFunc("/response/exit", func(w http.ResponseWriter, r *http.Request) {
+		// 退出信号
+		exit <- syscall.Signal(1)
+	})
+
+	// 响应html、xml、text、file、image
+	// http://localhost:54333/response/html
+	// http://localhost:54333/response/xml
+	// http://localhost:54333/response/text
+	// http://localhost:54333/response/show?file=go.mod
+	// http://localhost:54333/response/show?file=golang_icon.png
+	// http://localhost:54333/response/download?file=go.mod
+	// http://localhost:54333/response/download?file=golang_icon.png
+	ExampleView()
+
+	// 响应json
+	// http://localhost:54333/response/json
+	ExampleJsonResp()
+
+	// 重定向
+	// http://localhost:54333/response/redirect
+	ExampleRedirect()
+
+	httpServer(":54333", serveMux, exit)
 }
