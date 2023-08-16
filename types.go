@@ -9,7 +9,7 @@ type Signed interface {
 
 // Unsigned 无符号整数
 type Unsigned interface {
-	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
+	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr
 }
 
 // Integer 整数
