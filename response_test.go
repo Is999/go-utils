@@ -50,7 +50,7 @@ func TestResponse(t *testing.T) {
 	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		timer := time.NewTimer(3 * time.Minute)
+		timer := time.NewTimer(5 * time.Second)
 		for {
 			select {
 			case <-exit:
