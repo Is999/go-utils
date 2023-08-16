@@ -1,7 +1,6 @@
 package utils_test
 
 import (
-	"context"
 	"fmt"
 	"github.com/Is999/go-utils"
 	"io"
@@ -9,52 +8,13 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"reflect"
 	"syscall"
 	"testing"
-	"time"
 )
 
 var apiUrl = "http://localhost:54334"
-
-func curlResponse(exit chan os.Signal, header http.Handler) {
-	//使用默认路由创建 http server
-	srv := http.Server{
-		Addr:    ":54334",
-		Handler: header,
-	}
-
-	//监听 Ctrl+C 信号
-	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		timer := time.NewTimer(30 * time.Second)
-		for {
-			select {
-			case <-exit:
-				fmt.Println("Exit...")
-				srv.Shutdown(context.Background())
-			case <-timer.C:
-				fmt.Println("Delayed 5s Exit...")
-				//使用context控制srv.Shutdown的超时时间
-				//ctx, _ := context.WithTimeout(context.Background(), time.Second)
-				srv.Shutdown(context.Background())
-			default:
-				time.Sleep(time.Second)
-				fmt.Println("default 1s...")
-			}
-		}
-	}()
-
-	// 启动HTTP服务器，监听在指定端口
-	err := srv.ListenAndServe()
-	if err != nil {
-		fmt.Println("HTTP server failed to start:", err)
-	}
-
-}
 
 func setLogConfig() {
 	// 日志等级
@@ -109,7 +69,7 @@ func TestGet(t *testing.T) {
 			utils.JsonResp[User](w).Success(10000, user)
 		})
 
-		curlResponse(exit, serveMux)
+		httpServer(":54334", serveMux, exit)
 	}()
 
 	// 关闭启动的http服务
@@ -301,7 +261,7 @@ func TestPost(t *testing.T) {
 			}
 		})
 
-		curlResponse(exit, serveMux)
+		httpServer(":54334", serveMux, exit)
 	}()
 
 	// 关闭启动的http服务
@@ -500,7 +460,7 @@ func TestPostForm(t *testing.T) {
 			}
 		})
 
-		curlResponse(exit, serveMux)
+		httpServer(":54334", serveMux, exit)
 	}()
 
 	// 关闭启动的http服务
@@ -658,7 +618,7 @@ func TestPostFile(t *testing.T) {
 			}
 		})
 
-		curlResponse(exit, serveMux)
+		httpServer(":54334", serveMux, exit)
 	}()
 
 	// 关闭启动的http服务
