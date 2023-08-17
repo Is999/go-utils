@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bytes"
-	"errors"
 )
 
 // Pkcs7Padding 填充
@@ -18,13 +17,13 @@ func Pkcs7Padding(data []byte, blockSize int) []byte {
 func Pkcs7UnPadding(data []byte) ([]byte, error) {
 	length := len(data)
 	if length == 0 {
-		return nil, errors.New("Pkcs7UnPadding() data 参数长度必须大于0！")
+		return nil, Error("Pkcs7UnPadding() data 参数长度必须大于0！")
 	}
 	//获取填充的个数
 	unPadding := int(data[length-1])
 	end := length - unPadding
 	if end < 0 {
-		return nil, errors.New("Pkcs7UnPadding() data 参数长度异常！")
+		return nil, Error("Pkcs7UnPadding() data 参数长度异常！")
 	}
 	return data[:end], nil
 }

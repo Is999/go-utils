@@ -32,14 +32,14 @@ func NewCipher(key string, block CipherBlock, isRandIV bool) (*Cipher, error) {
 	c := &Cipher{
 		isRandIV: isRandIV,
 	}
-	if err := c.setKey(key, block); err != nil {
+	if err := c.SetKey(key, block); err != nil {
 		return nil, Wrap(err)
 	}
 	return c, nil
 }
 
-// setKey 设置秘钥
-func (c *Cipher) setKey(key string, block CipherBlock) (err error) {
+// SetKey 设置秘钥
+func (c *Cipher) SetKey(key string, block CipherBlock) (err error) {
 	switch len(key) {
 	default:
 		return Error("AES秘钥的长度只能是16、24或32字节，DES秘钥的长度只能是8字节，3DES秘钥的长度只能是24字节。 当前预设置的秘钥[%s]长度: %d", key, len(key))
@@ -56,17 +56,17 @@ func (c *Cipher) setKey(key string, block CipherBlock) (err error) {
 	return
 }
 
-// isSetKey 是否设置了key
-func (c *Cipher) isSetKey() bool {
+// IsSetKey 是否设置了key
+func (c *Cipher) IsSetKey() bool {
 	if len(c.key) == 0 || c.block == nil {
 		return false
 	}
 	return true
 }
 
-// check 校验key 和 iv
-func (c *Cipher) check() error {
-	if !c.isSetKey() {
+// Check 校验key 和 iv
+func (c *Cipher) Check() error {
+	if !c.IsSetKey() {
 		return Error("请先设置秘钥")
 	}
 
@@ -84,7 +84,7 @@ func (c *Cipher) check() error {
 
 // SetIv 加密偏移量
 func (c *Cipher) SetIv(iv string) error {
-	if !c.isSetKey() {
+	if !c.IsSetKey() {
 		return Error("请先设置秘钥")
 	}
 
@@ -138,7 +138,7 @@ func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptCBC 加密
 func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 	// 校验设置
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return nil, Wrap(err)
 	}
 
@@ -172,7 +172,7 @@ func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 // DecryptCBC 解密
 func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 	// 校验设置
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return nil, Wrap(err)
 	}
 
@@ -209,7 +209,7 @@ func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptCTR 加密
 func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 	// 校验设置
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return nil, Wrap(err)
 	}
 
@@ -243,7 +243,7 @@ func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 // DecryptCTR 解密
 func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
 	// 校验设置
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return nil, Wrap(err)
 	}
 
@@ -280,7 +280,7 @@ func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptCFB 加密
 func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 	// 校验设置
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return nil, Wrap(err)
 	}
 
@@ -314,7 +314,7 @@ func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 // DecryptCFB 解密
 func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	// 校验设置
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return nil, Wrap(err)
 	}
 
@@ -351,7 +351,7 @@ func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptOFB 加密
 func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 	// 校验设置
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return nil, Wrap(err)
 	}
 
@@ -385,7 +385,7 @@ func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 // DecryptOFB 解密
 func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	// 校验设置
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return nil, Wrap(err)
 	}
 
@@ -454,6 +454,7 @@ func (c *Cipher) Encrypt(data string, mode McryptMode, encode Encode, padding Pa
 	if err != nil {
 		return "", Wrap(err)
 	}
+
 	return encode(encrypt), nil
 }
 
@@ -491,5 +492,5 @@ func (c *Cipher) Decrypt(encrypt string, mode McryptMode, decode Decode, unPaddi
 		return "", Error("错误的解密模式")
 	}
 
-	return string(decrypt), err
+	return string(decrypt), Wrap(err)
 }

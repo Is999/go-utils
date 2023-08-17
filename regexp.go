@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -174,21 +173,21 @@ func Account(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
-		return fmt.Errorf("长度在%d-%d之间", min, max)
+		return Error("长度在%d-%d之间", min, max)
 	}
 
 	// 不能连续出现下滑线'_'两次或两次以上"
 	reg := regexp.MustCompile(`(_{2,})`)
 	s := reg.FindString(value)
 	if s != "" {
-		return errors.New("不能连续出现下滑线'_'两次或两次以上")
+		return Error("不能连续出现下滑线'_'两次或两次以上")
 	}
 	matched, err := regexp.MatchString(fmt.Sprintf(`^[a-zA-Z][a-zA-Z0-9_]{%d,%d}$`, min, max), value)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	if !matched {
-		return fmt.Errorf("字母开头，允许字母数字下划线，长度在%d-%d之间", min, max)
+		return Error("字母开头，允许字母数字下划线，长度在%d-%d之间", min, max)
 	}
 	return nil
 }
@@ -198,15 +197,15 @@ func PassWord(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
-		return fmt.Errorf("长度在%d-%d之间", min, max)
+		return Error("长度在%d-%d之间", min, max)
 	}
 
 	matched, err := regexp.MatchString(fmt.Sprintf(`^\w{%d,%d}$`, min, max), value)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	if !matched {
-		return fmt.Errorf("允许字母数字下划线，长度在%d-%d之间", min, max)
+		return Error("允许字母数字下划线，长度在%d-%d之间", min, max)
 	}
 	return nil
 }
@@ -216,37 +215,37 @@ func PassWord2(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
-		return fmt.Errorf("长度在%d-%d之间", min, max)
+		return Error("长度在%d-%d之间", min, max)
 	}
 
 	// 是否包含小写字母
 	reg := regexp.MustCompile(`([a-z])`)
 	s := reg.FindString(value)
 	if s == "" {
-		return errors.New("必须包含小写字母")
+		return Error("必须包含小写字母")
 	}
 
 	// 是否包含大写字母
 	reg = regexp.MustCompile(`([A-Z])`)
 	s = reg.FindString(value)
 	if s == "" {
-		return errors.New("必须包含大写字母")
+		return Error("必须包含大写字母")
 	}
 
 	// 是否包含数字
 	reg = regexp.MustCompile(`([0-9])`)
 	s = reg.FindString(value)
 	if s == "" {
-		return errors.New("必须包含数字")
+		return Error("必须包含数字")
 	}
 
 	// 匹配表达式
 	matched, err := regexp.MatchString(fmt.Sprintf(`^[a-zA-Z0-9]{%d,%d}$`, min, max), value)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	if !matched {
-		return fmt.Errorf("必须包含大小写字母和数字的组合，不能使用特殊字符，长度在%d-%d之间", min, max)
+		return Error("必须包含大小写字母和数字的组合，不能使用特殊字符，长度在%d-%d之间", min, max)
 	}
 	return nil
 }
@@ -256,37 +255,37 @@ func PassWord3(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
-		return fmt.Errorf("长度在%d-%d之间", min, max)
+		return Error("长度在%d-%d之间", min, max)
 	}
 
 	// 是否包含小写字母
 	reg := regexp.MustCompile(`([a-z])`)
 	s := reg.FindString(value)
 	if s == "" {
-		return errors.New("必须包含小写字母")
+		return Error("必须包含小写字母")
 	}
 
 	// 是否包含大写字母
 	reg = regexp.MustCompile(`([A-Z])`)
 	s = reg.FindString(value)
 	if s == "" {
-		return errors.New("必须包含大写字母")
+		return Error("必须包含大写字母")
 	}
 
 	// 是否包含数字
 	reg = regexp.MustCompile(`([0-9])`)
 	s = reg.FindString(value)
 	if s == "" {
-		return errors.New("必须包含数字")
+		return Error("必须包含数字")
 	}
 
 	// 匹配表达式
 	matched, err := regexp.MatchString(fmt.Sprintf(`^.{%d,%d}$`, min, max), value)
 	if err != nil {
-		return err
+		return Wrap(err)
 	}
 	if !matched {
-		return fmt.Errorf("必须包含大小写字母和数字的组合，可以使用特殊字符，长度在%d-%d之间", min, max)
+		return Error("必须包含大小写字母和数字的组合，可以使用特殊字符，长度在%d-%d之间", min, max)
 	}
 	return nil
 }

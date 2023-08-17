@@ -11,18 +11,19 @@ type RuntimeInfo struct {
 }
 
 // GetRuntimeInfo 获取运行时行号、方法名、文件地址
-func GetRuntimeInfo(skip int) RuntimeInfo {
-	var info RuntimeInfo
+func GetRuntimeInfo(skip int) *RuntimeInfo {
+	info := new(RuntimeInfo)
 	pc, file, line, ok := runtime.Caller(skip)
 	if !ok {
+		info.File = "???"
+		info.Line = 0
 		return info
 	}
 
 	fPC := runtime.FuncForPC(pc)
-	info = RuntimeInfo{
-		File: file,
-		Func: fPC.Name(),
-		Line: line,
-	}
+
+	info.File = file
+	info.Line = line
+	info.Func = fPC.Name()
 	return info
 }

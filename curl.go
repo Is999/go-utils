@@ -75,6 +75,9 @@ type Curl struct {
 	// dump 模式：使用httputil包下的 DumpRequestOut, DumpResponse 记录请求和响应的详细信息
 	dump bool
 
+	// 打印默认日志（INFO及以下级别日志: true 打印， false 禁止打印
+	defLogOutput bool
+
 	// 日志
 	Logger *slog.Logger
 }
@@ -102,9 +105,20 @@ func NewCurl() *Curl {
 		requestId:          "",
 		maxRetry:           2,
 		dump:               false,
+		defLogOutput:       false,
 	}
+	// set Content-Type
 	c.SetContentType("application/json")
+
+	// set X-Request-Id Or Logger
 	c.SetRequestId()
+
+	return c
+}
+
+// SetDefLogOutput 打印默认日志（INFO及以下级别日志: true 打印， false 禁止打印
+func (c *Curl) SetDefLogOutput(enable bool) *Curl {
+	c.defLogOutput = enable
 	return c
 }
 
@@ -430,8 +444,10 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		c.SetRequestId()
 	}
 
-	// 记录请求日志
-	c.Logger.Debug("HTTP START", "time", t.Format(MicrosecondDash))
+	// Debug 日志
+	if c.defLogOutput {
+		c.Logger.Debug("HTTP START", "time", t.Format(MicrosecondDash))
+	}
 
 	var (
 		req  *http.Request
@@ -446,15 +462,23 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 				return
 			}
 
-			c.Logger.Debug("Close Response Body")
+			// Debug 日志
+			if c.defLogOutput {
+				c.Logger.Debug("Close Response Body")
+			}
+
 			if err := resp.Body.Close(); err != nil {
-				c.Logger.Error("Body.Close()", "err", err.Error())
+				c.Logger.Error("Body.Close()", "err", err.Error()) // Error 日志
 			}
 		}()
 
 		// 执行 done
 		if c.done != nil {
-			c.Logger.Debug("done()")
+			// Debug 日志
+			if c.defLogOutput {
+				c.Logger.Debug("done()")
+			}
+
 			c.done(c.cli, req, resp)
 		}
 	}()
@@ -467,13 +491,21 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 设置 header
 	if c.header != nil && len(c.header) > 0 {
-		c.Logger.Debug("set header")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("set header")
+		}
+
 		req.Header = c.header
 	}
 
 	// 设置 Cookie
 	if c.cookies != nil && len(c.cookies) > 0 {
-		c.Logger.Debug("AddCookie()")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("AddCookie()")
+		}
+
 		for _, cookie := range c.cookies {
 			req.AddCookie(cookie)
 		}
@@ -481,27 +513,35 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 设置 BasicAuth 认证
 	if c.username != "" && c.password != "" {
-		c.Logger.Debug("SetBasicAuth()")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("SetBasicAuth()")
+		}
+
 		req.SetBasicAuth(c.username, c.password)
 	}
 
 	// 在发送请求之前对Request处理方法
 	if c.request != nil {
-		c.Logger.Debug("request()")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("request()")
+		}
+
 		if err = c.request(req); err != nil {
 			return Wrap(err)
 		}
 	}
 
 	// 记录请求日志
-	if slog.Default().Enabled(context.Background(), slog.LevelInfo) {
+	if c.defLogOutput && slog.Default().Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
 			// 使用httputil.DumpRequestOut记录日志
 			dump, err := httputil.DumpRequestOut(req, true)
 			if err != nil {
 				return Wrap(err)
 			}
-			c.Logger.Info("httputil.DumpRequestOut()", "request", string(dump))
+			c.Logger.Info("httputil.DumpRequestOut()", "request", string(dump)) // Info 日志
 		} else {
 			// 只记录关键性日志
 			var b strings.Builder
@@ -516,13 +556,17 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 				}
 				b.Write(reqBody)
 			}
-			c.Logger.Info("DrainBody(req.Body)", "body", b.String())
+			c.Logger.Info("DrainBody(req.Body)", "body", b.String()) // Info 日志
 		}
 	}
 
 	// 如果Client未初始化进行初始化
 	if c.cli == nil {
-		c.Logger.Debug("Init Client")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("Init Client")
+		}
+
 		c.cli = &http.Client{}
 	}
 
@@ -531,12 +575,20 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 初始化Transport
 	if c.cli.Transport == nil {
-		c.Logger.Debug("Init Transport")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("Init Transport")
+		}
+
 		tr := &http.Transport{}
 
 		// 设置代理
 		if len(c.proxyURL) > 0 {
-			c.Logger.Debug("ProxyURL()")
+			// Debug 日志
+			if c.defLogOutput {
+				c.Logger.Debug("ProxyURL()")
+			}
+
 			if err = ProxyURL(tr, c.proxyURL); err != nil {
 				return Wrap(err)
 			}
@@ -544,7 +596,11 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 		// 跳过https不安全验证
 		if c.insecureSkipVerify {
-			c.Logger.Debug("InsecureSkipVerify")
+			// Debug 日志
+			if c.defLogOutput {
+				c.Logger.Debug("InsecureSkipVerify")
+			}
+
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
@@ -553,7 +609,11 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 		// 根证书
 		if len(c.rootCAs) > 0 {
-			c.Logger.Debug("RootCAs()")
+			// Debug 日志
+			if c.defLogOutput {
+				c.Logger.Debug("RootCAs()")
+			}
+
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
@@ -565,7 +625,11 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 		// 证书
 		if len(c.cert) > 0 && len(c.key) > 0 {
-			c.Logger.Debug("Certificate()")
+			// Debug 日志
+			if c.defLogOutput {
+				c.Logger.Debug("Certificate()")
+			}
+
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
@@ -580,7 +644,11 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 在发送请求之前对Client处理方法
 	if c.client != nil {
-		c.Logger.Debug("client()")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("client()")
+		}
+
 		err = c.client(c.cli)
 		if err != nil {
 			return Wrap(err)
@@ -592,7 +660,10 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	maxRetry = Ternary(maxRetry > 5, 5, maxRetry)
 
 	t1 := time.Now()
-	c.Logger.Debug("client start", "time", t1.Format(MicrosecondDash))
+	// Debug 日志
+	if c.defLogOutput {
+		c.Logger.Debug("client start", "time", t1.Format(MicrosecondDash))
+	}
 
 	// 发送请求
 	for i := 1; i <= maxRetry; i++ {
@@ -601,13 +672,18 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			// 请求成功后终止
 			break
 		}
+
 		if i < maxRetry {
-			c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error())
-			time.Sleep(time.Millisecond * time.Duration(2<<(2*i))) // 间隔 8, 32, 128, 512 毫秒
+			c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error()) // Warn 日志
+			time.Sleep(time.Millisecond * time.Duration(2<<(2*i)))                                    // 间隔 8, 32, 128, 512 毫秒
 		}
 	}
 
-	c.Logger.Debug("client end", " time spent", time.Since(t1).String())
+	// Debug 日志
+	if c.defLogOutput {
+		c.Logger.Debug("client end", " time spent", time.Since(t1).String())
+	}
+
 	if err != nil {
 		return Error("client.Do() Retry %d times err: %v", maxRetry, err.Error())
 	}
@@ -616,14 +692,14 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	var respBody []byte
 
 	// 记录返回日志
-	if slog.Default().Enabled(context.Background(), slog.LevelInfo) {
+	if c.defLogOutput && slog.Default().Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
 			// 使用httputil.DumpResponse记录返回信息
 			dump, err := httputil.DumpResponse(resp, true)
 			if err != nil {
 				return Wrap(err)
 			}
-			c.Logger.Info("httputil.DumpResponse()", "response", string(dump))
+			c.Logger.Info("httputil.DumpResponse()", "response", string(dump)) // Info 日志
 		} else {
 			// 只记录返回的关键信息
 			var b strings.Builder
@@ -636,7 +712,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 				return Wrap(err)
 			}
 			b.Write(respBody)
-			c.Logger.Info("DrainBody(resp.Body)", "Body", b.String())
+			c.Logger.Info("DrainBody(resp.Body)", "Body", b.String()) // Info 日志
 		}
 	}
 
@@ -647,7 +723,11 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 在发送请求之后可以对Response处理方法
 	if c.response != nil {
-		c.Logger.Debug("response()")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("response()")
+		}
+
 		isDone, err := c.response(resp)
 		if err != nil {
 			return Wrap(err)
@@ -661,11 +741,15 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 在发送请求之后对Response.Body处理方法
 	if c.resolve != nil {
-		c.Logger.Debug("resolve()")
+		// Debug 日志
+		if c.defLogOutput {
+			c.Logger.Debug("resolve()")
+		}
+
 		if respBody == nil {
 			// 读取body内容
 			var buf bytes.Buffer
-			//respBody, WrapError := io.ReadAll(resp.Body)
+			//respBody, err := io.ReadAll(resp.Body)
 			_, err = buf.ReadFrom(resp.Body)
 			if err != nil {
 				return Wrap(err)
@@ -677,7 +761,12 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			return Wrap(err)
 		}
 	}
-	c.Logger.Debug("HTTP END", "total time spent", time.Since(t).String())
+
+	// Debug 日志
+	if c.defLogOutput {
+		c.Logger.Debug("HTTP END", "total time spent", time.Since(t).String())
+	}
+
 	return nil
 }
 
@@ -709,7 +798,8 @@ func (c *Curl) Post(url string) (err error) {
 
 // PostForm 请求方式
 func (c *Curl) PostForm(url string) error {
-	return c.SetContentType("application/x-www-form-urlencoded").Send(http.MethodPost, url, strings.NewReader(c.params.Encode()))
+	return c.SetContentType("application/x-www-form-urlencoded").
+		Send(http.MethodPost, url, strings.NewReader(c.params.Encode()))
 }
 
 // Put 请求方式

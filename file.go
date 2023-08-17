@@ -195,7 +195,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 	// 深度模式或当前模式
 	if depth {
 		// 深度模式
-		err = filepath.WalkDir(path, fc)
+		err = Wrap(filepath.WalkDir(path, fc))
 	} else {
 		// 当前模式读取当前目录
 		entries, err := os.ReadDir(path)
@@ -249,7 +249,7 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error {
 			return Wrap(err)
 		}
 	}
-	return scan.Err()
+	return Wrap(scan.Err())
 }
 
 // Line 读取一行数据: 读取大文件大行数据性能略优于Scan
@@ -389,7 +389,7 @@ func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (in
 // Close 关闭文件
 func (f *WriteFile) Close() error {
 	if f.File != nil {
-		return f.File.Close()
+		return Wrap(f.File.Close())
 	}
 	return nil
 }
