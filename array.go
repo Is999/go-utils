@@ -1,6 +1,6 @@
 package utils
 
-// IsHas 检查s中是否存在v
+// IsHas 检查s中是否存在v。 1.21版本以上推荐使用标准库 slices.Contains(s,v)
 func IsHas[T Ordered](v T, s []T) bool {
 	for i := 0; i < len(s); i++ {
 		if v == s[i] {
@@ -20,7 +20,7 @@ func HasCount[T Ordered](v T, s []T) (count int) {
 	return
 }
 
-// Reverse 反转s
+// Reverse 反转s 1.21版本以上推荐使用标准库 slices.Reverse(s)
 func Reverse[T Ordered](s []T) []T {
 	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
 		s[i], s[j] = s[j], s[i]

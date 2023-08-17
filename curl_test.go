@@ -78,8 +78,8 @@ func TestGet(t *testing.T) {
 		exit <- syscall.Signal(1)
 	}()
 
-	// 创建一个curl
-	curl := utils.NewCurl()
+	// 创建一个curl，开启默认日志
+	curl := utils.NewCurl().SetDefLogOutput(true)
 
 	type args struct {
 		url         string
@@ -210,7 +210,7 @@ func TestGet(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.Get(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", err)
+				slog.Error(err.Error(), "trace", utils.Trace(err))
 				t.Errorf("TestGet() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -404,7 +404,7 @@ func TestPost(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.Post(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", err)
+				slog.Error(err.Error(), "trace", utils.Trace(err))
 				t.Errorf("TestPost() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -503,6 +503,9 @@ func TestPostForm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// 开启默认日志
+			curl.SetDefLogOutput(true)
+
 			// 设置请求ID
 			curl.SetRequestId()
 
@@ -531,7 +534,7 @@ func TestPostForm(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.PostForm(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", err)
+				slog.Error(err.Error(), "trace", utils.Trace(err))
 				t.Errorf("TestPostForm() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -711,7 +714,7 @@ func TestPostFile(t *testing.T) {
 
 			// 发送请求
 			if err = curl.Post(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", err)
+				slog.Error(err.Error(), "trace", utils.Trace(err))
 				t.Errorf("TestPostFile() error = %#v, wantErr %v", err, tt.wantErr)
 			}
 		})

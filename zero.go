@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bytes"
-	"errors"
 )
 
 // ZeroPadding 填充
@@ -18,7 +17,7 @@ func ZeroPadding(data []byte, blockSize int) []byte {
 func ZeroUnPadding(data []byte) ([]byte, error) {
 	length := len(data)
 	if length == 0 {
-		return nil, errors.New("ZeroUnPadding() data 参数长度必须大于0！")
+		return nil, Error("ZeroUnPadding() data 参数长度必须大于0！")
 	}
 
 	// 去除填充

@@ -1,6 +1,4 @@
-<div align="center">
-<h1>go-utils</h1>
-</div>
+# go-utils
 
 #### 介绍
 
@@ -14,6 +12,16 @@ golang 帮助函数
 #### 使用说明
 
 1. utils包中代码仅供参考，不建议用于商业生产，造成损失概不负责。
+1. 1.21 以下支持golang 1.18版本。
+1. 1.21 最低要求golang 1.21版本
+
+#### 变更
+
+1. 1.21 移除了Max、Min 两个函数，推荐使用golang 内置函数 max、min
+2. 1.21 移除了Logger 文件使用标准库中 log/slog
+3. 根据1.21版本 log/slog 增加了error文件添加了对错误包装和追踪
+4. utils中返回的error 统一使用了WrapError
+5. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
 
 # Go常用标准库方法及utils包帮助函数
 
@@ -1126,23 +1134,23 @@ func Round(value float64, precision int) float64
 
 ------
 
-#### func    [utils.Max](https://github.com/Is999/go-utils/blob/master/math.go#L40)
+#### func    [utils.Max](https://github.com/Is999/go-utils/blob/master/math.go#L40) (1.21移除)
 
 ```go
 func Max[T Number](nums ...T) T
 ```
 
-备注：返回nums中最大值。
+备注：返回nums中最大值。1.21 版本请使用内置max函数
 
 ------
 
-#### func    [utils.Min](https://github.com/Is999/go-utils/blob/master/math.go#L54)
+#### func    [utils.Min](https://github.com/Is999/go-utils/blob/master/math.go#L54)(1.21移除)
 
 ```go
 func Min[T Number](nums ...T) T
 ```
 
-备注：返回nums中最小值。
+备注：返回nums中最小值。1.21 版本请使用内置max函数
 
 ------
 
@@ -2131,7 +2139,7 @@ func HexDec(str string) (int64, error)
 func IsHas[T Ordered](v T, s []T) bool
 ```
 
-备注：检查s中是否存在v。
+备注：检查s中是否存在v。1.21版本以上推荐使用标准库 slices.Contains(s,v)
 
 ------
 
@@ -2159,7 +2167,7 @@ func HasCount[T Ordered](v T, s []T) (count int)
 func Reverse[T Ordered](s []T) []T
 ```
 
-备注：反转s。
+备注：反转s。1.21版本以上推荐使用标准库 slices.Reverse(s)
 
 ------
 
@@ -3657,7 +3665,7 @@ func UnTar(tarFile, destDir string) error
 
 ------
 
-## 14. 日志
+## 14. 日志(移除 1.21 推荐使用标准库 log/slog)
 
 > Debug 级别调试，Info 级别信息，Warning 级别警告，Error 级别错误，Fatal 级别致命错误，将调用 os.Exit(1) 退出程序
 
