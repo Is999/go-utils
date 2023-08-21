@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"github.com/Is999/go-utils/errors"
 	"os"
 	"strings"
 	"time"
@@ -20,10 +21,10 @@ type RSA struct {
 func NewRSA(pub, pri string, isFilePath ...bool) (*RSA, error) {
 	r := &RSA{}
 	if err := r.SetPublicKey(pub, isFilePath...); err != nil {
-		return r, Wrap(err)
+		return r, errors.Wrap(err)
 	}
 	if err := r.SetPrivateKey(pri, isFilePath...); err != nil {
-		return r, Wrap(err)
+		return r, errors.Wrap(err)
 	}
 	return r, nil
 }
@@ -32,7 +33,7 @@ func NewRSA(pub, pri string, isFilePath ...bool) (*RSA, error) {
 func NewPubRSA(pub string, isFilePath ...bool) (*RSA, error) {
 	r := &RSA{}
 	if err := r.SetPublicKey(pub, isFilePath...); err != nil {
-		return r, Wrap(err)
+		return r, errors.Wrap(err)
 	}
 	return r, nil
 }
@@ -41,7 +42,7 @@ func NewPubRSA(pub string, isFilePath ...bool) (*RSA, error) {
 func NewPriRSA(pri string, isFilePath ...bool) (*RSA, error) {
 	r := &RSA{}
 	if err := r.SetPrivateKey(pri, isFilePath...); err != nil {
-		return r, Wrap(err)
+		return r, errors.Wrap(err)
 	}
 	return r, nil
 }
@@ -56,7 +57,7 @@ func (r *RSA) SetPublicKey(publicKey string, isFilePath ...bool) error {
 	if isFilePath[0] {
 		content, err := os.ReadFile(publicKey)
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 		key = content
 	} else {
@@ -65,7 +66,7 @@ func (r *RSA) SetPublicKey(publicKey string, isFilePath ...bool) error {
 
 	block, _ := pem.Decode(key) // 将密钥解析成公钥实例
 	if block == nil || -1 == strings.Index(strings.ToUpper(block.Type), "PUBLIC") {
-		return Error("Public key error ")
+		return errors.New("Public key error ")
 	}
 
 	var (
@@ -81,12 +82,12 @@ func (r *RSA) SetPublicKey(publicKey string, isFilePath ...bool) error {
 	}
 
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	var ok bool
 	if r.pubKey, ok = pubInterface.(*rsa.PublicKey); !ok {
-		return Error("PublicKey 类型错误 ")
+		return errors.New("PublicKey 类型错误 ")
 	}
 
 	return nil
@@ -102,7 +103,7 @@ func (r *RSA) SetPrivateKey(privateKey string, isFilePath ...bool) error {
 	if isFilePath[0] {
 		content, err := os.ReadFile(privateKey)
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 		key = content
 	} else {
@@ -112,7 +113,7 @@ func (r *RSA) SetPrivateKey(privateKey string, isFilePath ...bool) error {
 	// 将密钥解析成私钥实例
 	block, _ := pem.Decode(key)
 	if block == nil || -1 == strings.Index(strings.ToUpper(block.Type), "PRIVATE") {
-		return Error("Private key error ")
+		return errors.New("Private key error ")
 	}
 
 	var (
@@ -128,12 +129,12 @@ func (r *RSA) SetPrivateKey(privateKey string, isFilePath ...bool) error {
 	}
 
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	var ok bool
 	if r.priKey, ok = priInterface.(*rsa.PrivateKey); !ok {
-		return Error("PrivateKey 类型错误 ")
+		return errors.New("PrivateKey 类型错误 ")
 	}
 
 	return nil
@@ -142,7 +143,7 @@ func (r *RSA) SetPrivateKey(privateKey string, isFilePath ...bool) error {
 // IsSetPublicKey 是否正确设置 PublicKey
 func (r *RSA) IsSetPublicKey() error {
 	if r.pubKey == nil {
-		return Error("Public Key is not set ")
+		return errors.New("Public Key is not set ")
 	}
 	return nil
 }
@@ -150,7 +151,7 @@ func (r *RSA) IsSetPublicKey() error {
 // IsSetPrivateKey 是否正确设置 PrivateKey
 func (r *RSA) IsSetPrivateKey() error {
 	if r.priKey == nil {
-		return Error("Private Key is not set ")
+		return errors.New("Private Key is not set ")
 	}
 	return nil
 }
@@ -161,11 +162,11 @@ func (r *RSA) IsSetPrivateKey() error {
 //	encode 编码方法
 func (r *RSA) Encrypt(data string, encode Encode) (string, error) {
 	if err := r.IsSetPublicKey(); err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	encrypt, err := rsa.EncryptPKCS1v15(rand.Reader, r.pubKey, []byte(data)) //RSA算法加密
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	return encode(encrypt), nil
 }
@@ -176,11 +177,11 @@ func (r *RSA) Encrypt(data string, encode Encode) (string, error) {
 //	decode 解码方法
 func (r *RSA) Decrypt(encrypt string, decode Decode) (string, error) {
 	if err := r.IsSetPrivateKey(); err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	ciphertext, err := decode(encrypt)
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	decrypt, err := rsa.DecryptPKCS1v15(rand.Reader, r.priKey, ciphertext) //RSA算法解密
 	return string(decrypt), nil
@@ -195,14 +196,14 @@ func (r *RSA) Decrypt(encrypt string, decode Decode) (string, error) {
 //	encode - 编码方法
 func (r *RSA) Sign(data string, hash crypto.Hash, encode Encode) (string, error) {
 	if err := r.IsSetPrivateKey(); err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	h := hash.New()
 	h.Write([]byte(data))
 	hashed := h.Sum(nil)
 	sign, err := rsa.SignPKCS1v15(rand.Reader, r.priKey, hash, hashed)
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	return encode(sign), nil
 }
@@ -217,11 +218,11 @@ func (r *RSA) Sign(data string, hash crypto.Hash, encode Encode) (string, error)
 //	decode 解码方法
 func (r *RSA) Verify(data, sign string, hash crypto.Hash, decode Decode) error {
 	if err := r.IsSetPublicKey(); err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	signByte, err := decode(sign)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	h := hash.New()
 	h.Write([]byte(data))
@@ -255,7 +256,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	// 使用RSA中的GenerateKey方法生成私钥
 	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
-		return nil, Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 
 	var fileName = make([]string, 2)
@@ -266,7 +267,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	} else {
 		privateStream, err = x509.MarshalPKCS8PrivateKey(privateKey)
 		if err != nil {
-			return nil, Wrap(err)
+			return nil, errors.Wrap(err)
 		}
 	}
 
@@ -284,14 +285,14 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	}
 	fPrivate, err := os.Create(fileName[1])
 	if err != nil {
-		return nil, Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 	defer fPrivate.Close()
 
 	// 通过pem将设置的数据进行编码
 	err = pem.Encode(fPrivate, &block1)
 	if err != nil {
-		return nil, Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 
 	/*
@@ -302,7 +303,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	if isPubPKCS8 {
 		publicStream, err = x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 		if err != nil {
-			return nil, Wrap(err)
+			return nil, errors.Wrap(err)
 		}
 	} else {
 		publicStream = x509.MarshalPKCS1PublicKey(&privateKey.PublicKey)
@@ -322,14 +323,14 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	}
 	fPublic, err := os.Create(fileName[0])
 	if err != nil {
-		return nil, Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 	defer fPublic.Close()
 
 	// 通过pem将设置的数据进行编码
 	err = pem.Encode(fPublic, &block2)
 	if err != nil {
-		return nil, Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 
 	return fileName, nil

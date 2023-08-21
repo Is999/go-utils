@@ -24,20 +24,18 @@ func httpServer(addr string, header http.Handler, exit chan os.Signal) {
 	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		timer := time.NewTimer(30 * time.Second)
+		timer := time.NewTimer(10 * time.Second)
 		for {
 			select {
 			case <-exit:
-				fmt.Println("Exit...")
+				fmt.Println(addr + " Exit...")
 				srv.Shutdown(context.Background())
 			case <-timer.C:
-				fmt.Println("Delayed 5s Exit...")
-				//使用context控制srv.Shutdown的超时时间
-				//ctx, _ := context.WithTimeout(context.Background(), time.Second)
+				fmt.Println(addr + " Delayed 10s Exit...")
 				srv.Shutdown(context.Background())
 			default:
 				time.Sleep(time.Second)
-				fmt.Println("default 1s...")
+				fmt.Println(addr + " Sleep 1s...")
 			}
 		}
 	}()

@@ -3,6 +3,7 @@ package utils_test
 import (
 	"fmt"
 	"github.com/Is999/go-utils"
+	"github.com/Is999/go-utils/errors"
 	"io"
 	"log/slog"
 	"mime"
@@ -98,7 +99,7 @@ func TestGet(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &utils.Body[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return utils.Wrap(err)
+					return errors.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -124,7 +125,7 @@ func TestGet(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &utils.Body[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return utils.Wrap(err)
+					return errors.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -150,7 +151,7 @@ func TestGet(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &utils.Body[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return utils.Wrap(err)
+					return errors.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -210,7 +211,7 @@ func TestGet(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.Get(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", utils.Trace(err))
+				slog.Error(err.Error(), "trace", errors.Trace(err))
 				t.Errorf("TestGet() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -290,7 +291,7 @@ func TestPost(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &utils.Body[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return utils.Wrap(err)
+					return errors.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -316,7 +317,7 @@ func TestPost(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &utils.Body[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return utils.Wrap(err)
+					return errors.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -342,7 +343,7 @@ func TestPost(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &utils.Body[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return utils.Wrap(err)
+					return errors.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -404,7 +405,7 @@ func TestPost(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.Post(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", utils.Trace(err))
+				slog.Error(err.Error(), "trace", errors.Trace(err))
 				t.Errorf("TestPost() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -487,7 +488,7 @@ func TestPostForm(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &utils.Body[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return utils.Wrap(err)
+					return errors.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -534,7 +535,7 @@ func TestPostForm(t *testing.T) {
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
 
 			if err := curl.PostForm(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", utils.Trace(err))
+				slog.Error(err.Error(), "trace", errors.Trace(err))
 				t.Errorf("TestPostForm() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -648,7 +649,7 @@ func TestPostFile(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &utils.Body[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return utils.Wrap(err)
+					return errors.Wrap(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -714,7 +715,7 @@ func TestPostFile(t *testing.T) {
 
 			// 发送请求
 			if err = curl.Post(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", utils.Trace(err))
+				slog.Error(err.Error(), "trace", errors.Trace(err))
 				t.Errorf("TestPostFile() error = %#v, wantErr %v", err, tt.wantErr)
 			}
 		})

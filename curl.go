@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/Is999/go-utils/errors"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -486,7 +487,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 实例 Request
 	req, err = http.NewRequest(method, url, body)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	// 设置 header
@@ -529,7 +530,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		}
 
 		if err = c.request(req); err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 	}
 
@@ -539,7 +540,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			// 使用httputil.DumpRequestOut记录日志
 			dump, err := httputil.DumpRequestOut(req, true)
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 			c.Logger.Info("httputil.DumpRequestOut()", "request", string(dump)) // Info 日志
 		} else {
@@ -552,7 +553,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 				var reqBody []byte
 				reqBody, req.Body, err = DrainBody(req.Body)
 				if err != nil {
-					return Wrap(err)
+					return errors.Wrap(err)
 				}
 				b.Write(reqBody)
 			}
@@ -590,7 +591,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			}
 
 			if err = ProxyURL(tr, c.proxyURL); err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 		}
 
@@ -619,7 +620,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			}
 
 			if err = RootCAs(tr.TLSClientConfig, c.rootCAs); err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 		}
 
@@ -635,7 +636,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			}
 
 			if err = Certificate(tr.TLSClientConfig, c.cert, c.key); err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 		}
 
@@ -651,7 +652,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 		err = c.client(c.cli)
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 	}
 
@@ -685,7 +686,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	if err != nil {
-		return Error("client.Do() Retry %d times err: %v", maxRetry, err.Error())
+		return errors.Errorf("client.Do() Retry %d times err: %v", maxRetry, err.Error())
 	}
 
 	// 返回body内容
@@ -697,7 +698,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			// 使用httputil.DumpResponse记录返回信息
 			dump, err := httputil.DumpResponse(resp, true)
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 			c.Logger.Info("httputil.DumpResponse()", "response", string(dump)) // Info 日志
 		} else {
@@ -709,7 +710,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			// 读取body内容
 			respBody, resp.Body, err = DrainBody(resp.Body)
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 			b.Write(respBody)
 			c.Logger.Info("DrainBody(resp.Body)", "Body", b.String()) // Info 日志
@@ -718,7 +719,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 判断状态码是否是200正常状态及已标记的状态码
 	if resp.StatusCode != 200 && !IsHas(resp.StatusCode, c.statusCode) {
-		return Error("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
+		return errors.Errorf("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
 	}
 
 	// 在发送请求之后可以对Response处理方法
@@ -730,7 +731,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 		isDone, err := c.response(resp)
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 
 		// isDone 返回true 终止执行后续代码; 返回false 继续执行后续代码
@@ -752,13 +753,13 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			//respBody, err := io.ReadAll(resp.Body)
 			_, err = buf.ReadFrom(resp.Body)
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 			respBody = buf.Bytes()
 		}
 
 		if err = c.resolve(respBody); err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 	}
 
@@ -782,7 +783,7 @@ func (c *Curl) CloseIdleConnections() {
 func (c *Curl) Get(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	return c.Send(http.MethodGet, url, c.body)
 }
@@ -791,7 +792,7 @@ func (c *Curl) Get(url string) (err error) {
 func (c *Curl) Post(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	return c.Send(http.MethodPost, url, c.body)
 }
@@ -806,7 +807,7 @@ func (c *Curl) PostForm(url string) error {
 func (c *Curl) Put(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	return c.Send(http.MethodPut, url, c.body)
 }
@@ -815,7 +816,7 @@ func (c *Curl) Put(url string) (err error) {
 func (c *Curl) Patch(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	return c.Send(http.MethodPatch, url, c.body)
 }
@@ -829,7 +830,7 @@ func (c *Curl) Head(url string) error {
 func (c *Curl) Delete(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	return c.Send(http.MethodDelete, url, c.body)
 }
@@ -838,7 +839,7 @@ func (c *Curl) Delete(url string) (err error) {
 func (c *Curl) Options(url string) (err error) {
 	url, err = UrlPath(url, c.params)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	return c.Send(http.MethodOptions, url, c.body)
 }
@@ -851,10 +852,10 @@ func DrainBody(b io.ReadCloser) ([]byte, io.ReadCloser, error) {
 	}
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(b); err != nil {
-		return nil, b, Wrap(err)
+		return nil, b, errors.Wrap(err)
 	}
 	if err := b.Close(); err != nil {
-		return nil, b, Wrap(err)
+		return nil, b, errors.Wrap(err)
 	}
 	return buf.Bytes(), io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
@@ -866,7 +867,7 @@ func RootCAs(config *tls.Config, rootCAs string) error {
 	// 根证书
 	cert, err := os.ReadFile(rootCAs)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	// 证书池
 	certPool := x509.NewCertPool()
@@ -884,7 +885,7 @@ func Certificate(config *tls.Config, certFile, keyFile string) error {
 	// 加载证书
 	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	config.Certificates = []tls.Certificate{certificate}
@@ -895,7 +896,7 @@ func Certificate(config *tls.Config, certFile, keyFile string) error {
 func ProxyURL(transport *http.Transport, proxyURL string) error {
 	proxy, err := url.Parse(proxyURL)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	transport.Proxy = http.ProxyURL(proxy)
 	return nil
@@ -1002,12 +1003,12 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 			if len(values) > 1 {
 				for _, value := range values {
 					if err := writer.WriteField(key, value); err != nil {
-						return nil, "", Wrap(err)
+						return nil, "", errors.Wrap(err)
 					}
 				}
 			} else {
 				if err := writer.WriteField(key, values[0]); err != nil {
-					return nil, "", Wrap(err)
+					return nil, "", errors.Wrap(err)
 				}
 			}
 		}
@@ -1018,14 +1019,14 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 		//打开要上传的文件
 		file, err := os.Open(filePath)
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 		defer file.Close()
 
 		// 使用给出的属性名fieldName和文件名filePath创建一个新的form-data头
 		part, err := writer.CreateFormFile(fieldName, filePath)
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 
 		_, err = io.Copy(part, file)
@@ -1037,19 +1038,19 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 		if len(files) > 1 {
 			for _, file := range files {
 				if err := createFormFile(writer, fieldName, file); err != nil {
-					return nil, "", Wrap(err)
+					return nil, "", errors.Wrap(err)
 				}
 			}
 		} else {
 			if err := createFormFile(writer, fieldName, files[0]); err != nil {
-				return nil, "", Wrap(err)
+				return nil, "", errors.Wrap(err)
 			}
 		}
 	}
 
 	// 关闭
 	if err := writer.Close(); err != nil {
-		return nil, "", Wrap(err)
+		return nil, "", errors.Wrap(err)
 	}
 
 	return b, writer.FormDataContentType(), nil
