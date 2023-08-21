@@ -2,7 +2,7 @@ package utils
 
 import (
 	"bufio"
-	"errors"
+	"github.com/Is999/go-utils/errors"
 	"io"
 	"io/fs"
 	"mime"
@@ -42,7 +42,7 @@ func IsExist(path string) bool {
 func Size(filepath string) (int64, error) {
 	f, err := os.Stat(filepath)
 	if err != nil {
-		return 0, Wrap(err)
+		return 0, errors.Wrap(err)
 	}
 	return f.Size(), nil
 }
@@ -55,27 +55,27 @@ func Copy(src, dst string) error {
 	// 打开source文件
 	f1, err := os.Open(src)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	defer f1.Close()
 
 	// 获取文件权限
 	stat, err := f1.Stat()
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	// 创建或打开拷贝文件
 	f2, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, stat.Mode())
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	defer f2.Close()
 
 	// 拷贝文件
 	_, err = io.Copy(f2, f1)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	return nil
 }
@@ -124,21 +124,21 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 					for i := 0; i < len(regs); i++ {
 						compile, err := regexp.Compile(regs[i])
 						if err != nil {
-							return nil, Error("格式错误的表达式[%s]: %s", regs[i], err.Error())
+							return nil, errors.Errorf("格式错误的表达式[%s]: %s", regs[i], err.Error())
 						}
 						compiles = append(compiles, compile)
 					}
 				}
 			}
 		} else {
-			return files, Error("match第一个参数[%s]错误的规则", match[0])
+			return files, errors.Errorf("match第一个参数[%s]错误的规则", match[0])
 		}
 	}
 
 	// 处理文件匹配
 	var fc fs.WalkDirFunc = func(filePath string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 
 		if d.IsDir() {
@@ -179,13 +179,13 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 		if ok {
 			info, err := d.Info()
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 
 			// 获取绝对路径
 			absPath, err := filepath.Abs(filePath)
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 			files = append(files, FileInfo{info, absPath})
 		}
@@ -195,12 +195,12 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 	// 深度模式或当前模式
 	if depth {
 		// 深度模式
-		err = Wrap(filepath.WalkDir(path, fc))
+		err = errors.Wrap(filepath.WalkDir(path, fc))
 	} else {
 		// 当前模式读取当前目录
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return files, Wrap(err)
+			return files, errors.Wrap(err)
 		}
 
 		// 处理目录路径末尾路径分割符
@@ -246,10 +246,10 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error {
 			if err == DONE {
 				return nil
 			}
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 	}
-	return Wrap(scan.Err())
+	return errors.Wrap(scan.Err())
 }
 
 // Line 读取一行数据: 读取大文件大行数据性能略优于Scan
@@ -271,13 +271,13 @@ func Line(r io.Reader, handle ReadLine) error {
 				if err == DONE {
 					return nil
 				}
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 		} else {
 			if err == io.EOF {
 				err = nil
 			}
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 	}
 }
@@ -292,7 +292,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 				if err == DONE {
 					err = nil
 				}
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 		}
 
@@ -300,7 +300,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 			if err == io.EOF {
 				err = nil
 			}
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 		if n == 0 {
 			return nil
@@ -329,7 +329,7 @@ func NewWrite(fileName string, isAppend bool, perm ...os.FileMode) (*WriteFile, 
 		// 创建目录
 		err := os.MkdirAll(path, premDir)
 		if err != nil {
-			return nil, Wrap(err)
+			return nil, errors.Wrap(err)
 		}
 	}
 
@@ -344,7 +344,7 @@ func NewWrite(fileName string, isAppend bool, perm ...os.FileMode) (*WriteFile, 
 	// 打开文件没有则创建
 	file, err := os.OpenFile(fileName, flag, permFile)
 	if err != nil {
-		return nil, Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 
 	return &WriteFile{File: file}, nil
@@ -389,7 +389,7 @@ func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (in
 // Close 关闭文件
 func (f *WriteFile) Close() error {
 	if f.File != nil {
-		return Wrap(f.File.Close())
+		return errors.Wrap(f.File.Close())
 	}
 	return nil
 }
@@ -443,7 +443,7 @@ func FileType(f *os.File) (string, error) {
 		// 重置文件指针到原点
 		_, err := f.Seek(0, io.SeekStart)
 		if err != nil {
-			return "", Wrap(err)
+			return "", errors.Wrap(err)
 		}
 	}
 	return ctype, nil

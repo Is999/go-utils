@@ -1,6 +1,9 @@
 package utils
 
-import "strconv"
+import (
+	"github.com/Is999/go-utils/errors"
+	"strconv"
+)
 
 // Str2Int string 转 int，失败返回零值。
 func Str2Int(s string) (i int) {
@@ -24,7 +27,7 @@ func Str2Float(s string) (i float64) {
 func BinOct(str string) (string, error) {
 	i, err := strconv.ParseInt(str, 2, 0)
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	return strconv.FormatInt(i, 8), nil
 }
@@ -38,7 +41,7 @@ func BinDec(str string) (int64, error) {
 func BinHex(str string) (string, error) {
 	i, err := strconv.ParseInt(str, 2, 0)
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	return strconv.FormatInt(i, 16), nil
 }
@@ -47,7 +50,7 @@ func BinHex(str string) (string, error) {
 func OctBin(data string) (string, error) {
 	i, err := strconv.ParseInt(data, 8, 0)
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	return strconv.FormatInt(i, 2), nil
 }
@@ -61,7 +64,7 @@ func OctDec(str string) (int64, error) {
 func OctHex(data string) (string, error) {
 	i, err := strconv.ParseInt(data, 8, 0)
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	return strconv.FormatInt(i, 16), nil
 }
@@ -85,7 +88,7 @@ func DecHex(number int64) string {
 func HexBin(data string) (string, error) {
 	i, err := strconv.ParseInt(data, 16, 0)
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	return strconv.FormatInt(i, 2), nil
 }
@@ -94,7 +97,7 @@ func HexBin(data string) (string, error) {
 func HexOct(str string) (string, error) {
 	i, err := strconv.ParseInt(str, 16, 0)
 	if err != nil {
-		return "", Wrap(err)
+		return "", errors.Wrap(err)
 	}
 	return strconv.FormatInt(i, 8), nil
 }

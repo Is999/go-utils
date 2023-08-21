@@ -2,6 +2,7 @@ package utils
 
 import (
 	"archive/zip"
+	"github.com/Is999/go-utils/errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,13 +15,13 @@ import (
 //	files 待打包压缩文件【夹】
 func Zip(zipFile string, files []string) error {
 	if !strings.HasSuffix(zipFile, ".zip") {
-		return Error("文件名错误：非.zip文件")
+		return errors.New("文件名错误：非.zip文件")
 	}
 
 	// 创建 zip 文件
 	file, err := os.Create(zipFile)
 	if err != nil {
-		return Error("failed to create zip file: %v", err)
+		return errors.Wrap(err)
 	}
 	defer file.Close()
 
@@ -32,7 +33,7 @@ func Zip(zipFile string, files []string) error {
 		// 将文件添加到 zip 文件
 		err = AddFileToZip(zipWriter, filePath, "")
 		if err != nil {
-			return Error("failed to add file %s to zip: %v", filePath, err)
+			return errors.Wrap(err)
 		}
 	}
 
@@ -46,7 +47,7 @@ func Zip(zipFile string, files []string) error {
 func AddFileToZip(zipWriter *zip.Writer, fileToCompress string, baseDir string) error {
 	fileInfo, err := os.Stat(fileToCompress)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	if fileInfo.IsDir() {
@@ -63,7 +64,7 @@ func addSingleFileToZip(zipWriter *zip.Writer, fileToCompress string, fileInfo o
 	// 创建 zip 文件中的文件头
 	header, err := zip.FileInfoHeader(fileInfo)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	// 修改 header 中的 Name 字段，确保文件名正确
@@ -75,20 +76,20 @@ func addSingleFileToZip(zipWriter *zip.Writer, fileToCompress string, fileInfo o
 	// 创建一个新的ZIP文件条目
 	zipFile, err := zipWriter.CreateHeader(header)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	if !fileInfo.IsDir() {
 		// 打开要压缩的文件
 		file, err := os.Open(fileToCompress)
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 		defer file.Close()
 
 		// 将文件数据拷贝到ZIP文件条目
 		_, err = io.Copy(zipFile, file)
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 	}
 
@@ -100,20 +101,20 @@ func addDirectoryToZip(zipWriter *zip.Writer, directoryToCompress string, fileIn
 	// 压缩目录
 	err := addSingleFileToZip(zipWriter, directoryToCompress, fileInfo, strings.TrimRight(baseDir, fileInfo.Name()))
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	// 读取目录
 	files, err := os.ReadDir(directoryToCompress)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	for _, file := range files {
 		// 获取文件信息
 		info, err := file.Info()
 		if err != nil {
-			return Wrap(err)
+			return errors.Wrap(err)
 		}
 
 		// 获取完整路径
@@ -122,13 +123,13 @@ func addDirectoryToZip(zipWriter *zip.Writer, directoryToCompress string, fileIn
 			// 递归地压缩子目录
 			err = addDirectoryToZip(zipWriter, filePath, info, filepath.Join(baseDir, file.Name()))
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 		} else {
 			// 压缩单个文件
 			err = addSingleFileToZip(zipWriter, filePath, info, baseDir)
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 		}
 	}
@@ -142,20 +143,20 @@ func addDirectoryToZip(zipWriter *zip.Writer, directoryToCompress string, fileIn
 //	destDir 解压文件目录
 func UnZip(zipFile, destDir string) error {
 	if !strings.HasSuffix(zipFile, ".zip") {
-		return Error("文件名错误：非.zip文件")
+		return errors.New("文件名错误：非.zip文件")
 	}
 
 	// 打开ZIP文件进行读取
 	r, err := zip.OpenReader(zipFile)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 	defer r.Close()
 
 	// 创建目标目录
 	err = os.MkdirAll(destDir, 0755)
 	if err != nil {
-		return Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	// 遍历ZIP文件中的文件和目录
@@ -168,7 +169,7 @@ func UnZip(zipFile, destDir string) error {
 			if f.FileInfo().IsDir() {
 				err := os.MkdirAll(destPath, 0744)
 				if err != nil {
-					return Wrap(err)
+					return errors.Wrap(err)
 				}
 				return nil
 			}
@@ -177,27 +178,27 @@ func UnZip(zipFile, destDir string) error {
 			if !IsExist(filepath.Dir(destPath)) {
 				err := os.MkdirAll(filepath.Dir(destPath), 0744)
 				if err != nil {
-					return Wrap(err)
+					return errors.Wrap(err)
 				}
 			}
 
 			// 创建解压后的文件
 			file, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0744)
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 			defer file.Close()
 
 			// 读取ZIP文件中的数据并写入解压后的文件
 			rc, err := f.Open()
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 			defer rc.Close()
 
 			_, err = io.Copy(file, rc)
 			if err != nil {
-				return Wrap(err)
+				return errors.Wrap(err)
 			}
 			return nil
 		}(file)

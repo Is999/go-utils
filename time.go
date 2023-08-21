@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"github.com/Is999/go-utils/errors"
 	"strconv"
 	"strings"
 	"time"
@@ -143,7 +144,7 @@ func DateInfo(addTimes string, unix ...int64) (map[string]interface{}, error) {
 			v = strings.TrimSpace(v)
 			add, err := strconv.Atoi(strings.TrimSpace(v[:len(v)-1]))
 			if err != nil {
-				return nil, Wrap(err)
+				return nil, errors.Wrap(err)
 			}
 			switch v[len(v)-1] {
 			case 'Y':
@@ -165,7 +166,7 @@ func DateInfo(addTimes string, unix ...int64) (map[string]interface{}, error) {
 			case 'N':
 				t = t.Add(time.Nanosecond * time.Duration(add))
 			default:
-				return nil, Error("addTimes 参数错误！")
+				return nil, errors.New("addTimes 参数错误！")
 			}
 		}
 	}
@@ -342,7 +343,7 @@ func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error
 				return t, nil
 			}
 		}
-		err = Error("无法解析的时间格式：" + parse[0])
+		err = errors.Errorf("无法解析的时间格式：" + parse[0])
 	} else if len(parse) > 1 {
 		// 直接解析
 		t, err = TimeParse(timeZone, parse[0], parse[1])
@@ -356,7 +357,7 @@ func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error
 			return t, nil
 		}
 
-		err = Wrap(err)
+		err = errors.Wrap(err)
 	}
 	return time.Now().In(timeZone), err
 }
@@ -365,11 +366,11 @@ func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error
 func Before(layout string, t1, t2 string) (bool, error) {
 	tt1, err := time.Parse(layout, t1)
 	if err != nil {
-		return false, Error("t1[%v]时间解析错误：%v", t1, err.Error())
+		return false, errors.Errorf("t1[%v]时间解析错误：%v", t1, err.Error())
 	}
 	tt2, err := time.Parse(layout, t2)
 	if err != nil {
-		return false, Error("t2[%v]时间解析错误：%v", t2, err.Error())
+		return false, errors.Errorf("t2[%v]时间解析错误：%v", t2, err.Error())
 	}
 	return tt1.Before(tt2), nil
 }
@@ -378,11 +379,11 @@ func Before(layout string, t1, t2 string) (bool, error) {
 func After(layout string, t1, t2 string) (bool, error) {
 	tt1, err := time.Parse(layout, t1)
 	if err != nil {
-		return false, Error("t1[%v]时间解析错误：%v", t1, err.Error())
+		return false, errors.Errorf("t1[%v]时间解析错误：%v", t1, err.Error())
 	}
 	tt2, err := time.Parse(layout, t2)
 	if err != nil {
-		return false, Error("t2[%v]时间解析错误：%v", t2, err.Error())
+		return false, errors.Errorf("t2[%v]时间解析错误：%v", t2, err.Error())
 	}
 	return tt1.After(tt2), nil
 }
@@ -391,11 +392,11 @@ func After(layout string, t1, t2 string) (bool, error) {
 func Equal(layout string, t1, t2 string) (bool, error) {
 	tt1, err := time.Parse(layout, t1)
 	if err != nil {
-		return false, Error("t1[%v]时间解析错误：%v", t1, err.Error())
+		return false, errors.Errorf("t1[%v]时间解析错误：%v", t1, err.Error())
 	}
 	tt2, err := time.Parse(layout, t2)
 	if err != nil {
-		return false, Error("t2[%v]时间解析错误：%v", t2, err.Error())
+		return false, errors.Errorf("t2[%v]时间解析错误：%v", t2, err.Error())
 	}
 	return tt1.Equal(tt2), nil
 }
@@ -404,11 +405,11 @@ func Equal(layout string, t1, t2 string) (bool, error) {
 func Sub(layout string, t1, t2 string) (time.Duration, error) {
 	tt1, err := time.Parse(layout, t1)
 	if err != nil {
-		return 0, Error("t1[%v]时间解析错误：%v", t1, err.Error())
+		return 0, errors.Errorf("t1[%v]时间解析错误：%v", t1, err.Error())
 	}
 	tt2, err := time.Parse(layout, t2)
 	if err != nil {
-		return 0, Error("t2[%v]时间解析错误：%v", t2, err.Error())
+		return 0, errors.Errorf("t2[%v]时间解析错误：%v", t2, err.Error())
 	}
 	return tt1.Sub(tt2), nil
 }
