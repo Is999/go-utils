@@ -14,7 +14,7 @@ func New(text string) error {
 
 	return &WrapError{
 		Msg:   text,
-		Trace: []*RuntimeInfo{info},
+		Trace: StackTrace{info},
 	}
 }
 
@@ -24,7 +24,7 @@ func Errorf(format string, args ...any) error {
 
 	return &WrapError{
 		Msg:   fmt.Sprintf(format, args...),
-		Trace: []*RuntimeInfo{info},
+		Trace: StackTrace{info},
 	}
 }
 
@@ -43,7 +43,7 @@ func Wrap(err error) error {
 
 	return &WrapError{
 		Msg:   err.Error(),
-		Trace: []*RuntimeInfo{info},
+		Trace: StackTrace{info},
 	}
 }
 
@@ -61,7 +61,7 @@ type StackTrace []*RuntimeInfo
 func (t StackTrace) Caller() StackTrace {
 	info := Caller(2)
 	if t == nil {
-		return []*RuntimeInfo{info}
+		return StackTrace{info}
 	}
 	return append(t, info)
 }
