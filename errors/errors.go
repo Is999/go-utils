@@ -1,135 +1,238 @@
 package errors
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"runtime"
 	"strconv"
 	"strings"
 )
 
-// New 错误信息：包装错误文件和行号
-func New(text string) error {
-	info := Caller(2)
-
-	return &WrapError{
-		Msg:   text,
-		Trace: StackTrace{info},
-	}
+func New(msg string) error {
+	return newWrapError(msg, nil)
 }
 
-// Errorf 错误信息：包装错误文件和行号
 func Errorf(format string, args ...any) error {
-	info := Caller(2)
-
-	return &WrapError{
-		Msg:   fmt.Sprintf(format, args...),
-		Trace: StackTrace{info},
-	}
+	return newWrapError(fmt.Sprintf(format, args...), nil)
 }
 
-// Wrap 错误信息：包装错误文件和行号
-func Wrap(err error) error {
+func Wrap(err error, msg ...string) error {
 	if err == nil {
 		return nil
 	}
 
-	info := Caller(2)
-
-	if _, ok := err.(*WrapError); ok {
-		err.(*WrapError).Trace = append(err.(*WrapError).Trace, info)
-		return err
+	if len(msg) > 0 {
+		return newWrapError(msg[0], err)
 	}
 
-	return &WrapError{
-		Msg:   err.Error(),
-		Trace: StackTrace{info},
+	var we *wrapError
+	if errors.As(err, &we) {
+		return we
 	}
+
+	return newWrapError(err.Error(), err)
 }
 
-// Trace 获取 error 追踪
-func Trace(err error) StackTrace {
-	if _, ok := err.(*WrapError); ok {
-		return err.(*WrapError).Trace
+// Trace 获取 err 追踪
+func Trace(err error) slog.LogValuer {
+	var we *wrapError
+	if errors.As(err, &we) {
+		return we
 	}
 
-	return StackTrace{}
+	return newWrapError(err.Error(), nil)
 }
 
-type StackTrace []*RuntimeInfo
+type stackTrace []uintptr
 
-func (t StackTrace) Caller() StackTrace {
-	info := Caller(2)
-	if t == nil {
-		return StackTrace{info}
+func (st stackTrace) callers(skip int) []*info {
+	pcs := ArrDiff(st, callers(skip+1))
+	frames := runtime.CallersFrames(pcs)
+	l := len(st)
+	infos := make([]*info, 0, l)
+	for i := 0; i < l; i++ {
+		frame, more := frames.Next()
+		infos = append(infos, &info{
+			name: frame.Function,
+			file: frame.File,
+			line: frame.Line,
+		})
+		if !more {
+			break
+		}
 	}
-	return append(t, info)
+	return infos
 }
 
-func (t StackTrace) LogValue() slog.Value {
-	attrs := make([]slog.Attr, len(t))
-	for k, v := range t {
-		attrs[k] = slog.String(strconv.Itoa(k), v.String())
+func (st stackTrace) LogValue() slog.Value {
+	infos := st.callers(1)
+	attrs := make([]slog.Attr, len(infos))
+	for i, v := range infos {
+		attrs[i] = slog.String(strconv.Itoa(i), v.String())
 	}
 	return slog.GroupValue(attrs...)
 }
 
-func (t StackTrace) String() string {
+func (st stackTrace) String() string {
+	infos := st.callers(1)
+	l := len(infos)
+
 	b := strings.Builder{}
-	b.WriteString(`{"trace":[`)
-	l := len(t)
-	for k, v := range t {
-		b.WriteString(`"` + v.String() + `"`)
-		if k < l-1 {
+	b.WriteString(`[`)
+
+	for i, v := range infos {
+		b.WriteString(fmt.Sprintf("%q", v.String()))
+		if i < l-1 {
 			b.WriteString(`,`)
 		}
 	}
-	b.WriteString(`]}`)
+
+	b.WriteString(`]`)
 	return b.String()
 }
 
-type WrapError struct {
-	Msg   string
-	Trace StackTrace
+func newWrapError(msg string, err error) *wrapError {
+	return &wrapError{
+		msg:        msg,
+		err:        err,
+		stackTrace: callers(2),
+	}
 }
 
-func (e WrapError) Error() string {
-	return e.Msg
+type wrapError struct {
+	msg        string
+	err        error
+	stackTrace stackTrace
 }
 
-func (e WrapError) String() string {
+func (e *wrapError) Error() string {
+	return e.msg
+}
+
+func (e *wrapError) Unwrap() error {
+	return e.err
+}
+
+func (e *wrapError) Is(target error) bool {
+	if we, ok := (target).(*wrapError); ok {
+		return we == e || (we.msg == e.msg && we.stackTrace[0] == e.stackTrace[0])
+	}
+	return false
+}
+
+func (e *wrapError) As(target any) bool {
+	if _, ok := (target).(*wrapError); ok {
+		return true
+	}
+	return false
+}
+
+func (e *wrapError) traceMsg(depth int) string {
+	if e.err == nil {
+		return e.msg
+	}
+	if we, ok := (e.err).(*wrapError); ok {
+		return fmt.Sprintf("%s; wrap-%d=%s", e.msg, depth, we.traceMsg(depth+1))
+	}
+	return e.msg
+}
+
+func (e *wrapError) Format(s fmt.State, verb rune) {
+	switch verb {
+	case 'v':
+		if s.Flag('+') {
+			_, _ = io.WriteString(s, e.String())
+			return
+		}
+		if s.Flag('#') {
+			_, _ = io.WriteString(s, e.GoString())
+			return
+		}
+		fallthrough
+	case 's':
+		_, _ = io.WriteString(s, e.traceMsg(0))
+	case 'q':
+		_, _ = fmt.Fprintf(s, "%q", e.traceMsg(0))
+	}
+}
+
+func (e *wrapError) String() string {
 	b := strings.Builder{}
 	b.WriteString("{")
-	b.WriteString(`"msg":"` + e.Msg + `",`)
-	b.WriteString(strings.TrimRight(strings.TrimLeft(e.Trace.String(), `{`), `}`))
+	b.WriteString(fmt.Sprintf(`"msg":%q`, e.msg))
+	b.WriteString(`,"trace":` + e.stackTrace.String())
 	b.WriteString("}")
 	return b.String()
 }
 
-func (e WrapError) LogValue() slog.Value {
-	return e.Trace.LogValue()
-}
-
-type RuntimeInfo struct {
-	File string //文件名
-	Line int    //行号
-}
-
-func (i RuntimeInfo) String() string {
-	return fmt.Sprintf(`%s:%d`, i.File, i.Line)
-}
-
-// Caller 获取运行时行号、方法名、文件地址
-func Caller(skip int) *RuntimeInfo {
-	info := new(RuntimeInfo)
-	_, file, line, ok := runtime.Caller(skip)
-	if !ok {
-		info.File = "???"
-		info.Line = 0
-		return info
+func (e *wrapError) GoString() string {
+	b := strings.Builder{}
+	b.WriteString("{")
+	b.WriteString(fmt.Sprintf(`"msg":%q`, e.msg))
+	b.WriteString(`,"trace":` + e.stackTrace.String())
+	if e.err != nil {
+		if we, ok := (e.err).(*wrapError); ok {
+			b.WriteString(`,"err":` + we.GoString())
+		} else {
+			b.WriteString(`,"err":"` + e.err.Error() + `"`)
+		}
 	}
+	b.WriteString("}")
+	return b.String()
+}
 
-	info.File = file
-	info.Line = line
-	return info
+func (e *wrapError) MarshalJSON() ([]byte, error) {
+	return []byte(e.GoString()), nil
+}
+
+func (e *wrapError) MarshalText() ([]byte, error) {
+	return []byte(e.GoString()), nil
+}
+
+func (e *wrapError) LogValue() slog.Value {
+	return slog.GroupValue(e.Group())
+}
+
+func (e *wrapError) Group() slog.Attr {
+	attr := make([]any, 0, 4)
+	attr = append(attr, slog.String("msg", e.msg))
+	attr = append(attr, slog.Any("trace", e.stackTrace.LogValue()))
+	if we, ok := (e.err).(*wrapError); ok {
+		attr = append(attr, we.Group())
+	}
+	return slog.Group("wrap", attr...)
+}
+
+func callers(skip int) stackTrace {
+	var pcs [100]uintptr
+	n := runtime.Callers(skip+2, pcs[:])
+	return pcs[0:n]
+}
+
+type info struct {
+	name string
+	file string //文件名
+	line int    //行号
+}
+
+func (i info) String() string {
+	return fmt.Sprintf(`%s (%s:%d)`, i.name, i.file, i.line)
+}
+
+// ArrDiff 计算s1与s2的差集
+func ArrDiff[T cmp.Ordered](s1, s2 []T) []T {
+	m := make(map[T]struct{}, len(s2))
+	for i := 0; i < len(s2); i++ {
+		m[s2[i]] = struct{}{}
+	}
+	var s = make([]T, 0, len(s1))
+	for i := 0; i < len(s1); i++ {
+		if _, ok := m[s1[i]]; !ok {
+			s = append(s, s1[i])
+		}
+	}
+	return s
 }

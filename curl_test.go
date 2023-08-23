@@ -692,7 +692,7 @@ func TestPostFile(t *testing.T) {
 			// 获取 body 和 contentType
 			body, contentType, err := form.Reader()
 			if err != nil {
-				t.Errorf("form.Reade() WrapError %v", err)
+				t.Errorf("form.Reade() err=%v", err)
 			}
 
 			// 设置请求ID

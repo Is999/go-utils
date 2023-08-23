@@ -18,8 +18,8 @@ func TestGetRuntimeInfo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			utils.GetRuntimeInfo(tt.args.skip)
-			//t.Logf("GetRuntimeInfo() = %+v", got)
+			utils.RuntimeInfo(tt.args.skip)
+			//t.Logf("RuntimeInfo() = %+v", got)
 		})
 	}
 }
