@@ -19,9 +19,9 @@ golang 帮助函数
 
 1. 1.21 移除了Max、Min 两个函数，推荐使用golang 内置函数 max、min
 2. 1.21 移除了Logger 文件使用标准库中 log/slog
-3. 根据1.21版本 log/slog 增加了error文件添加了对错误包装和追踪
-4. utils中返回的error 统一使用了WrapError
-5. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
+3. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
+4. 根据1.21版本 log/slog 增加了errors文件，实现了LogValuer 接口，对error的日志追踪
+5. utils中返回的error 统一使用了WrapError, 支持error记录追踪
 
 # Go常用标准库方法及utils包帮助函数
 
