@@ -12,8 +12,7 @@ golang 帮助函数
 #### 使用说明
 
 1. utils包中代码仅供参考，不建议用于商业生产，造成损失概不负责。
-1. 1.21 以下支持golang 1.18版本。
-1. 1.21 最低要求golang 1.21版本
+1. 版本最低要求golang 1.21版本
 
 #### 变更
 
@@ -3666,9 +3665,16 @@ opts := &slog.HandlerOptions{
   Level:     levelVar, // 日志等级
 }
 
+//日志输出文件
+file, err := os.OpenFile("sys.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+if err != nil {
+fmt.Printf("Faild to open error logger file: %v\n", err)
+return
+}
+
 // 日志输出格式
-handler := slog.NewTextHandler(os.Stdout, opts)
-//handler := slog.NewJSONHandler(os.Stdout, opts)
+//handler := slog.NewTextHandler(os.Stdout, opts)
+handler := slog.NewJSONHandler(io.MultiWriter(file, os.Stderr), opts)
 
 // 修改默认的日志输出方式
 slog.SetDefault(slog.New(handler))
