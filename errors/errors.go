@@ -11,14 +11,21 @@ import (
 	"strings"
 )
 
+// New 返回带追踪的error
 func New(msg string) error {
 	return newWrapError(msg, nil)
 }
 
+// Errorf 使用格式化传入错误消息，返回带追踪的error
 func Errorf(format string, args ...any) error {
 	return newWrapError(fmt.Sprintf(format, args...), nil)
 }
 
+// Wrap 对error接口进行包装
+//  1. 如果error是一个nil则返回nil
+//  2. 如果仅有err参数没有msg参数，进入 3、4步骤，否则包装成一个*wrapError类型返回
+//  3. 如果error是*wrapError类型，返回原error
+//  4. 其它类型的error则将error.Error信息作为msg, 包装成一个*wrapError类型返回
 func Wrap(err error, msg ...string) error {
 	if err == nil {
 		return nil
@@ -29,14 +36,42 @@ func Wrap(err error, msg ...string) error {
 	}
 
 	var we *wrapError
-	if errors.As(err, &we) {
+	if As(err, &we) {
 		return we
 	}
 
 	return newWrapError(err.Error(), err)
 }
 
-// Trace 获取 err 追踪
+// Wrapf 对error接口进行包装，如果error是一个nil则返回nil
+func Wrapf(err error, format string, args ...any) error {
+	if err == nil {
+		return nil
+	}
+
+	return newWrapError(fmt.Sprintf(format, args...), err)
+}
+
+// Is 检查err和target是否匹配， 同标准库errors.Is
+//
+//	使用到 Unwrap() error 接口
+//	使用到 Is(error) bool 接口
+func Is(err, target error) bool { return errors.Is(err, target) }
+
+// As 检查err和target第一个匹配的err并赋值， 同标准库errors.As
+//
+//	使用到 Unwrap() error 接口
+//	使用到 As(any) bool 接口
+func As(err error, target any) bool { return errors.As(err, &target) }
+
+// Unwrap 对error Wrap的反向操作
+//
+//	使用到 Unwrap() error 接口
+func Unwrap(err error) error {
+	return errors.Unwrap(err)
+}
+
+// Trace 获取error日志追踪，返回 slog.LogValuer 接口
 func Trace(err error) slog.LogValuer {
 	var we *wrapError
 	if errors.As(err, &we) {
@@ -49,7 +84,7 @@ func Trace(err error) slog.LogValuer {
 type stackTrace []uintptr
 
 func (st stackTrace) callers(skip int) []*info {
-	pcs := ArrDiff(st, callers(skip+1))
+	pcs := diff(st, callers(skip+1))
 	frames := runtime.CallersFrames(pcs)
 	l := len(st)
 	infos := make([]*info, 0, l)
@@ -67,6 +102,7 @@ func (st stackTrace) callers(skip int) []*info {
 	return infos
 }
 
+// LogValue 实现slog.LogValuer 接口
 func (st stackTrace) LogValue() slog.Value {
 	infos := st.callers(1)
 	attrs := make([]slog.Attr, len(infos))
@@ -108,26 +144,32 @@ type wrapError struct {
 	stackTrace stackTrace
 }
 
+// Error 实现Error接口
 func (e *wrapError) Error() string {
 	return e.msg
 }
 
+// Unwrap 实现Unwrap接口, 返回wrapError的子error
 func (e *wrapError) Unwrap() error {
 	return e.err
 }
 
+// Is 实现Is接口
+//
+//	e与target相等，或者两者类型相同并且msg相同并且第一个stackTrace相同返回true，否则返回false
 func (e *wrapError) Is(target error) bool {
-	if we, ok := (target).(*wrapError); ok {
+	if we, ok := target.(*wrapError); ok {
 		return we == e || (we.msg == e.msg && we.stackTrace[0] == e.stackTrace[0])
 	}
 	return false
 }
 
+// As 实现As接口
+//
+//	e与target两者类型相同返回true，否则返回false
 func (e *wrapError) As(target any) bool {
-	if _, ok := (target).(*wrapError); ok {
-		return true
-	}
-	return false
+	_, ok := target.(*wrapError)
+	return ok
 }
 
 func (e *wrapError) traceMsg(depth int) string {
@@ -137,7 +179,7 @@ func (e *wrapError) traceMsg(depth int) string {
 	if we, ok := (e.err).(*wrapError); ok {
 		return fmt.Sprintf("%s; wrap-%d=%s", e.msg, depth, we.traceMsg(depth+1))
 	}
-	return e.msg
+	return fmt.Sprintf("%s; wrap-%d=%s", e.msg, depth, e.err.Error())
 }
 
 func (e *wrapError) Format(s fmt.State, verb rune) {
@@ -192,16 +234,17 @@ func (e *wrapError) MarshalText() ([]byte, error) {
 	return []byte(e.GoString()), nil
 }
 
+// LogValue 实现 slog.LogValuer 接口，对error的日志追踪
 func (e *wrapError) LogValue() slog.Value {
-	return slog.GroupValue(e.Group())
+	return slog.GroupValue(e.logGroup())
 }
 
-func (e *wrapError) Group() slog.Attr {
+func (e *wrapError) logGroup() slog.Attr {
 	attr := make([]any, 0, 4)
 	attr = append(attr, slog.String("msg", e.msg))
 	attr = append(attr, slog.Any("trace", e.stackTrace.LogValue()))
 	if we, ok := (e.err).(*wrapError); ok {
-		attr = append(attr, we.Group())
+		attr = append(attr, we.logGroup())
 	}
 	return slog.Group("wrap", attr...)
 }
@@ -222,8 +265,8 @@ func (i info) String() string {
 	return fmt.Sprintf(`%s (%s:%d)`, i.name, i.file, i.line)
 }
 
-// ArrDiff 计算s1与s2的差集
-func ArrDiff[T cmp.Ordered](s1, s2 []T) []T {
+// diff 计算s1与s2的差集
+func diff[T cmp.Ordered](s1, s2 []T) []T {
 	m := make(map[T]struct{}, len(s2))
 	for i := 0; i < len(s2); i++ {
 		m[s2[i]] = struct{}{}
