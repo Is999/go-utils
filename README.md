@@ -1134,26 +1134,6 @@ func Round(value float64, precision int) float64
 
 ------
 
-#### func    [utils.Max](https://github.com/Is999/go-utils/blob/master/math.go#L40) (1.21移除)
-
-```go
-func Max[T Number](nums ...T) T
-```
-
-备注：返回nums中最大值。1.21 版本请使用内置max函数
-
-------
-
-#### func    [utils.Min](https://github.com/Is999/go-utils/blob/master/math.go#L54)(1.21移除)
-
-```go
-func Min[T Number](nums ...T) T
-```
-
-备注：返回nums中最小值。1.21 版本请使用内置max函数
-
-------
-
 ## 4. 文件
 
 ------
@@ -3541,13 +3521,14 @@ http.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
 http.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
   // 获取URL查询字符串参数
   file := r.URL.Query().Get("file")
-  if IsExist(file) {
+  if utils.IsExist(file) {
     // 显示文件内容
-    View(w).Show(file)
+
+    utils.View(w).Show(file)
     return
   }
   // 处理错误
-  View(w, http.StatusNotFound).Text("不存在的文件：" + file)
+  utils.View(w, http.StatusNotFound).Text("不存在的文件：" + file)
 })
 ```
 
@@ -3562,15 +3543,15 @@ http.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
 ```go
 // 下载文件
 http.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Request) {
-  // 获取URL查询字符串参数
-  file := r.URL.Query().Get("file")
-  if IsExist(file) {
-    // 下载文件数据
-    View(w).Download(file)
-    return
-  }
-  // 处理错误
-  View(w, http.StatusNotFound).Text("不存在的文件：" + file)
+		// 获取URL查询字符串参数
+		file := r.URL.Query().Get("file")
+		if utils.IsExist(file) {
+			// 下载文件数据
+			utils.View(w).Download(file)
+			return
+		}
+		// 处理错误
+		utils.View(w, http.StatusNotFound).Text("不存在的文件：" + file)
 })
 ```
 
@@ -3665,9 +3646,7 @@ func UnTar(tarFile, destDir string) error
 
 ------
 
-## 14. 日志(移除 1.21 推荐使用标准库 log/slog)
-
-> Debug 级别调试，Info 级别信息，Warning 级别警告，Error 级别错误，Fatal 级别致命错误，将调用 os.Exit(1) 退出程序
+## 14. 日志
 
 ------
 
@@ -3675,72 +3654,27 @@ func UnTar(tarFile, destDir string) error
 
 ------
 
-#### func    [utils.SetLevel](https://github.com/Is999/go-utils/blob/master/logger.go#L47)
+#### 设置日志等级和输出格式
 
 ```go
-func SetLevel(level Level)
+// 日志等级
+levelVar := &slog.LevelVar{}
+levelVar.Set(slog.LevelDebug)
+
+opts := &slog.HandlerOptions{
+  AddSource: true,     // 输出日志的文件和行号
+  Level:     levelVar, // 日志等级
+}
+
+// 日志输出格式
+handler := slog.NewTextHandler(os.Stdout, opts)
+//handler := slog.NewJSONHandler(os.Stdout, opts)
+
+// 修改默认的日志输出方式
+slog.SetDefault(slog.New(handler))
 ```
 
 备注：设置日志级别，小于该级别的日志不会输出。禁用日志 设置 *DISABLE* 级别
-
-------
-
-#### func    [utils.SetDefOutput](https://github.com/Is999/go-utils/blob/master/logger.go#L83)
-
-```go
-func SetDefOutput(w io.Writer)
-```
-
-备注：设置输出方式（使用标准库的 `log` 包来记录日志，设置该值才有意义）。设置日志输出到文件和控制台: io.MultiWriter(file,
-os.Stdout)
-
-------
-
-#### func    [utils.SetLogOutput](https://github.com/Is999/go-utils/blob/master/logger.go#L83)
-
-```go
-func SetLogOutput(output func (meta *Meta, format string, v ...any)) 
-```
-
-备注：设置记录日志方法(自定义日志输出方式)
-
-------
-
-#### 记录不同级别日志方法
-
-```go
-// Debug 记录debug级别日志
-func Debug(v ...any)
-
-// Debugf 记录debug级别日志
-func Debugf(format string, v ...any)
-
-// Info 记录info级别日志
-func Info(v ...any)
-
-// Infof 记录info级别日志
-func Infof(format string, v ...any)
-
-// Warn 记录warning级别日志
-func Warn(v ...any)
-
-// Warnf 记录warning级别日志
-func Warnf(format string, v ...any)
-
-// Error 记录error级别日志
-func Error(v ...any)
-
-// Errorf 记录error级别日志
-func Errorf(format string, v ...any)
-
-// Fatal 记录fatal级别日志, 并调用os.Exit()
-func Fatal(v ...any)
-
-// Fatalf 记录fatal级别日志, 并调用os.Exit()
-func Fatalf(format string, v ...any)
-```
-
-备注：设置记录日志方法(自定义日志输出方式)
 
 ------
 
@@ -3857,10 +3791,10 @@ func Ternary[T any](expr bool, trueVal, falseVal T) T
 
 ------
 
-#### func    [utils.GetRuntimeInfo](https://github.com/Is999/go-utils/blob/master/runtime.go#L12)
+#### func    [utils.RuntimeInfo](https://github.com/Is999/go-utils/blob/master/runtime.go#L12)
 
 ```go
-func GetRuntimeInfo(skip int) RuntimeInfo 
+func RuntimeInfo(skip int) *Frame
 ```
 
 备注：获取当前行号、方法名、文件地址。
