@@ -120,7 +120,7 @@ func (st stackTrace) String() string {
 	b.WriteString(`[`)
 
 	for i, v := range infos {
-		b.WriteString(fmt.Sprintf("%q", v.String()))
+		b.WriteString(fmt.Sprintf(`"%s"`, v.String()))
 		if i < l-1 {
 			b.WriteString(`,`)
 		}
@@ -219,7 +219,7 @@ func (e *wrapError) GoString() string {
 		if we, ok := (e.err).(*wrapError); ok {
 			b.WriteString(`,"err":` + we.GoString())
 		} else {
-			b.WriteString(`,"err":"` + e.err.Error() + `"`)
+			b.WriteString(fmt.Sprintf(`,"err":%q`, e.err.Error()))
 		}
 	}
 	b.WriteString("}")
@@ -261,7 +261,7 @@ type info struct {
 	line int    //行号
 }
 
-func (i info) String() string {
+func (i *info) String() string {
 	return fmt.Sprintf(`%s (%s:%d)`, i.name, i.file, i.line)
 }
 
