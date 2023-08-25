@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/xml"
 	"io"
 	"log/slog"
 	"net/http"
@@ -39,8 +40,14 @@ func (r *Response[T]) Success(code int, data T, message ...string) {
 	body, err := r.Encode()
 	if err != nil {
 		uid := UniqId(16)
-		slog.Error("Response Encode()", "UID", uid, "err", err.Error())
-		http.Error(r.writer, "Encode error: "+uid, http.StatusInternalServerError)
+		// 记录日志
+		slog.Error(err.Error(), "trace", slog.GroupValue(
+			slog.String("code", uid),
+			slog.String("desc", "Success r.Encode()"),
+			slog.Any("data", data),
+		))
+		// 响应
+		http.Error(r.writer, "Json encoding error, code-"+uid, http.StatusInternalServerError)
 		return
 	}
 	r.Write(body)
@@ -62,29 +69,50 @@ func (r *Response[T]) Fail(code int, message string, data ...T) {
 	body, err := r.Encode()
 	if err != nil {
 		uid := UniqId(16)
-		slog.Error("Response Encode()", "UID", uid, "err", err.Error())
-		http.Error(r.writer, "Encode error: "+uid, http.StatusInternalServerError)
+		// 记录日志
+		slog.Error(err.Error(), "trace", slog.GroupValue(
+			slog.String("code", uid),
+			slog.String("desc", "Fail r.Encode()"),
+			slog.Any("data", data),
+		))
+		// 响应
+		http.Error(r.writer, "Json encoding error, code-"+uid, http.StatusInternalServerError)
 		return
 	}
 	r.Write(body)
 }
 
 // Text 响应text
-func (r *Response[T]) Text(text string) {
+func (r *Response[T]) Text(data string) {
 	r.ContentType("text/plain")
-	r.Write([]byte(text))
+	r.Write([]byte(data))
 }
 
 // Html 响应Html
-func (r *Response[T]) Html(html string) {
+func (r *Response[T]) Html(data string) {
 	r.ContentType("text/html")
-	r.Write([]byte(html))
+	r.Write([]byte(data))
 }
 
 // Xml 响应Xml
-func (r *Response[T]) Xml(xml string) {
+func (r *Response[T]) Xml(data any) {
+	xmlData, err := xml.MarshalIndent(data, "", "  ")
+	if err != nil {
+		uid := UniqId(16)
+		// 记录日志
+		slog.Error(err.Error(), "trace", slog.GroupValue(
+			slog.String("code", uid),
+			slog.String("desc", "Xml xml.MarshalIndent()"),
+			slog.Any("data", data),
+		))
+		// 响应
+		http.Error(r.writer, "Xml encoding error, code-"+uid, http.StatusInternalServerError)
+		return
+	}
+
 	r.ContentType("application/xml")
-	r.Write([]byte(xml))
+	r.Write([]byte(xml.Header))
+	r.Write(xmlData)
 }
 
 // Download 响应下载文件
@@ -95,10 +123,15 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 	// 打开图片文件
 	file, err := os.Open(filePath)
 	if err != nil {
-		// 处理错误
 		uid := UniqId(16)
-		slog.Error("Response File Open()", "UID", uid, "filePath", filePath, "err", err.Error())
-		http.Error(r.writer, "Open file error: "+uid, http.StatusInternalServerError)
+		// 记录日志
+		slog.Error(err.Error(), "trace", slog.GroupValue(
+			slog.String("code", uid),
+			slog.String("desc", "Download os.Open()"),
+			slog.String("filePath", filePath),
+		))
+		// 响应
+		http.Error(r.writer, "Open file error, code-"+uid, http.StatusInternalServerError)
 		return
 	}
 	defer file.Close()
@@ -109,10 +142,15 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 		// 获取文件信息
 		fileInfo, err := file.Stat()
 		if err != nil {
-			// 处理错误
 			uid := UniqId(16)
-			slog.Error("Response File Stat()", "UID", uid, "filePath", filePath, "err", err.Error())
-			http.Error(r.writer, "Stat file error: "+uid, http.StatusInternalServerError)
+			// 记录日志
+			slog.Error(err.Error(), "trace", slog.GroupValue(
+				slog.String("code", uid),
+				slog.String("desc", "Download file.Stat()"),
+				slog.String("filePath", filePath),
+			))
+			// 响应
+			http.Error(r.writer, "Stat file error, code-"+uid, http.StatusInternalServerError)
 			return
 		}
 		fileName = fileInfo.Name()
@@ -124,10 +162,15 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 	if ctype := r.writer.Header().Get("Content-Type"); ctype == "" {
 		ctype, err = FileType(file)
 		if err != nil {
-			// 处理错误
 			uid := UniqId(16)
-			slog.Error("Response File FileType()", "UID", uid, "filePath", filePath, "err", err.Error())
-			http.Error(r.writer, "file type error: "+uid, http.StatusInternalServerError)
+			// 记录日志
+			slog.Error(err.Error(), "trace", slog.GroupValue(
+				slog.String("code", uid),
+				slog.String("desc", "Download FileType()"),
+				slog.String("filePath", filePath),
+			))
+			// 响应
+			http.Error(r.writer, "File type error, code-"+uid, http.StatusInternalServerError)
 			return
 		}
 		r.writer.Header().Set("Content-Type", ctype)
@@ -142,10 +185,15 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 	// 将图片数据写入响应
 	_, err = io.Copy(r.writer, file)
 	if err != nil {
-		// 处理错误
 		uid := UniqId(16)
-		slog.Error("Response File Copy()", "UID", uid, "err", err.Error())
-		http.Error(r.writer, "io file error: "+uid, http.StatusInternalServerError)
+		// 记录日志
+		slog.Error(err.Error(), "trace", slog.GroupValue(
+			slog.String("code", uid),
+			slog.String("desc", "Download io.Copy"),
+			slog.String("filePath", filePath),
+		))
+		// 响应
+		http.Error(r.writer, "io error, code-"+uid, http.StatusInternalServerError)
 		return
 	}
 }
@@ -155,10 +203,15 @@ func (r *Response[T]) Show(filePath string) {
 	// 打开文件
 	file, err := os.Open(filePath)
 	if err != nil {
-		// 处理错误
 		uid := UniqId(16)
-		slog.Error("Response File Open()", "UID", uid, "filePath", filePath, "err", err.Error())
-		http.Error(r.writer, "Open file error: "+uid, http.StatusInternalServerError)
+		// 记录日志
+		slog.Error(err.Error(), "trace", slog.GroupValue(
+			slog.String("code", uid),
+			slog.String("desc", "Show os.Open()"),
+			slog.String("filePath", filePath),
+		))
+		// 响应
+		http.Error(r.writer, "Open file error, code-"+uid, http.StatusInternalServerError)
 		return
 	}
 	defer file.Close()
@@ -167,10 +220,15 @@ func (r *Response[T]) Show(filePath string) {
 	if ctype := r.writer.Header().Get("Content-Type"); ctype == "" {
 		ctype, err = FileType(file)
 		if err != nil {
-			// 处理错误
 			uid := UniqId(16)
-			slog.Error("Response File FileType()", "UID", uid, "filePath", filePath, "err", err.Error())
-			http.Error(r.writer, "file type error: "+uid, http.StatusInternalServerError)
+			// 记录日志
+			slog.Error(err.Error(), "trace", slog.GroupValue(
+				slog.String("code", uid),
+				slog.String("desc", "Show FileType()"),
+				slog.String("filePath", filePath),
+			))
+			// 响应
+			http.Error(r.writer, "File type error, code-"+uid, http.StatusInternalServerError)
 			return
 		}
 		r.writer.Header().Set("Content-Type", ctype)
@@ -179,10 +237,15 @@ func (r *Response[T]) Show(filePath string) {
 	// 将图片数据写入响应
 	_, err = io.Copy(r.writer, file)
 	if err != nil {
-		// 处理错误
 		uid := UniqId(16)
-		slog.Error("Response File Copy()", "UID", uid, "filePath", filePath, "err", err.Error())
-		http.Error(r.writer, "io file error: "+uid, http.StatusInternalServerError)
+		// 记录日志
+		slog.Error(err.Error(), "trace", slog.GroupValue(
+			slog.String("code", uid),
+			slog.String("desc", "Show io.Copy"),
+			slog.String("filePath", filePath),
+		))
+		// 响应
+		http.Error(r.writer, "io error, code-"+uid, http.StatusInternalServerError)
 		return
 	}
 }
@@ -194,7 +257,14 @@ func (r *Response[T]) Write(body []byte) {
 	if err != nil {
 		uid := UniqId(16)
 		slog.Error("Response Write()", "UID", uid, "err", err.Error())
-		http.Error(r.writer, "write error: "+uid, http.StatusInternalServerError)
+		// 记录日志
+		slog.Error(err.Error(), "trace", slog.GroupValue(
+			slog.String("code", uid),
+			slog.String("desc", "Write r.writer.Write"),
+			slog.String("body", string(body)),
+		))
+		// 响应
+		http.Error(r.writer, "Write error, code-"+uid, http.StatusInternalServerError)
 	}
 }
 
