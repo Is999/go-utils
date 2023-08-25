@@ -1,7 +1,6 @@
 package utils_test
 
 import (
-	"encoding/xml"
 	"github.com/Is999/go-utils"
 	"net/http"
 )
@@ -69,16 +68,8 @@ func ExampleView() {
 			phone:     "131188889999",
 		}
 
-		// 将Person对象转换为XML格式数据
-		xmlData, err := xml.MarshalIndent(user, "", "  ")
-		if err != nil {
-			// 处理错误
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 		// 响应xml数据
-		utils.View(w).Xml(string(xmlData))
+		utils.View(w).Xml(user)
 	})
 
 	// 响应text
