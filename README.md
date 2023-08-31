@@ -6,21 +6,23 @@ golang 帮助函数
 
 #### 安装教程
 
-1. go get -u github.com/Is999/go-utils
-2. go get -u gitee.com/Is999/go-utils
+1. github安装 go get -u github.com/Is999/go-utils
 
-#### 使用说明
+2. gitee安装 go get -u gitee.com/Is999/go-utils
+
+### 使用说明
 
 1. utils包中代码仅供参考，不建议用于商业生产，造成损失概不负责。
-1. 版本最低要求golang 1.21版本
+2. 最低要求golang 1.21版本
 
-#### 变更
+### 历史变更
 
-1. 1.21 移除了Max、Min 两个函数，推荐使用golang 内置函数 max、min
-2. 1.21 移除了Logger 文件使用标准库中 log/slog
-3. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
-4. 根据1.21版本 log/slog 增加了errors文件，实现了LogValuer 接口，对error的日志追踪
-5. utils中返回的error 统一使用了WrapError, 支持error记录追踪
+1. 最低要求golang 版本1.18变更为1.21
+2. 移除了1.21 版本前的Max、Min 两个函数，推荐使用golang 内置函数 max、min
+3. 移除了1.21 版本前的Logger 文件，使用标准库中 log/slog
+4. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
+5. 根据1.21版本 log/slog 增加了errors文件，实现了LogValuer 接口，对error的日志追踪
+6. utils中返回的error 统一使用了WrapError, 支持error记录追踪
 
 # Go常用标准库方法及utils包帮助函数
 
@@ -2901,20 +2903,33 @@ func MonthDay(year int, month int) (days int)
 
 ------
 
-### 9.4  获取日期信息
+### 9.4  增加时间
 
 ------
 
-#### func    [utils.DateInfo](https://github.com/Is999/go-utils/blob/master/time.go#L130)
+#### func    [utils.AddTime](https://github.com/Is999/go-utils/blob/master/time.go#L111)
 
 ```go
-func DateInfo(addTimes string, unix ...int64) (map[string]interface{}, error)
+func AddTime(t time.Time, addTimes ...string) (time.Time, error)
 ```
 
-| 参数         | 描述                                              |
-|------------|-------------------------------------------------|
-| *addTimes* | 增加时间（Y年，M月，D日，H时，I分，S秒，L毫秒，C微妙，N纳秒)，多个参数英文逗号分割。 |
-| *unix*     | Unix 时间sec秒和nsec纳秒。                             |
+| 参数         | 描述                                   |
+|------------|--------------------------------------|
+| *addTimes* | 增加时间（Y年，M月，D日，H时，I分，S秒，L毫秒，C微妙，N纳秒)。 |
+
+备注：增加时间。
+
+------
+
+### 9.5  获取日期信息
+
+------
+
+#### func    [utils.DateInfo](https://github.com/Is999/go-utils/blob/master/time.go#L155)
+
+```go
+func DateInfo(t time.Time) map[string]interface{}
+```
 
 备注：获取日期信息。
 
@@ -2931,51 +2946,51 @@ func DateInfo(addTimes string, unix ...int64) (map[string]interface{}, error)
 
 ------
 
-### 9.5  时间格式化为时间字符串
+### 9.6  时间格式化为时间字符串
 
 ------
 
-#### func    [utils.TimeFormat](https://github.com/Is999/go-utils/blob/master/time.go#L219)
+#### func    [utils.TimeFormat](https://github.com/Is999/go-utils/blob/master/time.go#L204)
 
 ```go
-func TimeFormat(timeZone *time.Location, layout string, unix ...int64) string
+func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) string
 ```
 
-| 参数         | 描述                  |
-|------------|---------------------|
-| *timeZone* | 时区。                 |
-| layout     | 格式化。                |
-| *unix*     | Unix 时间sec秒和nsec纳秒。 |
+| 参数          | 描述                  |
+|-------------|---------------------|
+| *timeZone*  | 时区。                 |
+| layout      | 格式化。                |
+| *timestamp* | Unix 时间sec秒和nsec纳秒。 |
 
 备注：时间格式化为时间字符串。
 
 ------
 
-### 9.6  解析时间字符串为time.Time
+### 9.7  解析时间字符串为time.Time
 
 ------
 
-#### func    [utils.TimeParse](https://github.com/Is999/go-utils/blob/master/time.go#L242)
+#### func    [utils.TimeParse](https://github.com/Is999/go-utils/blob/master/time.go#L227)
 
 ```go
-func TimeParse(timeZone *time.Location, layout, timestamp string) (time.Time, error)
+func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, error)
 ```
 
-| 参数          | 描述     |
-|-------------|--------|
-| *timeZone*  | 时区。    |
-| layout      | 格式化。   |
-| *timestamp* | 时间字符串。 |
+| 参数         | 描述     |
+|------------|--------|
+| *timeZone* | 时区。    |
+| layout     | 格式化。   |
+| *timeStr*  | 时间字符串。 |
 
 备注：解析时间字符串为time.Time。
 
 ------
 
-### 9.7  两个时间字符串判断
+### 9.8  两个时间字符串判断
 
 ------
 
-#### func    [utils.Before](https://github.com/Is999/go-utils/blob/master/time.go#L365)
+#### func    [utils.Before](https://github.com/Is999/go-utils/blob/master/time.go#L319)
 
 ```go
 func Before(layout string, t1, t2 string) (bool, error) 
@@ -2991,7 +3006,7 @@ func Before(layout string, t1, t2 string) (bool, error)
 
 ------
 
-#### func    [utils.After](https://github.com/Is999/go-utils/blob/master/time.go#L378)
+#### func    [utils.After](https://github.com/Is999/go-utils/blob/master/time.go#L332)
 
 ```go
 func After(layout string, t1, t2 string) (bool, error) 
@@ -3007,7 +3022,7 @@ func After(layout string, t1, t2 string) (bool, error)
 
 ------
 
-#### func    [utils.Equal](https://github.com/Is999/go-utils/blob/master/time.go#L391)
+#### func    [utils.Equal](https://github.com/Is999/go-utils/blob/master/time.go#L345)
 
 ```go
 func Equal(layout string, t1, t2 string) (bool, error)
@@ -3023,11 +3038,11 @@ func Equal(layout string, t1, t2 string) (bool, error)
 
 ------
 
-### 9.8  求两个时间字符串的时间差
+### 9.9  求两个时间字符串的时间差
 
 ------
 
-#### func    [utils.Sub](https://github.com/Is999/go-utils/blob/master/time.go#L404)
+#### func    [utils.Sub](https://github.com/Is999/go-utils/blob/master/time.go#L358)
 
 ```go
 func Sub(layout string, t1, t2 string) (int, error)
@@ -3660,8 +3675,8 @@ opts := &slog.HandlerOptions{
 //日志输出文件
 file, err := os.OpenFile("sys.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 if err != nil {
-fmt.Printf("Faild to open error logger file: %v\n", err)
-return
+  fmt.Printf("Faild to open error logger file: %v\n", err)
+  return
 }
 
 // 日志输出格式
