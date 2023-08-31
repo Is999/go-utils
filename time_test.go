@@ -42,33 +42,33 @@ func TestMonthDay(t *testing.T) {
 
 func TestDateInfo(t *testing.T) {
 	type args struct {
-		s string
-		e []int64
+		s []string
+		t time.Time
 	}
 	tests := []struct {
 		name    string
 		args    args
 		wantErr bool
 	}{
-		{name: "000", args: args{}, wantErr: false},                                                                         // 当前时间
-		{name: "001", args: args{s: "+4H, 20I"}, wantErr: false},                                                            // 当前时间+ 4小时20分钟
-		{name: "002", args: args{s: "", e: []int64{1678718401}}, wantErr: false},                                            // 指定时间
-		{name: "003", args: args{s: "", e: []int64{1678718401, 124685000}}, wantErr: false},                                 // 指定时间
-		{name: "004", args: args{s: "76N", e: []int64{1678718401, 124685000}}, wantErr: false},                              // 指定时间+ 76纳秒
-		{name: "005", args: args{s: "-76N", e: []int64{1678718401, 124685000}}, wantErr: false},                             // 指定时间- 76纳秒
-		{name: "006", args: args{s: "7600N", e: []int64{1678718401, 124685000}}, wantErr: false},                            // 指定时间+ 7.6微秒
-		{name: "007", args: args{s: "7C, 600N", e: []int64{1678718401, 124685000}}, wantErr: false},                         // 指定时间+ 7.6微秒
-		{name: "008", args: args{s: "-1D, 1M, -1Y, +4H, 20I, 30S, 76N", e: []int64{1678718401, 124685000}}, wantErr: false}, // 指定时间+
-		{name: "009", args: args{s: "-1D, 1M, -1Y, +4H, 20I, 30S, 76N", e: []int64{1678718401124685000}}, wantErr: false},   // 指定时间+
+		{name: "000", args: args{t: time.Now()}, wantErr: false},                                                                                    // 当前时间
+		{name: "001", args: args{s: []string{"+4H", "20I"}, t: time.Now()}, wantErr: false},                                                         // 当前时间+ 4小时20分钟
+		{name: "002", args: args{s: nil, t: time.Unix(1678718401, 0)}, wantErr: false},                                                              // 指定时间
+		{name: "003", args: args{s: nil, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                                      // 指定时间
+		{name: "004", args: args{s: []string{"76N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                          // 指定时间+ 76纳秒
+		{name: "005", args: args{s: []string{"-76N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                         // 指定时间- 76纳秒
+		{name: "006", args: args{s: []string{"7600N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                        // 指定时间+ 7.6微秒
+		{name: "007", args: args{s: []string{"7C", "600N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                   // 指定时间+ 7.6微秒
+		{name: "008", args: args{s: []string{"-1D", "1M", "-1Y", "+4H", "20I", "30S", "76N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false}, // 指定时间+
+		{name: "009", args: args{s: []string{"-1d", "1m", "-1y", "+4h", "20i", "30s", "76n"}, t: time.Unix(1678718401, 124685000)}, wantErr: false}, // 指定时间+
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := utils.DateInfo(tt.args.s, tt.args.e...)
+			got, err := utils.AddTime(tt.args.t, tt.args.s...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DateInfo() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			utils.MapRange(got, func(key string, value interface{}) bool {
+			utils.MapRange(utils.DateInfo(got), func(key string, value interface{}) bool {
 				//t.Logf("%v %v\n", key, value)
 				return true
 			})
@@ -89,7 +89,7 @@ func TestDate(t *testing.T) {
 		{name: "001", args: args{format: "Y-m-d H:i:s"}, want: ""},
 		{name: "002", args: args{format: "Y-m-d H:i:s", ts: []int64{1678718401124685076}}, want: "2023-03-13 14:40:01"},
 		{name: "003", args: args{format: "Y-m-d H:i:s", ts: []int64{1678718401}}, want: "2023-03-13 14:40:01"},
-		{name: "004", args: args{format: "F-d/Y l Ah:i:s PT", ts: []int64{1678718401}}, want: "March-13/2023 Monday PM02:40:01 +00:00UTC"},
+		{name: "004", args: args{format: "F-d/Y l Ah:i:s Pe", ts: []int64{1678718401}}, want: "March-13/2023 Monday PM02:40:01 +00:00UTC"},
 		{name: "005", args: args{format: "Y-m-d H:i:s", ts: []int64{1678718401, 124685076}}, want: "2023-03-13 14:40:01"},
 		{name: "006", args: args{format: "Y-m-d H:i:s.ms", ts: []int64{1678718401, 124685076}}, want: "2023-03-13 14:40:01.124"},
 		{name: "007", args: args{format: "Y-m-d H:i:s.msus", ts: []int64{1678718401, 124685076}}, want: "2023-03-13 14:40:01.124685"},
@@ -152,7 +152,7 @@ func TestStrtotime(t *testing.T) {
 	}{
 		{name: "001", args: args{}, wantErr: false},
 		{name: "002", args: args{[]string{"Y-m-d H:i:s", "2023-03-13 14:40:01"}}, wantErr: false},
-		{name: "003", args: args{[]string{"F-d/Y l Ah:i:s PT", "March-13/2023 Monday PM02:40:01 +00:00UTC"}}, wantErr: false},
+		{name: "003", args: args{[]string{"F-d/Y l Ah:i:s Pe", "March-13/2023 Monday PM02:40:01 +00:00UTC"}}, wantErr: false},
 		{name: "004", args: args{[]string{"Y-m-d H:i:s.ms", "2023-03-13 14:40:01.124"}}, wantErr: false},
 		{name: "005", args: args{[]string{"Y-m-d H:i:s.msus", "2023-03-13 14:40:01.124685"}}, wantErr: false},
 		{name: "006", args: args{[]string{"Y-m-d H:i:s.msusns", "2023-03-13 14:40:01.124685076"}}, wantErr: false},
@@ -160,7 +160,7 @@ func TestStrtotime(t *testing.T) {
 		{name: "008", args: args{[]string{"2023-03-13 14:40:01.124"}}, wantErr: false},
 		{name: "009", args: args{[]string{"2023-03-13 14:40:01.124685"}}, wantErr: false},
 		{name: "010", args: args{[]string{"2023-03-13 14:40:01.124685076"}}, wantErr: false},
-		{name: "011", args: args{[]string{"Mar 13 22:40:01.124685076"}}, wantErr: false},
+		{name: "011", args: args{[]string{"Mar 13 22:40:01.124685076"}}, wantErr: true},
 		{name: "012", args: args{[]string{"2023 Mar 13 22:40:01.124685076"}}, wantErr: true}, // 匹配不到
 		{name: "013", args: args{[]string{"2006-01-02 15:04:05", "2023-03-13 14:40:01"}}, wantErr: false},
 		{name: "014", args: args{[]string{"2006-01-02 15:04:05.000", "2023-03-13 14:40:01.124"}}, wantErr: false},
@@ -172,7 +172,7 @@ func TestStrtotime(t *testing.T) {
 			if got, err := utils.Strtotime(utils.Local(), tt.args.e...); (err == nil) == tt.wantErr {
 				t.Errorf("Strtotime() = %v, want %v, WrapError = %v", got.UnixNano(), tt.wantErr, err)
 			} else if !tt.wantErr {
-				//t.Logf("Strtotime() unxNano %v, time %v", got.UnixNano(), got.LogArgsFormat(NanosecondDash))
+				//t.Logf("Strtotime() unxNano %v, time %v", got.UnixNano(), got.Format(utils.NanosecondDash))
 			}
 		})
 	}
