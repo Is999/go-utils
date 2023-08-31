@@ -103,11 +103,11 @@ func CheckDate(year, month, day int) bool {
 	return true
 }
 
-// AddTime 获取日期信息
+// AddTime 增加时间
 //
-//	addTimes 增加时间（Y年，M月，D日，H时，I分，S秒，L毫秒，C微妙，N纳秒)，多个参数英文逗号分割
+//	addTimes 增加时间（Y年，M月，D日，H时，I分，S秒，L毫秒，C微妙，N纳秒)
 //
-//	示例：DateInfo("-1D, 1M, -1Y, +4H, 20I, 30S, 76N",1299826006,152714700)
+//	示例：DateInfo(time, "-1D", "1M", "-1Y", "+4H", "20I", "30S", "76N")
 func AddTime(t time.Time, addTimes ...string) (time.Time, error) {
 	for _, v := range addTimes {
 		v = strings.TrimSpace(v)
@@ -195,25 +195,25 @@ func DateInfo(t time.Time) map[string]interface{} {
 	return param
 }
 
-// TimeFormat 时间格式化
+// TimeFormat 时间戳格式化为时间字符串
 //
 //	timeZone 时区
 //	layout 格式化，例：
 //	 - TimeFormat(timeZone, "2006-01-02 15:04:05", unix)
-//	unix Unix 时间sec秒和nsec纳秒
-func TimeFormat(timeZone *time.Location, layout string, unix ...int64) string {
-	if len(unix) == 0 {
+//	timestamp Unix时间戳：sec秒和nsec纳秒
+func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) string {
+	if len(timestamp) == 0 {
 		return time.Now().In(timeZone).Format(layout)
 	}
 
-	var sec, nsec int64 = unix[0], 0
-	if len(unix) > 1 {
-		nsec = unix[1]
+	var sec, nsec int64 = timestamp[0], 0
+	if len(timestamp) > 1 {
+		nsec = timestamp[1]
 	}
 
-	if len(unix) == 1 && sec >= 1e18 {
-		sec = unix[0] / 1e9
-		nsec = unix[0] % 1e9
+	if len(timestamp) == 1 && sec >= 1e18 {
+		sec = timestamp[0] / 1e9
+		nsec = timestamp[0] % 1e9
 	}
 	return time.Unix(sec, nsec).In(timeZone).Format(layout)
 }
@@ -222,10 +222,10 @@ func TimeFormat(timeZone *time.Location, layout string, unix ...int64) string {
 //
 //	timeZone 时区
 //	layout 格式化，例：
-//	 - TimeFormat(timeZone, "2006-01-02 15:04:05", timestamp)
-//	timestamp 时间字符串
-func TimeParse(timeZone *time.Location, layout, timestamp string) (time.Time, error) {
-	return time.ParseInLocation(layout, timestamp, timeZone)
+//	 - TimeFormat(timeZone, "2006-01-02 15:04:05", timeStr)
+//	timeStr 时间字符串
+func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, error) {
+	return time.ParseInLocation(layout, timeStr, timeZone)
 }
 
 // Date 使用 patterns 定义的格式对时间格式化
@@ -233,22 +233,22 @@ func TimeParse(timeZone *time.Location, layout, timestamp string) (time.Time, er
 //	timeZone 时区
 //	layout 格式化，例：
 //	 - Date(timeZone, "Y-m-d H:i:s", unix)
-//	unix Unix 时间sec秒和nsec纳秒
-func Date(timeZone *time.Location, layout string, unix ...int64) string {
-	return TimeFormat(timeZone, patterns.Replace(layout), unix...)
+//	timestamp Unix时间戳：sec秒和nsec纳秒
+func Date(timeZone *time.Location, layout string, timestamp ...int64) string {
+	return TimeFormat(timeZone, patterns.Replace(layout), timestamp...)
 }
 
 // Strtotime 解析时间字符串（不确定的时间格式，尽可能解析时间字符串）
 //
 //	timeZone 时区
 //	parse 解析时间字符串包含两个参数：
-//	 - layout 格式化：
-//	 - timestamp 时间字符串
+//	 - layout 格式化样式字符串
+//	 - timeStr 时间字符串
 //	例：
 //	 - Strtotime(timeZone, "2006-01-02 15:04:05") // 当前时间
-//	 - Strtotime(timeZone, "2006-01-02 15:04:05", timestamp) // timestamp 时间
+//	 - Strtotime(timeZone, "2006-01-02 15:04:05", timeStr) // 指定时间timeStr
 //	 - Strtotime(timeZone, "Y-m-d H:i:s") // 当前时间
-//	 - Strtotime(timeZone, "Y-m-d H:i:s", timestamp) // timestamp 时间
+//	 - Strtotime(timeZone, "Y-m-d H:i:s", timeStr) // 指定时间timeStr
 func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error) {
 	if len(parse) == 1 {
 		layouts := []string{
