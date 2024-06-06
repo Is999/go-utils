@@ -1,13 +1,16 @@
 package utils
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"github.com/Is999/go-utils/errors"
+	"hash"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -23,24 +26,6 @@ func NewRSA(pub, pri string, isFilePath ...bool) (*RSA, error) {
 	if err := r.SetPublicKey(pub, isFilePath...); err != nil {
 		return r, errors.Wrap(err)
 	}
-	if err := r.SetPrivateKey(pri, isFilePath...); err != nil {
-		return r, errors.Wrap(err)
-	}
-	return r, nil
-}
-
-// NewPubRSA 实例化RSA并设置公钥，用于加密或验证签名
-func NewPubRSA(pub string, isFilePath ...bool) (*RSA, error) {
-	r := &RSA{}
-	if err := r.SetPublicKey(pub, isFilePath...); err != nil {
-		return r, errors.Wrap(err)
-	}
-	return r, nil
-}
-
-// NewPriRSA 实例化RSA并设置私钥，用于解密或签名
-func NewPriRSA(pri string, isFilePath ...bool) (*RSA, error) {
-	r := &RSA{}
 	if err := r.SetPrivateKey(pri, isFilePath...); err != nil {
 		return r, errors.Wrap(err)
 	}
@@ -164,11 +149,22 @@ func (r *RSA) Encrypt(data string, encode Encode) (string, error) {
 	if err := r.IsSetPublicKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
-	encrypt, err := rsa.EncryptPKCS1v15(rand.Reader, r.pubKey, []byte(data)) //RSA算法加密
-	if err != nil {
-		return "", errors.Wrap(err)
+	var encryptedData bytes.Buffer
+	maxLength := r.pubKey.Size() - 11
+	for start := 0; start < len(data); start += maxLength {
+		end := start + maxLength
+		if end > len(data) {
+			end = len(data)
+		}
+		chunk := []byte(data[start:end])
+		encryptedChunk, err := rsa.EncryptPKCS1v15(rand.Reader, r.pubKey, chunk) //RSA算法加密
+		if err != nil {
+			return "", errors.Wrap(err)
+		}
+		encryptedData.Write(encryptedChunk)
 	}
-	return encode(encrypt), nil
+
+	return encode(encryptedData.Bytes()), nil
 }
 
 // Decrypt 解密(私钥)
@@ -176,15 +172,37 @@ func (r *RSA) Encrypt(data string, encode Encode) (string, error) {
 //	encrypt 代解密数据
 //	decode 解码方法
 func (r *RSA) Decrypt(encrypt string, decode Decode) (string, error) {
+	if err := r.IsSetPublicKey(); err != nil {
+		return "", errors.Wrap(err)
+	}
+
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
+
 	ciphertext, err := decode(encrypt)
 	if err != nil {
 		return "", errors.Wrap(err)
 	}
-	decrypt, err := rsa.DecryptPKCS1v15(rand.Reader, r.priKey, ciphertext) //RSA算法解密
-	return string(decrypt), nil
+
+	var decryptedData bytes.Buffer
+	maxLength := r.priKey.Size()
+
+	for start := 0; start < len(ciphertext); start += maxLength {
+		end := start + maxLength
+		if end > len(ciphertext) {
+			end = len(ciphertext)
+		}
+
+		chunk := ciphertext[start:end]
+		decryptedChunk, err := rsa.DecryptPKCS1v15(rand.Reader, r.priKey, chunk) //RSA算法解密
+		if err != nil {
+			return "", errors.Wrap(err)
+		}
+		decryptedData.Write(decryptedChunk)
+	}
+
+	return decryptedData.String(), nil
 }
 
 // Sign 签名(私钥)
@@ -228,6 +246,116 @@ func (r *RSA) Verify(data, sign string, hash crypto.Hash, decode Decode) error {
 	h.Write([]byte(data))
 	hashed := h.Sum(nil)
 	return rsa.VerifyPKCS1v15(r.pubKey, hash, hashed, signByte)
+}
+
+// EncryptOAEP 加密(公钥)
+//
+//	data 待加密数据
+//	encode 编码方法
+//	hash OAEP编码方法
+func (r *RSA) EncryptOAEP(data string, encode Encode, hash hash.Hash) (string, error) {
+	if err := r.IsSetPublicKey(); err != nil {
+		return "", errors.Wrap(err)
+	}
+	var encryptedData bytes.Buffer
+	maxLength := r.pubKey.Size() - 2*hash.Size() - 2
+	for start := 0; start < len(data); start += maxLength {
+		end := start + maxLength
+		if end > len(data) {
+			end = len(data)
+		}
+		chunk := []byte(data[start:end])
+		encryptedChunk, err := rsa.EncryptOAEP(hash, rand.Reader, r.pubKey, chunk, nil) //RSA算法加密
+		if err != nil {
+			return "", errors.Wrap(err)
+		}
+		encryptedData.Write(encryptedChunk)
+	}
+
+	return encode(encryptedData.Bytes()), nil
+}
+
+// DecryptOAEP 解密(私钥)
+//
+//	encrypt 代解密数据
+//	decode 解码方法
+//	hash OAEP编码方法
+func (r *RSA) DecryptOAEP(encrypt string, decode Decode, hash hash.Hash) (string, error) {
+	if err := r.IsSetPublicKey(); err != nil {
+		return "", errors.Wrap(err)
+	}
+
+	if err := r.IsSetPrivateKey(); err != nil {
+		return "", errors.Wrap(err)
+	}
+
+	ciphertext, err := decode(encrypt)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+
+	var decryptedData bytes.Buffer
+	maxLength := r.priKey.Size()
+
+	for start := 0; start < len(ciphertext); start += maxLength {
+		end := start + maxLength
+		if end > len(ciphertext) {
+			end = len(ciphertext)
+		}
+
+		chunk := ciphertext[start:end]
+		decryptedChunk, err := rsa.DecryptOAEP(hash, rand.Reader, r.priKey, chunk, nil) //RSA算法解密
+		if err != nil {
+			return "", errors.Wrap(err)
+		}
+		decryptedData.Write(decryptedChunk)
+	}
+
+	return decryptedData.String(), nil
+}
+
+// SignPSS 签名(私钥)
+//
+//	data 待签名数据
+//	hash 加密哈希函数标识:
+//	 - crypto.SHA256 : Sign(data, crypto.SHA256, encode)
+//	 - crypto.MD5 : Sign(data, crypto.MD5, encode)
+//	encode - 编码方法
+//	opts - *rsa.PSSOptions
+func (r *RSA) SignPSS(data string, hash crypto.Hash, encode Encode, opts *rsa.PSSOptions) (string, error) {
+	if err := r.IsSetPrivateKey(); err != nil {
+		return "", errors.Wrap(err)
+	}
+	h := hash.New()
+	h.Write([]byte(data))
+	hashed := h.Sum(nil)
+	sign, err := rsa.SignPSS(rand.Reader, r.priKey, hash, hashed, opts)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+	return encode(sign), nil
+}
+
+// VerifyPSS 验证签名(公钥)
+//
+//	data 待验证数据
+//	sign 签名串
+//	hash 加密哈希函数标识:
+//	 - crypto.SHA256 : Verify(data, signature, crypto.SHA256, decode)
+//	 - crypto.MD5 : Verify(data, signature, crypto.MD5, decode)
+//	decode 解码方法
+func (r *RSA) VerifyPSS(data, sign string, hash crypto.Hash, decode Decode, opts *rsa.PSSOptions) error {
+	if err := r.IsSetPublicKey(); err != nil {
+		return errors.Wrap(err)
+	}
+	signByte, err := decode(sign)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+	h := hash.New()
+	h.Write([]byte(data))
+	hashed := h.Sum(nil)
+	return rsa.VerifyPSS(r.pubKey, hash, hashed, signByte, opts)
 }
 
 // GenerateKeyRSA 生成秘钥(公钥PKCS8格式 私钥PKCS1格式)
@@ -334,4 +462,43 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	}
 
 	return fileName, nil
+}
+
+// RemovePEMHeaders 去掉 RSA秘钥串 头尾标记和换行符
+func RemovePEMHeaders(pem string) string {
+	// 定义正则表达式，匹配 PEM 头尾标记，不区分大小写
+	re := regexp.MustCompile(`(?i)-----BEGIN.*?-----|-----END.*?-----`)
+	// 替换头尾标记为空字符串
+	pem = re.ReplaceAllString(pem, "")
+	// 去掉换行符和回车符
+	pem = strings.ReplaceAll(pem, "\n", "")
+	pem = strings.ReplaceAll(pem, "\r", "")
+	// 去掉多余的空格
+	return strings.TrimSpace(pem)
+}
+
+// AddPEMHeaders 为 RSA 密钥串添加头尾标记
+func AddPEMHeaders(keyStr, keyType string) string {
+	var header, footer string
+
+	if strings.EqualFold(keyType, "public") {
+		header = "-----BEGIN PUBLIC KEY-----"
+		footer = "-----END PUBLIC KEY-----"
+	} else if strings.EqualFold(keyType, "private") {
+		header = "-----BEGIN RSA PRIVATE KEY-----"
+		footer = "-----END RSA PRIVATE KEY-----"
+	} else {
+		return "Invalid key type"
+	}
+	keyLines := []string{header}
+	for i := 0; i < len(keyStr); i += 64 {
+		endIndex := i + 64
+		if endIndex > len(keyStr) {
+			endIndex = len(keyStr)
+		}
+		keyLines = append(keyLines, keyStr[i:endIndex])
+	}
+	keyLines = append(keyLines, footer)
+
+	return strings.Join(keyLines, "\n")
 }
