@@ -2,12 +2,14 @@ package utils_test
 
 import (
 	"crypto"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"github.com/Is999/go-utils"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -91,39 +93,17 @@ func TestRSA(t *testing.T) {
 				return
 			}
 
-			// r := &_RSA{}
-
-			// 判断是否设置公钥
-			//if WrapError := r.IsSetPublicKey(); WrapError != nil {
-			//	//t.Logf("IsSetPublicKey() = %v\n", WrapError)
-			//	// 设置公钥
-			//	if WrapError := r.SetPublicKey(tt.args.publicKey, tt.args.isFilePath); WrapError != nil {
-			//		t.Errorf("SetPublicKey() WrapError = %v", WrapError)
-			//		return
-			//	}
-			//}
-
-			// 判断是否设置私钥
-			//if WrapError := r.IsSetPrivateKey(); WrapError != nil {
-			//	//t.Logf("IsSetPrivateKey() = %v\n", WrapError)
-			//	// 设置私钥
-			//	if WrapError := r.SetPrivateKey(tt.args.privateKey, tt.args.isFilePath); WrapError != nil {
-			//		t.Errorf("SetPrivateKey() WrapError = %v", WrapError)
-			//		return
-			//	}
-			//}
-
 			// 源数据
 			marshal, err := json.Marshal(map[string]interface{}{
 				"Title":   tt.name,
-				"Content": "测试内容8282@334&-" + tt.name,
+				"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
 			})
 			if err != nil {
 				t.Errorf("json.Marshal() WrapError = %v", err)
 				return
 			}
 
-			//t.Logf("json.Marshal() = %v\n", string(jsonEncode))
+			// t.Logf("json.Marshal() = %d %v\n", len(string(marshal)), string(marshal))
 
 			// 公钥加密
 			encodeString, err := r.Encrypt(string(marshal), tt.args.encodeToString)
@@ -141,24 +121,24 @@ func TestRSA(t *testing.T) {
 			}
 			//t.Logf("Decrypt() = %v\n", decryptString)
 
+			// 公钥加密
+			encodeString, err = r.EncryptOAEP(string(marshal), tt.args.encodeToString, sha256.New())
+			if err != nil {
+				t.Errorf("Encrypt() WrapError = %v", err)
+				return
+			}
+			//t.Logf("Encrypt() = %v\n", encodeString)
+
+			// 私钥解密
+			decryptString, err = r.DecryptOAEP(encodeString, tt.args.decode, sha256.New())
+			if err != nil {
+				t.Errorf("Decrypt() WrapError = %v", err)
+				return
+			}
+			//t.Logf("Decrypt() = %v\n", decryptString)
+
 			if !reflect.DeepEqual(decryptString, string(marshal)) {
 				t.Errorf("解密后数据不等于加密前数据 got = %v, want %v", decryptString, string(marshal))
-			}
-
-			// 私钥签名
-			sign, err := r.Sign(string(marshal), tt.args.hash, tt.args.encodeToString)
-			if err != nil {
-				t.Errorf("Sign() WrapError = %v", err)
-				return
-			}
-			//t.Logf("Sign() = %v\n", sign)
-
-			// 公钥验签
-			if err := r.Verify(string(marshal), sign, tt.args.hash, tt.args.decode); err != nil {
-				t.Errorf("Verify() WrapError = %v", err)
-				return
-			} else {
-				//t.Log("Verify() = 验证成功")
 			}
 		})
 	}
@@ -198,13 +178,7 @@ func TestRSA_SignAndVerify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			privRsa, err := utils.NewPriRSA(tt.args.privateKey, tt.args.isFilePath)
-			if err != nil {
-				t.Errorf("NewRSA() WrapError = %v", err)
-				return
-			}
-
-			pubRsa, err := utils.NewPubRSA(tt.args.publicKey, tt.args.isFilePath)
+			r, err := utils.NewRSA(tt.args.publicKey, tt.args.privateKey, tt.args.isFilePath)
 			if err != nil {
 				t.Errorf("NewRSA() WrapError = %v", err)
 				return
@@ -213,37 +187,17 @@ func TestRSA_SignAndVerify(t *testing.T) {
 			// 源数据
 			marshal, err := json.Marshal(map[string]interface{}{
 				"Title":   tt.name,
-				"Content": "测试内容8282@334&-" + tt.name,
+				"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
 			})
 			if err != nil {
 				t.Errorf("json.Marshal() WrapError = %v", err)
 				return
 			}
 
-			//t.Logf("json.Marshal() = %v\n", string(jsonEncode))
-
-			// 公钥加密
-			encodeString, err := pubRsa.Encrypt(string(marshal), tt.args.encodeToString)
-			if err != nil {
-				t.Errorf("Encrypt() WrapError = %v", err)
-				return
-			}
-			//t.Logf("Encrypt() = %v\n", encodeString)
-
-			// 私钥解密
-			decryptString, err := privRsa.Decrypt(encodeString, tt.args.decode)
-			if err != nil {
-				t.Errorf("Decrypt() WrapError = %v", err)
-				return
-			}
-			//t.Logf("Decrypt() = %v\n", decryptString)
-
-			if !reflect.DeepEqual(decryptString, string(marshal)) {
-				t.Errorf("解密后数据不等于加密前数据 got = %v, want %v", decryptString, string(marshal))
-			}
+			// t.Logf("json.Marshal() = %d %v\n", len(string(marshal)), string(marshal))
 
 			// 私钥签名
-			sign, err := privRsa.Sign(string(marshal), tt.args.hash, tt.args.encodeToString)
+			sign, err := r.Sign(string(marshal), tt.args.hash, tt.args.encodeToString)
 			if err != nil {
 				t.Errorf("Sign() WrapError = %v", err)
 				return
@@ -251,7 +205,23 @@ func TestRSA_SignAndVerify(t *testing.T) {
 			//t.Logf("Sign() = %v\n", sign)
 
 			// 公钥验签
-			if err := pubRsa.Verify(string(marshal), sign, tt.args.hash, tt.args.decode); err != nil {
+			if err := r.Verify(string(marshal), sign, tt.args.hash, tt.args.decode); err != nil {
+				t.Errorf("Verify() WrapError = %v", err)
+				return
+			} else {
+				//t.Log("Verify() = 验证成功")
+			}
+
+			// 私钥签名
+			sign, err = r.SignPSS(string(marshal), tt.args.hash, tt.args.encodeToString, nil)
+			if err != nil {
+				t.Errorf("Sign() WrapError = %v", err)
+				return
+			}
+			//t.Logf("Sign() = %v\n", sign)
+
+			// 公钥验签
+			if err := r.VerifyPSS(string(marshal), sign, tt.args.hash, tt.args.decode, nil); err != nil {
 				t.Errorf("Verify() WrapError = %v", err)
 				return
 			} else {

@@ -64,9 +64,9 @@ func TestResponse(t *testing.T) {
 	// http://localhost:54333/response/xml
 	// http://localhost:54333/response/text
 	// http://localhost:54333/response/show?file=go.mod
-	// http://localhost:54333/response/show?file=golang_icon.png
+	// http://localhost:54333/response/show?file=resource/golang_icon.png
 	// http://localhost:54333/response/download?file=go.mod
-	// http://localhost:54333/response/download?file=golang_icon.png
+	// http://localhost:54333/response/download?file=resource/golang_icon.png
 	ExampleView()
 
 	// 响应json
