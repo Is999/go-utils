@@ -62,7 +62,7 @@ func Is(err, target error) bool { return errors.Is(err, target) }
 //
 //	使用到 Unwrap() error 接口
 //	使用到 As(any) bool 接口
-func As(err error, target any) bool { return errors.As(err, target) }
+func As(err error, target any) bool { return errors.As(err, &target) }
 
 // Unwrap 对error Wrap的反向操作
 //
