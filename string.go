@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"math/rand"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,19 +90,19 @@ func StrRev(str string) string {
 //
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func RandStr(n int, r ...rand.Source) string {
+func RandStr(n int, r ...*rand.Rand) string {
 	if n <= 0 {
 		return ""
 	}
 
 	if len(r) == 0 {
-		r = append(r, Source())
-		defer sourcePool.Put(r[0])
+		r = append(r, GetRandPool())
+		defer RandPool.Put(r[0])
 	}
 
 	s := make([]byte, n)
 	for i := 0; i < n; i++ {
-		s[i] = LETTERS[int(r[0].Int63())%len(LETTERS)]
+		s[i] = LETTERS[int(r[0].Int64())%len(LETTERS)]
 	}
 	return *(*string)(unsafe.Pointer(&s))
 }
@@ -111,18 +111,18 @@ func RandStr(n int, r ...rand.Source) string {
 //
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func RandStr2(n int, r ...rand.Source) string {
+func RandStr2(n int, r ...*rand.Rand) string {
 	if n <= 0 {
 		return ""
 	}
 	if len(r) == 0 {
-		r = append(r, Source())
-		defer sourcePool.Put(r[0])
+		r = append(r, GetRandPool())
+		defer RandPool.Put(r[0])
 	}
 	s := make([]byte, n)
-	s[0] = LETTERS[int(r[0].Int63())%len(LETTERS)]
+	s[0] = LETTERS[int(r[0].Int64())%len(LETTERS)]
 	for i := 1; i < n; i++ {
-		s[i] = ALPHANUM[int(r[0].Int63())%len(ALPHANUM)]
+		s[i] = ALPHANUM[int(r[0].Int64())%len(ALPHANUM)]
 	}
 	return *(*string)(unsafe.Pointer(&s))
 }
@@ -132,18 +132,18 @@ func RandStr2(n int, r ...rand.Source) string {
 //	n 生成字符串长度
 //	alpha 生成随机字符串的种子
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func RandStr3(n int, alpha string, r ...rand.Source) string {
+func RandStr3(n int, alpha string, r ...*rand.Rand) string {
 	if n <= 0 || len(alpha) == 0 {
 		return ""
 	}
 	if len(r) == 0 {
-		r = append(r, Source())
-		defer sourcePool.Put(r[0])
+		r = append(r, GetRandPool())
+		defer RandPool.Put(r[0])
 	}
 	l := len(alpha)
 	s := make([]byte, n)
 	for i := 0; i < n; i++ {
-		s[i] = alpha[int(r[0].Int63())%l]
+		s[i] = alpha[int(r[0].Int64())%l]
 	}
 	return *(*string)(unsafe.Pointer(&s))
 }
@@ -153,7 +153,7 @@ func RandStr3(n int, alpha string, r ...rand.Source) string {
 //
 //	l 生成UniqId长度: 取值范围[16-32], 小于16按16位处理, 大于32按32位处理
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func UniqId(l uint8, r ...rand.Source) string {
+func UniqId(l uint8, r ...*rand.Rand) string {
 	// 16-32 位
 	if l > 32 {
 		l = 32
@@ -177,8 +177,8 @@ func UniqId(l uint8, r ...rand.Source) string {
 
 	//r := rand.New(rand.NewSource(nano))
 	if len(r) == 0 {
-		r = append(r, Source())
-		defer sourcePool.Put(r[0])
+		r = append(r, GetRandPool())
+		defer RandPool.Put(r[0])
 	}
 
 	for i := 0; i <= n && total > 0; i++ {
@@ -202,12 +202,12 @@ func UniqId(l uint8, r ...rand.Source) string {
 	return b.String()
 }
 
-// sourcePool 随机种子
-var sourcePool = &sync.Pool{New: func() interface{} {
-	return rand.NewSource(time.Now().UnixNano())
+// RandPool rand
+var RandPool = &sync.Pool{New: func() interface{} {
+	return rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
 }}
 
-// Source 获取随机种子
-func Source() rand.Source {
-	return sourcePool.Get().(rand.Source)
+// GetRandPool 获取随机种子
+func GetRandPool() *rand.Rand {
+	return RandPool.Get().(*rand.Rand)
 }

@@ -447,7 +447,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// Debug 日志
 	if c.defLogOutput {
-		c.Logger.Debug("HTTP START", "time", t.Format(MicrosecondDash))
+		c.Logger.Debug("HTTP START", "time", t.Format(DateMicrosecond))
 	}
 
 	var (
@@ -663,7 +663,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	t1 := time.Now()
 	// Debug 日志
 	if c.defLogOutput {
-		c.Logger.Debug("client start", "time", t1.Format(MicrosecondDash))
+		c.Logger.Debug("client start", "time", t1.Format(DateMicrosecond))
 	}
 
 	// 发送请求

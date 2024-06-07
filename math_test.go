@@ -2,17 +2,14 @@ package utils_test
 
 import (
 	"github.com/Is999/go-utils"
-	"math/rand"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestRand(t *testing.T) {
 	type args struct {
 		min int64
 		max int64
-		r   []rand.Source
 	}
 	type testCase struct {
 		name string
@@ -30,7 +27,7 @@ func TestRand(t *testing.T) {
 		{name: "008", args: args{min: 10, max: 5}},
 		{name: "009", args: args{min: 10000, max: 100000}},
 	}
-	r := rand.NewSource(time.Now().UnixNano())
+	r := utils.GetRandPool()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var minInt, maxInt = tt.args.min, tt.args.max
@@ -47,7 +44,7 @@ func TestRand(t *testing.T) {
 							t.Errorf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.min, tt.args.max)
 							break
 						} else {
-							//t.Logf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.minInt, tt.args.maxInt)
+							//t.Logf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.min, tt.args.max)
 						}
 					}
 				}(minInt, maxInt, i, tt)
@@ -71,7 +68,7 @@ func BenchmarkRand(t *testing.B) {
 		//{name: "001", args: args{min: -1, max: 2}},
 		{name: "002", args: args{min: 10000, max: 100000}},
 	}
-	r := rand.NewSource(time.Now().UnixNano())
+	r := utils.GetRandPool()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.B) {
 			for n := 0; n < t.N; n++ {

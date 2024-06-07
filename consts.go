@@ -1,5 +1,7 @@
 package utils
 
+import "time"
+
 // 加密模式
 const (
 	ECB McryptMode = iota // 0 电码本模式（Electronic Codebook Book，ECB），ECB无须设置初始化向量IV
@@ -30,30 +32,16 @@ const (
 	Minute string = "04"   // 分
 	Second string = "05"   // 秒
 
-	MonthSeam       = Year + Month            // 200601
-	DaySeam         = MonthSeam + Day         // 20060102
-	HourSeam        = DaySeam + Hour          // 2006010215
-	MinuteSeam      = HourSeam + Minute       // 200601021504
-	SecondSeam      = MinuteSeam + Second     // 20060102150405
-	MillisecondSeam = SecondSeam + ".000"     // 20060102150405.000
-	MicrosecondSeam = MillisecondSeam + "000" // 20060102150405.000000
-	NanosecondSeam  = MicrosecondSeam + "000" // 20060102150405.000000000
+	DateMonth       = Year + "-" + Month         // 2006-01
+	DateHour        = time.DateOnly + " " + Hour // 2006-01-02 15
+	DateMinute      = DateHour + ":" + Minute    // 2006-01-02 15:04
+	DateMillisecond = time.DateTime + ".000"     // 2006-01-02 15:04:05.000
+	DateMicrosecond = DateMillisecond + "000"    // 2006-01-02 15:04:05.000000
+	DateNanosecond  = DateMicrosecond + "000"    // 2006-01-02 15:04:05.000000000
 
-	MonthDash       = Year + "-" + Month        // 2006-01
-	DayDash         = MonthDash + "-" + Day     // 2006-01-02
-	HourDash        = DayDash + " " + Hour      // 2006-01-02 15
-	MinuteDash      = HourDash + ":" + Minute   // 2006-01-02 15:04
-	SecondDash      = MinuteDash + ":" + Second // 2006-01-02 15:04:05
-	MillisecondDash = SecondDash + ".000"       // 2006-01-02 15:04:05.000
-	MicrosecondDash = MillisecondDash + "000"   // 2006-01-02 15:04:05.000000
-	NanosecondDash  = MicrosecondDash + "000"   // 2006-01-02 15:04:05.000000000
-
-	MonthSlash       = Year + "/" + Month         // 2006/01
-	DaySlash         = MonthSlash + "/" + Day     // 2006/01/02
-	HourSlash        = DaySlash + " " + Hour      // 2006/01/02 15
-	MinuteSlash      = HourSlash + ":" + Minute   // 2006/01/02 15:04
-	SecondSlash      = MinuteSlash + ":" + Second // 2006/01/02 15:04:05
-	MillisecondSlash = SecondSlash + ".000"       // 2006/01/02 15:04:05.000
-	MicrosecondSlash = MillisecondSlash + "000"   // 2006/01/02 15:04:05.000000
-	NanosecondSlash  = MicrosecondSlash + "000"   // 2006/01/02 15:04:05.000000000
+	MonthSeam  = Year + Month        // 200601
+	DaySeam    = MonthSeam + Day     // 20060102
+	HourSeam   = DaySeam + Hour      // 2006010215
+	MinuteSeam = HourSeam + Minute   // 200601021504
+	SecondSeam = MinuteSeam + Second // 20060102150405
 )

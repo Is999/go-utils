@@ -24,6 +24,7 @@ golang 帮助函数
 5. 根据1.21版本 log/slog 增加了errors文件，实现了LogValuer 接口，对error的日志追踪
 6. utils中返回的error 统一使用了WrapError, 支持error记录追踪
 7. RSA加密解密增加了对长文本的支持，增加了对PEM key 去除头尾标记和还原头尾标记方法
+8. mathd/rand 改 mathd/rand/v2, 部分函数形参 rand.Source 改为*rand.Rand
 
 # Go常用标准库方法及utils包帮助函数
 
@@ -839,13 +840,13 @@ func StrRev(str string) string
 #### func    [utils.UniqId](https://github.com/Is999/go-utils/blob/master/string.go#L159)
 
 ```go
-func UniqId(l uint8, r ...rand.Source) string
+func UniqId(l uint8, r ...*rand.Rand) string
 ```
 
-| 参数  | 描述                                                               |
-|-----|------------------------------------------------------------------|
-| *l* | 生成字符串的长度。                                                        |
-| *r* | 随机种子 rand.NewSource(time.Now().UnixNano())：批量生成时传入r参数可提升生成随机数效率。 |
+| 参数  | 描述                                          |
+|-----|---------------------------------------------|
+| *l* | 生成字符串的长度。                                   |
+| *r* | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：生成一个长度范围16-32位的唯一ID字符串(可排序的字符串)，UniqId函数生成字符串并不保证唯一性。
 
@@ -854,13 +855,13 @@ func UniqId(l uint8, r ...rand.Source) string
 #### func    [utils.RandStr](https://github.com/Is999/go-utils/blob/master/string.go#L92)
 
 ```go
-func RandStr(n int, r ...rand.Source) string
+func RandStr(n int, r ...*rand.Rand) string
 ```
 
-| 参数  | 描述                                                               |
-|-----|------------------------------------------------------------------|
-| *n* | 生成字符串的长度。                                                        |
-| *r* | 随机种子 rand.NewSource(time.Now().UnixNano())：批量生成时传入r参数可提升生成随机数效率。 |
+| 参数  | 描述                                          |
+|-----|---------------------------------------------|
+| *n* | 生成字符串的长度。                                   |
+| *r* | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：随机生成字符串 LETTERS。LETTERS 值为：a-zA-z
 
@@ -869,13 +870,13 @@ func RandStr(n int, r ...rand.Source) string
 #### func    [utils.RandStr2](https://github.com/Is999/go-utils/blob/master/string.go#L115)
 
 ```go
-func RandStr2(n int, r ...rand.Source) string
+func RandStr2(n int, r ...*rand.Rand) string
 ```
 
-| 参数  | 描述                                                               |
-|-----|------------------------------------------------------------------|
-| *n* | 生成字符串的长度。                                                        |
-| *r* | 随机种子 rand.NewSource(time.Now().UnixNano())：批量生成时传入r参数可提升生成随机数效率。 |
+| 参数  | 描述                                          |
+|-----|---------------------------------------------|
+| *n* | 生成字符串的长度。                                   |
+| *r* | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：随机生成字符串 ALPHANUM。ALPHANUM 值为：0-9a-zA-z
 
@@ -884,14 +885,14 @@ func RandStr2(n int, r ...rand.Source) string
 #### func    [utils.RandStr3](https://github.com/Is999/go-utils/blob/master/string.go#L137)
 
 ```go
-func RandStr3(n int, alpha string, r ...rand.Source) string
+func RandStr3(n int, alpha string, r ...*rand.Rand) string
 ```
 
-| 参数      | 描述                                                               |
-|---------|------------------------------------------------------------------|
-| *n*     | 生成字符串的长度。                                                        |
-| *alpha* | 生成随机字符串的种子。                                                      |
-| *r*     | 随机种子 rand.NewSource(time.Now().UnixNano())：批量生成时传入r参数可提升生成随机数效率。 |
+| 参数      | 描述                                          |
+|---------|---------------------------------------------|
+| *n*     | 生成字符串的长度。                                   |
+| *alpha* | 生成随机字符串的种子。                                 |
+| *r*     | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：随机生成字符串。alpha 指定生成随机字符串的种子。
 
@@ -1108,14 +1109,14 @@ func Min(x, y float64) float64
 #### func    [utils.Rand](https://github.com/Is999/go-utils/blob/master/math.go#L14)
 
 ```go
-func Rand(min, max int64, r ...rand.Source) int64 
+func Rand(min, max int64, r ...*rand.Rand) int64 
 ```
 
-| 参数    | 描述                                                               |
-|-------|------------------------------------------------------------------|
-| *min* | 最小值。                                                             |
-| *max* | 最大值。                                                             |
-| *r*   | 随机种子 rand.NewSource(time.Now().UnixNano())：批量生成时传入r参数可提升生成随机数效率。 |
+| 参数    | 描述                                          |
+|-------|---------------------------------------------|
+| *min* | 最小值。                                        |
+| *max* | 最大值。                                        |
+| *r*   | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：返回min~max之间的随机数，值可能包含min和max。
 
@@ -2191,7 +2192,7 @@ func HexDec(str string) (int64, error)
 
 ------
 
-#### func    [utils.IsHas](https://github.com/Is999/go-utils/blob/master/array.go#L4)
+#### func    [utils.IsHas](https://github.com/Is999/go-utils/blob/master/slices.go#L4)
 
 ```go
 func IsHas[T Ordered](v T, s []T) bool
@@ -2205,7 +2206,7 @@ func IsHas[T Ordered](v T, s []T) bool
 
 ------
 
-#### func    [utils.HasCount](https://github.com/Is999/go-utils/blob/master/array.go#L14)
+#### func    [utils.HasCount](https://github.com/Is999/go-utils/blob/master/slices.go#L14)
 
 ```go
 func HasCount[T Ordered](v T, s []T) (count int) 
@@ -2219,7 +2220,7 @@ func HasCount[T Ordered](v T, s []T) (count int)
 
 ------
 
-#### func    [utils.Reverse](https://github.com/Is999/go-utils/blob/master/array.go#L24)
+#### func    [utils.Reverse](https://github.com/Is999/go-utils/blob/master/slices.go#L24)
 
 ```go
 func Reverse[T Ordered](s []T) []T
@@ -2233,10 +2234,10 @@ func Reverse[T Ordered](s []T) []T
 
 ------
 
-#### func    [utils.ArrUnique](https://github.com/Is999/go-utils/blob/master/array.go#L32)
+#### func    [utils.Unique](https://github.com/Is999/go-utils/blob/master/slices.go#L32)
 
 ```go
-func ArrUnique[T Ordered](s []T) []T
+func Unique[T Ordered](s []T) []T
 ```
 
 备注：去除s中重复的值。
@@ -2247,10 +2248,10 @@ func ArrUnique[T Ordered](s []T) []T
 
 ------
 
-#### func    [utils.ArrDiff](https://github.com/Is999/go-utils/blob/master/array.go#L49)
+#### func    [utils.Diff](https://github.com/Is999/go-utils/blob/master/slices.go#L49)
 
 ```go
-func ArrDiff[T Ordered](s1, s2 []T) []T
+func Diff[T Ordered](s1, s2 []T) []T
 ```
 
 备注：计算s1与s2的差集。
@@ -2261,10 +2262,10 @@ func ArrDiff[T Ordered](s1, s2 []T) []T
 
 ------
 
-#### func    [utils.ArrIntersect](https://github.com/Is999/go-utils/blob/master/array.go#L64)
+#### func    [utils.Intersect](https://github.com/Is999/go-utils/blob/master/slices.go#L64)
 
 ```go
-func ArrIntersect[T Ordered](s1, s2 []T) []T
+func Intersect[T Ordered](s1, s2 []T) []T
 ```
 
 备注：计算s1与s2的交集。
