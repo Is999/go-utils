@@ -62,7 +62,7 @@ func Is(err, target error) bool { return errors.Is(err, target) }
 //
 //	使用到 Unwrap() error 接口
 //	使用到 As(any) bool 接口
-func As(err error, target any) bool { return errors.As(err, &target) }
+func As(err error, target any) bool { return errors.As(err, target) }
 
 // Unwrap 对error Wrap的反向操作
 //
@@ -156,10 +156,10 @@ func (e *wrapError) Unwrap() error {
 
 // Is 实现Is接口
 //
-//	e与target相等，或者两者类型相同并且msg相同并且第一个stackTrace相同返回true，否则返回false
+//	e与target相等，两者类型相同并且msg相同并且第一个stackTrace相同返回true，否则返回false
 func (e *wrapError) Is(target error) bool {
 	if we, ok := target.(*wrapError); ok {
-		return we == e || (we.msg == e.msg && we.stackTrace[0] == e.stackTrace[0])
+		return we.msg == e.msg && we.stackTrace[0] == e.stackTrace[0]
 	}
 	return false
 }
