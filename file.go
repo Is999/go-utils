@@ -243,7 +243,7 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error {
 	for scan.Scan() {
 		n++
 		if err := handle(n, scan.Bytes(), scan.Err()); err != nil {
-			if err == DONE {
+			if errors.Is(err, DONE) {
 				return nil
 			}
 			return errors.Wrap(err)
@@ -268,7 +268,7 @@ func Line(r io.Reader, handle ReadLine) error {
 		// 处理数据
 		if err == nil {
 			if err := handle(n, line, !isPrefix); err != nil {
-				if err == DONE {
+				if errors.Is(err, DONE) {
 					return nil
 				}
 				return errors.Wrap(err)
@@ -289,7 +289,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 		n, err := r.Read(block)
 		if n > 0 {
 			if err := handle(n, block[:n]); err != nil {
-				if err == DONE {
+				if errors.Is(err, DONE) {
 					err = nil
 				}
 				return errors.Wrap(err)

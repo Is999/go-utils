@@ -152,7 +152,7 @@ func TestScan(t *testing.T) {
 	tests := []test{
 		{name: "001", args: args{name: "./file.go", size: []int{int(utils.MB)}}},
 	}
-
+	//setLogConfig()
 	var f = func(t *testing.T, tt test) {
 		// 打开文件
 		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
@@ -181,17 +181,18 @@ func TestScan(t *testing.T) {
 
 			// 读取前20行数据
 			//if num > 20 {
-			//	return DONE
+			//	return utils.DONE
 			//}
 
 			content = append(content, line...)
-			//content = append(content, '\n')
+			content = append(content, '\n')
 
 			//t.Logf("第%d行 %v\n", num, string(line))
 			return nil
 		}
 
 		if err := utils.Scan(open, handle, tt.args.size...); (err != nil) != tt.wantErr {
+			//slog.Info("错误了", "err", err)
 			t.Errorf("Scan() error = %v, wantErr %v", err, tt.wantErr)
 		}
 		//t.Logf("content size = %v, fileSize = %v", len(content), stat.Size())
@@ -249,7 +250,7 @@ func BenchmarkScan(t *testing.B) {
 
 			// 读取前20行数据
 			//if num > 20 {
-			//	return DONE
+			//	return utils.DONE
 			//}
 
 			//content = append(content, line...)
