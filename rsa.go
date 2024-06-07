@@ -32,6 +32,24 @@ func NewRSA(pub, pri string, isFilePath ...bool) (*RSA, error) {
 	return r, nil
 }
 
+// NewPubRSA 实例化RSA并设置公钥，用于加密或验证签名
+func NewPubRSA(pub string, isFilePath ...bool) (*RSA, error) {
+	r := &RSA{}
+	if err := r.SetPublicKey(pub, isFilePath...); err != nil {
+		return r, errors.Wrap(err)
+	}
+	return r, nil
+}
+
+// NewPriRSA 实例化RSA并设置私钥，用于解密或签名
+func NewPriRSA(pri string, isFilePath ...bool) (*RSA, error) {
+	r := &RSA{}
+	if err := r.SetPrivateKey(pri, isFilePath...); err != nil {
+		return r, errors.Wrap(err)
+	}
+	return r, nil
+}
+
 // SetPublicKey 设置公钥
 //
 //	publicKey 公钥(路径)
@@ -172,10 +190,6 @@ func (r *RSA) Encrypt(data string, encode Encode) (string, error) {
 //	encrypt 代解密数据
 //	decode 解码方法
 func (r *RSA) Decrypt(encrypt string, decode Decode) (string, error) {
-	if err := r.IsSetPublicKey(); err != nil {
-		return "", errors.Wrap(err)
-	}
-
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
@@ -281,10 +295,6 @@ func (r *RSA) EncryptOAEP(data string, encode Encode, hash hash.Hash) (string, e
 //	decode 解码方法
 //	hash OAEP编码方法
 func (r *RSA) DecryptOAEP(encrypt string, decode Decode, hash hash.Hash) (string, error) {
-	if err := r.IsSetPublicKey(); err != nil {
-		return "", errors.Wrap(err)
-	}
-
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
@@ -401,7 +411,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 
 	// 将私钥字符串设置到pem格式块中
 	block1 := pem.Block{
-		Type:  "private key",
+		Type:  "RSA PRIVATE KEY",
 		Bytes: privateStream,
 	}
 
@@ -439,7 +449,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 
 	// 将公钥字符串设置到pem格式块中
 	block2 := pem.Block{
-		Type:  "public key",
+		Type:  "PUBLIC KEY",
 		Bytes: publicStream,
 	}
 
@@ -471,8 +481,7 @@ func RemovePEMHeaders(pem string) string {
 	// 替换头尾标记为空字符串
 	pem = re.ReplaceAllString(pem, "")
 	// 去掉换行符和回车符
-	pem = strings.ReplaceAll(pem, "\n", "")
-	pem = strings.ReplaceAll(pem, "\r", "")
+	pem = strings.Replace(pem, "\n", "", -1)
 	// 去掉多余的空格
 	return strings.TrimSpace(pem)
 }
@@ -490,6 +499,8 @@ func AddPEMHeaders(keyStr, keyType string) string {
 	} else {
 		return "Invalid key type"
 	}
+
+	// 将密钥字符串转换为 64 个字符一行的格式
 	keyLines := []string{header}
 	for i := 0; i < len(keyStr); i += 64 {
 		endIndex := i + 64

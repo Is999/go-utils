@@ -105,7 +105,7 @@ func TestRSA(t *testing.T) {
 
 			// t.Logf("json.Marshal() = %d %v\n", len(string(marshal)), string(marshal))
 
-			// 公钥加密
+			// 公钥加密 PKCS1v15
 			encodeString, err := r.Encrypt(string(marshal), tt.args.encodeToString)
 			if err != nil {
 				t.Errorf("Encrypt() WrapError = %v", err)
@@ -113,7 +113,7 @@ func TestRSA(t *testing.T) {
 			}
 			//t.Logf("Encrypt() = %v\n", encodeString)
 
-			// 私钥解密
+			// 私钥解密 PKCS1v15
 			decryptString, err := r.Decrypt(encodeString, tt.args.decode)
 			if err != nil {
 				t.Errorf("Decrypt() WrapError = %v", err)
@@ -121,7 +121,7 @@ func TestRSA(t *testing.T) {
 			}
 			//t.Logf("Decrypt() = %v\n", decryptString)
 
-			// 公钥加密
+			// 公钥加密 OAEP
 			encodeString, err = r.EncryptOAEP(string(marshal), tt.args.encodeToString, sha256.New())
 			if err != nil {
 				t.Errorf("Encrypt() WrapError = %v", err)
@@ -129,7 +129,7 @@ func TestRSA(t *testing.T) {
 			}
 			//t.Logf("Encrypt() = %v\n", encodeString)
 
-			// 私钥解密
+			// 私钥解密 OAEP
 			decryptString, err = r.DecryptOAEP(encodeString, tt.args.decode, sha256.New())
 			if err != nil {
 				t.Errorf("Decrypt() WrapError = %v", err)
@@ -178,7 +178,13 @@ func TestRSA_SignAndVerify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r, err := utils.NewRSA(tt.args.publicKey, tt.args.privateKey, tt.args.isFilePath)
+			privRsa, err := utils.NewPriRSA(tt.args.privateKey, tt.args.isFilePath)
+			if err != nil {
+				t.Errorf("NewRSA() WrapError = %v", err)
+				return
+			}
+
+			pubRsa, err := utils.NewPubRSA(tt.args.publicKey, tt.args.isFilePath)
 			if err != nil {
 				t.Errorf("NewRSA() WrapError = %v", err)
 				return
@@ -196,37 +202,68 @@ func TestRSA_SignAndVerify(t *testing.T) {
 
 			// t.Logf("json.Marshal() = %d %v\n", len(string(marshal)), string(marshal))
 
-			// 私钥签名
-			sign, err := r.Sign(string(marshal), tt.args.hash, tt.args.encodeToString)
+			// 私钥签名 PKCS1v15
+			sign, err := privRsa.Sign(string(marshal), tt.args.hash, tt.args.encodeToString)
 			if err != nil {
 				t.Errorf("Sign() WrapError = %v", err)
 				return
 			}
 			//t.Logf("Sign() = %v\n", sign)
 
-			// 公钥验签
-			if err := r.Verify(string(marshal), sign, tt.args.hash, tt.args.decode); err != nil {
+			// 公钥验签 PKCS1v15
+			if err := pubRsa.Verify(string(marshal), sign, tt.args.hash, tt.args.decode); err != nil {
 				t.Errorf("Verify() WrapError = %v", err)
 				return
 			} else {
 				//t.Log("Verify() = 验证成功")
 			}
 
-			// 私钥签名
-			sign, err = r.SignPSS(string(marshal), tt.args.hash, tt.args.encodeToString, nil)
+			// 私钥签名 PSS
+			sign, err = privRsa.SignPSS(string(marshal), tt.args.hash, tt.args.encodeToString, nil)
 			if err != nil {
 				t.Errorf("Sign() WrapError = %v", err)
 				return
 			}
 			//t.Logf("Sign() = %v\n", sign)
 
-			// 公钥验签
-			if err := r.VerifyPSS(string(marshal), sign, tt.args.hash, tt.args.decode, nil); err != nil {
+			// 公钥验签 PSS
+			if err := pubRsa.VerifyPSS(string(marshal), sign, tt.args.hash, tt.args.decode, nil); err != nil {
 				t.Errorf("Verify() WrapError = %v", err)
 				return
 			} else {
 				//t.Log("Verify() = 验证成功")
 			}
 		})
+	}
+}
+
+func TestRSA_PEMHeaders(t *testing.T) {
+	// 读取公钥文件内容
+	pub, err := os.ReadFile(pubFile)
+	if err != nil {
+		t.Errorf("ReadFile() WrapError = %v", err)
+	}
+
+	//t.Logf("公钥 %s", string(pub))
+	rPub := utils.RemovePEMHeaders(string(pub))
+	//t.Logf("remove 公钥 %s", rPub)
+	aPub := utils.AddPEMHeaders(rPub, "public")
+	//t.Logf("add 公钥 %s %v", aPub, strings.EqualFold(aPub, strings.TrimSpace(string(pub))))
+	if !strings.EqualFold(aPub, strings.TrimSpace(string(pub))) {
+		t.Errorf("转换后的公钥与原始公钥不相等")
+	}
+
+	// 读取私钥文件内容
+	pri, err := os.ReadFile(priFile)
+	if err != nil {
+		t.Errorf("ReadFile() WrapError = %v", err)
+	}
+	//t.Logf("私钥 %s", string(pri))
+	rPri := utils.RemovePEMHeaders(string(pri))
+	//t.Logf("remove 私钥 %s", rPri)
+	aPri := utils.AddPEMHeaders(rPri, "private")
+	//t.Logf("add 私钥 %s %v", aPri, strings.EqualFold(aPri, strings.TrimSpace(string(pri))))
+	if !strings.EqualFold(aPri, strings.TrimSpace(string(pri))) {
+		t.Errorf("转换后的私钥与原始私钥不相等")
 	}
 }
