@@ -189,9 +189,9 @@ func DateInfo(t time.Time) map[string]interface{} {
 	// 一年中的第几天
 	param["yearDay"] = t.YearDay()
 	// 格式化日期
-	param["date"] = t.Format(SecondDash)
+	param["date"] = t.Format(time.DateTime)
 	// 格式化日期（纳秒)
-	param["dateNs"] = t.Format(NanosecondDash)
+	param["dateNs"] = t.Format(DateNanosecond)
 	return param
 }
 
@@ -252,39 +252,47 @@ func Date(timeZone *time.Location, layout string, timestamp ...int64) string {
 func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error) {
 	if len(parse) == 1 {
 		layouts := []string{
-			Year,                         // 2006
-			MonthDash,                    // 2006-01
-			DayDash,                      // 2006-01-02
-			HourDash,                     // 2006-01-02 15
-			MinuteDash,                   // 2006-01-02 15:04
-			SecondDash,                   // 2006-01-02 15:04:05
-			MonthSeam,                    // 200601
-			DaySeam,                      // 20060102
-			HourSeam,                     // 2006010215
-			MinuteSeam,                   // 200601021504
-			SecondSeam,                   // 20060102150405
-			MonthSlash,                   // 2006/01
-			DaySlash,                     // 2006/01/02
-			HourSlash,                    // 2006/01/02 15
-			MinuteSlash,                  // 2006/01/02 15:04
-			SecondSlash,                  // 2006/01/02 15:04:05
-			MillisecondDash,              // 2006-01-02 15:04:05.000
-			MicrosecondDash,              // 2006-01-02 15:04:05.000000
-			NanosecondDash,               // 2006-01-02 15:04:05.000000000
-			MillisecondSeam,              // 20060102150405.000
-			MicrosecondSeam,              // 20060102150405.000000
-			NanosecondSeam,               // 20060102150405.000000000
-			MillisecondSlash,             // 2006/01/02 15:04:05.000
-			MicrosecondSlash,             // 2006/01/02 15:04:05.000000
-			NanosecondSlash,              // 2006/01/02 15:04:05.000000000
-			SecondDash + " -07:00",       // 2006-01-02 15:04:05 -07:00
-			SecondSlash + " -07:00",      // 2006/01/02 15:04:05 -07:00
-			MillisecondDash + " -07:00",  // 2006-01-02 15:04:05.000 -07:00
-			MicrosecondDash + " -07:00",  // 2006-01-02 15:04:05.000000 -07:00
-			NanosecondDash + " -07:00",   // 2006-01-02 15:04:05.000000000 -07:00
-			MillisecondSlash + " -07:00", // 2006/01/02 15:04:05.000 -07:00
-			MicrosecondSlash + " -07:00", // 2006/01/02 15:04:05.000000 -07:00
-			NanosecondSlash + " -07:00",  // 2006/01/02 15:04:05.000000000 -07:00
+			Year,          // 2006
+			DateMonth,     // 2006-01
+			time.DateOnly, // 2006-01-02
+			DateHour,      // 2006-01-02 15
+			DateMinute,    // 2006-01-02 15:04
+			time.DateTime, // 2006-01-02 15:04:05
+
+			MonthSeam,  // 200601
+			DaySeam,    // 20060102
+			HourSeam,   // 2006010215
+			MinuteSeam, // 200601021504
+			SecondSeam, // 20060102150405
+
+			"2006/01",
+			"2006/01/02",
+			"2006/01/02 15",
+			"2006/01/02 15:04",
+			"2006/01/02 15:04:05",
+
+			DateMillisecond, // 2006-01-02 15:04:05.000
+			DateMicrosecond, // 2006-01-02 15:04:05.000000
+			DateNanosecond,  // 2006-01-02 15:04:05.000000000
+
+			"20060102150405.000",
+			"20060102150405.000000",
+			"20060102150405.000000000",
+
+			"2006/01/02 15:04:05.000",
+			"2006/01/02 15:04:05.000000",
+			"2006/01/02 15:04:05.000000000",
+
+			"2006-01-02 15:04:05 -07:00",
+			"2006/01/02 15:04:05 -07:00",
+
+			"2006-01-02 15:04:05.000 -07:00",
+			"2006-01-02 15:04:05.000000 -07:00",
+			"2006-01-02 15:04:05.000000000 -07:00",
+
+			"2006/01/02 15:04:05.000 -07:00",
+			"2006/01/02 15:04:05.000000 -07:00",
+			"2006/01/02 15:04:05.000000000 -07:00",
 		}
 
 		for _, layout := range layouts {

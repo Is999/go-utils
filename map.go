@@ -76,7 +76,7 @@ func MapDiff[K, V Ordered](m1, m2 map[K]V) []V {
 	for _, v2 := range m2 {
 		s2 = append(s2, v2)
 	}
-	return ArrDiff(s1, s2)
+	return Diff(s1, s2)
 }
 
 // MapIntersect 计算m1与m2的值交集
@@ -89,7 +89,7 @@ func MapIntersect[K, V Ordered](m1, m2 map[K]V) []V {
 	for _, v2 := range m2 {
 		s2 = append(s2, v2)
 	}
-	return ArrIntersect(s1, s2)
+	return Intersect(s1, s2)
 }
 
 // MapDiffKey 计算m1与m2的键差集

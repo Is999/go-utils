@@ -2,7 +2,7 @@ package utils
 
 import (
 	"math"
-	"math/rand"
+	"math/rand/v2"
 )
 
 // Rand 返回min~max之间的随机数，值可能包含min和max
@@ -10,7 +10,7 @@ import (
 //	minInt 最小值
 //	maxInt 最大值
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func Rand(minInt, maxInt int64, r ...rand.Source) int64 {
+func Rand(minInt, maxInt int64, r ...*rand.Rand) int64 {
 	if minInt == maxInt {
 		return minInt
 	}
@@ -18,11 +18,11 @@ func Rand(minInt, maxInt int64, r ...rand.Source) int64 {
 		minInt, maxInt = maxInt, minInt
 	}
 	if len(r) == 0 {
-		source := sourcePool.Get().(rand.Source)
-		defer sourcePool.Put(source)
+		source := GetRandPool()
+		defer RandPool.Put(source)
 		r = append(r, source)
 	}
-	return r[0].Int63()%(maxInt-minInt+1) + minInt
+	return r[0].Int64()%(maxInt-minInt+1) + minInt
 }
 
 // Round 对num进行四舍五入，并保留指定小数位

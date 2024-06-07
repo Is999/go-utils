@@ -28,8 +28,8 @@ func Reverse[T Ordered](s []T) []T {
 	return s
 }
 
-// ArrUnique 去除s中重复的值
-func ArrUnique[T Ordered](s []T) []T {
+// Unique 去除s中重复的值
+func Unique[T Ordered](s []T) []T {
 	m := make(map[T]struct{}, len(s))
 	for i := 0; i < len(s); i++ {
 		if _, ok := m[s[i]]; !ok {
@@ -45,8 +45,8 @@ func ArrUnique[T Ordered](s []T) []T {
 	return a
 }
 
-// ArrDiff 计算s1与s2的差集
-func ArrDiff[T Ordered](s1, s2 []T) []T {
+// Diff 计算s1与s2的差集
+func Diff[T Ordered](s1, s2 []T) []T {
 	m := make(map[T]struct{}, len(s2))
 	for i := 0; i < len(s2); i++ {
 		m[s2[i]] = struct{}{}
@@ -60,8 +60,8 @@ func ArrDiff[T Ordered](s1, s2 []T) []T {
 	return s
 }
 
-// ArrIntersect 计算s1与s2的交集
-func ArrIntersect[T Ordered](s1, s2 []T) []T {
+// Intersect 计算s1与s2的交集
+func Intersect[T Ordered](s1, s2 []T) []T {
 	m := make(map[T]struct{}, len(s2))
 	for i := 0; i < len(s2); i++ {
 		m[s2[i]] = struct{}{}

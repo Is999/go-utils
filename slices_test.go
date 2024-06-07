@@ -2,7 +2,7 @@ package utils_test
 
 import (
 	"github.com/Is999/go-utils"
-	"math/rand"
+	"math/rand/v2"
 	"reflect"
 	"testing"
 	"time"
@@ -98,7 +98,7 @@ func TestHasCount(t *testing.T) {
 	}
 }
 
-func TestArrUnique(t *testing.T) {
+func TestUnique(t *testing.T) {
 	type args[T utils.Ordered] struct {
 		a []T
 	}
@@ -113,8 +113,8 @@ func TestArrUnique(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.ArrUnique(tt.args.a); len(got) != tt.want {
-				t.Errorf("ArrUnique() = %v, want %v", got, tt.want)
+			if got := utils.Unique(tt.args.a); len(got) != tt.want {
+				t.Errorf("Unique() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -124,29 +124,29 @@ func TestArrUnique(t *testing.T) {
 	}
 	for _, tt2 := range tests2 {
 		t.Run(tt2.name, func(t *testing.T) {
-			if got2 := utils.ArrUnique(tt2.args.a); len(got2) != tt2.want {
-				t.Errorf("ArrUnique() = %v, want %v", got2, tt2.want)
+			if got2 := utils.Unique(tt2.args.a); len(got2) != tt2.want {
+				t.Errorf("Unique() = %v, want %v", got2, tt2.want)
 			}
 		})
 	}
 }
 
-// go test -bench=ArrUnique$ -run ^$  -count 5 -benchmem
-func BenchmarkArrUnique(t *testing.B) {
+// go test -bench=Unique$ -run ^$  -count 5 -benchmem
+func BenchmarkUnique(t *testing.B) {
 	var l = 200
 	var s1 = make([]int64, 0, l)
-	r := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
 	for i := 0; i < l; i++ {
 		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 	}
 	t.StartTimer()
 	for i := 0; i < t.N; i++ {
-		utils.ArrUnique(s1)
+		utils.Unique(s1)
 	}
 	t.StopTimer()
 }
 
-func TestArrDiff(t *testing.T) {
+func TestDiff(t *testing.T) {
 	type args[T utils.Ordered] struct {
 		s1 []T
 		s2 []T
@@ -162,8 +162,8 @@ func TestArrDiff(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.ArrDiff(tt.args.s1, tt.args.s2); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ArrDiff() = %v, want %v", got, tt.want)
+			if got := utils.Diff(tt.args.s1, tt.args.s2); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Diff() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -173,31 +173,31 @@ func TestArrDiff(t *testing.T) {
 	}
 	for _, tt2 := range tests2 {
 		t.Run(tt2.name, func(t *testing.T) {
-			if got2 := utils.ArrDiff(tt2.args.s1, tt2.args.s2); !reflect.DeepEqual(got2, tt2.want) {
-				t.Errorf("ArrDiff() = %+v, want %+v", got2, tt2.want)
+			if got2 := utils.Diff(tt2.args.s1, tt2.args.s2); !reflect.DeepEqual(got2, tt2.want) {
+				t.Errorf("Diff() = %+v, want %+v", got2, tt2.want)
 			}
 		})
 	}
 }
 
-// go test -bench=ArrDiff$ -run ^$  -count 5 -benchmem
-func BenchmarkArrDiff(b *testing.B) {
+// go test -bench=Diff$ -run ^$  -count 5 -benchmem
+func BenchmarkDiff(b *testing.B) {
 	var l = 200
 	var s1 = make([]int64, 0, l)
 	var s2 = make([]int64, 0, l)
-	r := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
 	for i := 0; i < 200; i++ {
 		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
 	}
-	//b.Logf("s1 = %v, \ns2 = %v, \ndiff %v\n", s1, s2, ArrDiff(s1, s2))
+	//b.Logf("s1 = %v, \ns2 = %v, \ndiff %v\n", s1, s2, Diff(s1, s2))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		utils.ArrDiff(s1, s2)
+		utils.Diff(s1, s2)
 	}
 }
 
-func TestArrIntersect(t *testing.T) {
+func TestIntersect(t *testing.T) {
 	type args[T utils.Ordered] struct {
 		s1 []T
 		s2 []T
@@ -212,8 +212,8 @@ func TestArrIntersect(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.ArrIntersect(tt.args.s1, tt.args.s2); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ArrIntersect() = %v, want %v", got, tt.want)
+			if got := utils.Intersect(tt.args.s1, tt.args.s2); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Intersect() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -223,8 +223,8 @@ func TestArrIntersect(t *testing.T) {
 	}
 	for _, tt2 := range tests2 {
 		t.Run(tt2.name, func(t *testing.T) {
-			if got2 := utils.ArrIntersect(tt2.args.s1, tt2.args.s2); !reflect.DeepEqual(got2, tt2.want) {
-				t.Errorf("ArrIntersect() = %v, want %v", got2, tt2.want)
+			if got2 := utils.Intersect(tt2.args.s1, tt2.args.s2); !reflect.DeepEqual(got2, tt2.want) {
+				t.Errorf("Intersect() = %v, want %v", got2, tt2.want)
 			}
 		})
 	}
