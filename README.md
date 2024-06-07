@@ -13,25 +13,25 @@ golang 帮助函数
 ### 使用说明
 
 1. utils包中代码仅供参考，造成损失概不负责。
-2. 最低要求golang 1.21版本
+2. 版本要求golang 1.22
 
 ### 历史变更
 
-1. 最低要求golang 版本1.18变更为1.21
+1. 版本要求golang 1.18变更为1.22
 2. 移除了1.21 版本前的Max、Min 两个函数，推荐使用golang 内置函数 max、min
 3. 移除了1.21 版本前的Logger 文件，使用标准库中 log/slog
 4. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
 5. 根据1.21版本 log/slog 增加了errors文件，实现了LogValuer 接口，对error的日志追踪
 6. utils中返回的error 统一使用了WrapError, 支持error记录追踪
 7. RSA加密解密增加了对长文本的支持，增加了对PEM key 去除头尾标记和还原头尾标记方法
-8. mathd/rand 改 mathd/rand/v2, 部分函数形参 rand.Source 改为*rand.Rand
+8. mathd/rand 改1.22版本 mathd/rand/v2, 部分函数形参 rand.Source 改为*rand.Rand
 
 # Go常用标准库方法及utils包帮助函数
 
 >
 开发中使用频率较高的Go标准库中的方法及utils包中的帮助方法。ustils包中的方法都可以在单元测试中找到使用方法示例。版本要求 >=
-1.21版本。
->
+1.22版本。
+
 > 注意：utils包中代码仅供参考，不建议用于商业生产，造成损失概不负责。
 
 ## 1. 字符串
