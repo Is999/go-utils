@@ -12,7 +12,7 @@ golang 帮助函数
 
 ### 使用说明
 
-1. utils包中代码仅供参考，不建议用于商业生产，造成损失概不负责。
+1. utils包中代码仅供参考，造成损失概不负责。
 2. 最低要求golang 1.21版本
 
 ### 历史变更
@@ -23,6 +23,7 @@ golang 帮助函数
 4. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
 5. 根据1.21版本 log/slog 增加了errors文件，实现了LogValuer 接口，对error的日志追踪
 6. utils中返回的error 统一使用了WrapError, 支持error记录追踪
+7. RSA加密解密增加了对长文本的支持，增加了对PEM key 去除头尾标记和还原头尾标记方法
 
 # Go常用标准库方法及utils包帮助函数
 
@@ -1676,15 +1677,35 @@ fmt.Errorf("NewRSA() err = %v", err)
 return
 }
 
-// 公钥加密
+// 源数据
+marshal, err := json.Marshal(map[string]interface{}{
+"Title":   tt.name,
+"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
+})
+
+// 公钥加密 PKCS1v15
 encodeString, err := r.Encrypt(string(marshal), base64.StdEncoding.EncodeToString)
 if err != nil {
 fmt.Errorf("Encrypt() err = %v", err)
 return
 }
 
-// 私钥解密
+// 私钥解密 PKCS1v15
 decryptString, err := r.Decrypt(encodeString, base64.StdEncoding.DecodeString)
+if err != nil {
+fmt.Errorf("Decrypt() err = %v", err)
+return
+}
+
+// 公钥加密 OAEP
+encodeString, err = r.EncryptOAEP(string(marshal), base64.StdEncoding.EncodeToString, sha256.New())
+if err != nil {
+fmt.Errorf("Encrypt() err = %v", err)
+return
+}
+
+// 私钥解密 OAEP
+decryptString, err = r.DecryptOAEP(encodeString, base64.StdEncoding.DecodeString, sha256.New())
 if err != nil {
 fmt.Errorf("Decrypt() err = %v", err)
 return
@@ -1695,7 +1716,7 @@ return
 
 ------
 
-#### RSA [签名与验签](https://github.com/Is999/go-utils/blob/master/rsa.go#L167)
+#### RSA [签名与验签](https://github.com/Is999/go-utils/blob/master/rsa.go#L229)
 
 ```go
 // 实例化RSA，并设置key
@@ -1705,15 +1726,36 @@ fmt.Errorf("NewRSA() err = %v", err)
 return
 }
 
-// 私钥签名
+// 源数据
+marshal, err := json.Marshal(map[string]interface{}{
+"Title":   tt.name,
+"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
+})
+
+// 私钥签名 PKCS1v15
 sign, err := r.Sign(string(marshal), crypto.SHA256, base64.StdEncoding.EncodeToString)
 if err != nil {
 fmt.Errorf("Sign() err = %v", err)
 return
 }
 
-// 公钥验签
+// 公钥验签 PKCS1v15
 if err := r.Verify(string(marshal), sign, crypto.SHA256, base64.StdEncoding.DecodeString); err != nil {
+fmt.Errorf("Verify() err = %v", err)
+return
+} else {
+fmt.Log("Verify() = 验证成功")
+}
+
+// 私钥签名 PSS
+sign, err = privRsa.SignPSS(string(marshal), crypto.SHA256, base64.StdEncoding.EncodeToString, nil)
+if err != nil {
+fmt.Errorf("Sign() err = %v", err)
+return
+}
+
+// 公钥验签 PSS
+if err := pubRsa.VerifyPSS(string(marshal), sign, crypto.SHA256, base64.StdEncoding.DecodeString, nil); err != nil {
 fmt.Errorf("Verify() err = %v", err)
 return
 } else {
@@ -1722,6 +1764,41 @@ fmt.Log("Verify() = 验证成功")
 ```
 
 备注：先实例化RSA 设置公钥私钥，使用私钥签名，公钥验签。
+
+------
+
+#### RSA [秘钥格式转换](https://github.com/Is999/go-utils/blob/master/rsa.go#L478)
+
+```go
+// 读取公钥文件内容
+pub, err := os.ReadFile(pubFile)
+if err != nil {
+t.Errorf("ReadFile() WrapError = %v", err)
+}
+
+//fmt.Println("公钥 %s", string(pub))
+rPub := utils.RemovePEMHeaders(string(pub))
+//fmt.Println("remove 公钥 %s", rPub)
+aPub := utils.AddPEMHeaders(rPub, "public")
+//fmt.Println("add 公钥 %s %v", aPub, strings.EqualFold(aPub, strings.TrimSpace(string(pub))))
+if !strings.EqualFold(aPub, strings.TrimSpace(string(pub))) {
+fmt.Errorf("转换后的公钥与原始公钥不相等")
+}
+
+// 读取私钥文件内容
+pri, err := os.ReadFile(priFile)
+if err != nil {
+t.Errorf("ReadFile() WrapError = %v", err)
+}
+//fmt.Println("私钥 %s", string(pri))
+rPri := utils.RemovePEMHeaders(string(pri))
+//fmt.Println("remove 私钥 %s", rPri)
+aPri := utils.AddPEMHeaders(rPri, "private")
+//fmt.Println("add 私钥 %s %v", aPri, strings.EqualFold(aPri, strings.TrimSpace(string(pri))))
+if !strings.EqualFold(aPri, strings.TrimSpace(string(pri))) {
+fmt.Errorf("转换后的私钥与原始私钥不相等")
+}
+```
 
 ------
 
@@ -3510,7 +3587,7 @@ http.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
 // 响应text
 http.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
   // 响应text数据
- utils.View(w).Text("<p>这是一个<b style=\"color: red\">段落!</b></p>")
+  utils.View(w).Text("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 })
 ```
 
