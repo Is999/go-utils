@@ -475,6 +475,8 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 }
 
 // RemovePEMHeaders 去掉 RSA秘钥串 头尾标记和换行符
+//
+//	pem 秘钥
 func RemovePEMHeaders(pem string) string {
 	// 定义正则表达式，匹配 PEM 头尾标记，不区分大小写
 	re := regexp.MustCompile(`(?i)-----BEGIN.*?-----|-----END.*?-----`)
@@ -487,7 +489,10 @@ func RemovePEMHeaders(pem string) string {
 }
 
 // AddPEMHeaders 为 RSA 密钥串添加头尾标记
-func AddPEMHeaders(keyStr, keyType string) string {
+//
+//	key 秘钥
+//	keyType 秘钥类型
+func AddPEMHeaders(key, keyType string) (string, error) {
 	var header, footer string
 
 	if strings.EqualFold(keyType, "public") {
@@ -497,19 +502,19 @@ func AddPEMHeaders(keyStr, keyType string) string {
 		header = "-----BEGIN RSA PRIVATE KEY-----"
 		footer = "-----END RSA PRIVATE KEY-----"
 	} else {
-		return "Invalid key type"
+		return "", errors.New("Invalid key type")
 	}
 
 	// 将密钥字符串转换为 64 个字符一行的格式
 	keyLines := []string{header}
-	for i := 0; i < len(keyStr); i += 64 {
+	for i := 0; i < len(key); i += 64 {
 		endIndex := i + 64
-		if endIndex > len(keyStr) {
-			endIndex = len(keyStr)
+		if endIndex > len(key) {
+			endIndex = len(key)
 		}
-		keyLines = append(keyLines, keyStr[i:endIndex])
+		keyLines = append(keyLines, key[i:endIndex])
 	}
 	keyLines = append(keyLines, footer)
 
-	return strings.Join(keyLines, "\n")
+	return strings.Join(keyLines, "\n"), nil
 }
