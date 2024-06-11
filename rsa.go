@@ -169,6 +169,9 @@ func (r *RSA) Encrypt(data string, encode Encode) (string, error) {
 	}
 	var encryptedData bytes.Buffer
 	maxLength := r.pubKey.Size() - 11
+	if maxLength <= 0 {
+		return "", errors.New("加密失败：最大加密长度小于等于 0")
+	}
 	for start := 0; start < len(data); start += maxLength {
 		end := start + maxLength
 		if end > len(data) {
@@ -273,6 +276,9 @@ func (r *RSA) EncryptOAEP(data string, encode Encode, hash hash.Hash) (string, e
 	}
 	var encryptedData bytes.Buffer
 	maxLength := r.pubKey.Size() - 2*hash.Size() - 2
+	if maxLength <= 0 {
+		return "", errors.New("加密失败：最大加密长度小于等于 0")
+	}
 	for start := 0; start < len(data); start += maxLength {
 		end := start + maxLength
 		if end > len(data) {

@@ -95,8 +95,8 @@ func TestRSA(t *testing.T) {
 
 			// 源数据
 			marshal, err := json.Marshal(map[string]interface{}{
-				"Title":   tt.name,
-				"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
+				"Title": tt.name,
+				"Content": strings.Repeat(`运行此代码时，当你在输入框中输入文本并点击㰆凭棥`, 131) + tt.name,
 			})
 			if err != nil {
 				t.Errorf("json.Marshal() WrapError = %v", err)
@@ -247,7 +247,7 @@ func TestRSA_PEMHeaders(t *testing.T) {
 	//t.Logf("公钥 %s", string(pub))
 	rPub := utils.RemovePEMHeaders(string(pub))
 	//t.Logf("remove 公钥 %s", rPub)
-	aPub := utils.AddPEMHeaders(rPub, "public")
+	aPub, _ := utils.AddPEMHeaders(rPub, "public")
 	//t.Logf("add 公钥 %s %v", aPub, strings.EqualFold(aPub, strings.TrimSpace(string(pub))))
 	if !strings.EqualFold(aPub, strings.TrimSpace(string(pub))) {
 		t.Errorf("转换后的公钥与原始公钥不相等")
@@ -261,7 +261,7 @@ func TestRSA_PEMHeaders(t *testing.T) {
 	//t.Logf("私钥 %s", string(pri))
 	rPri := utils.RemovePEMHeaders(string(pri))
 	//t.Logf("remove 私钥 %s", rPri)
-	aPri := utils.AddPEMHeaders(rPri, "private")
+	aPri, _ := utils.AddPEMHeaders(rPri, "private")
 	//t.Logf("add 私钥 %s %v", aPri, strings.EqualFold(aPri, strings.TrimSpace(string(pri))))
 	if !strings.EqualFold(aPri, strings.TrimSpace(string(pri))) {
 		t.Errorf("转换后的私钥与原始私钥不相等")
