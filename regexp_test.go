@@ -75,7 +75,7 @@ func TestEmail(t *testing.T) {
 	}
 }
 
-func TestAlphaNum(t *testing.T) {
+func TestAlnum(t *testing.T) {
 	type args struct {
 		value string
 	}
@@ -94,8 +94,8 @@ func TestAlphaNum(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.AlphaNum(tt.args.value); got != tt.want {
-				t.Errorf("AlphaNum() = %v, want %v", got, tt.want)
+			if got := utils.Alnum(tt.args.value); got != tt.want {
+				t.Errorf("Alnum() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -478,7 +478,7 @@ func TestUnNumeric(t *testing.T) {
 	}
 }
 
-func TestZeroUint(t *testing.T) {
+func TestUnIntZero(t *testing.T) {
 	type args struct {
 		value string
 	}
@@ -503,8 +503,8 @@ func TestZeroUint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.ZeroUint(tt.args.value); got != tt.want {
-				t.Errorf("ZeroUint() = %v, want %v", got, tt.want)
+			if got := utils.UnIntZero(tt.args.value); got != tt.want {
+				t.Errorf("UnIntZero() = %v, want %v", got, tt.want)
 			}
 		})
 	}

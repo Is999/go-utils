@@ -60,7 +60,7 @@ string[start: end]
 
 ------
 
-#### func    [utils.Substr](https://github.com/Is999/go-utils/blob/master/string.go#L45)
+#### func    [utils.Substr](https://github.com/Is999/go-utils/blob/master/string.go#L48)
 
 ```go
 func Substr(str string, start, length int) string
@@ -790,7 +790,7 @@ strings.NewReplacer(oldnew...).Replace(s)
 
 ------
 
-#### func    [utils.Replace](https://github.com/Is999/go-utils/blob/master/string.go#L24)
+#### func    [utils.Replace](https://github.com/Is999/go-utils/blob/master/string.go#L27)
 
 ```go
 func Replace(s string, oldnew map[string]string) string 
@@ -823,7 +823,7 @@ func Clone(s string) string
 
 ------
 
-#### func    [utils.StrRev](https://github.com/Is999/go-utils/blob/master/string.go#L85)
+#### func    [utils.StrRev](https://github.com/Is999/go-utils/blob/master/string.go#L88)
 
 ```go
 func StrRev(str string) string
@@ -837,7 +837,7 @@ func StrRev(str string) string
 
 ------
 
-#### func    [utils.UniqId](https://github.com/Is999/go-utils/blob/master/string.go#L156)
+#### func    [utils.UniqId](https://github.com/Is999/go-utils/blob/master/string.go#L159)
 
 ```go
 func UniqId(l uint8, r ...*rand.Rand) string
@@ -852,7 +852,7 @@ func UniqId(l uint8, r ...*rand.Rand) string
 
 ------
 
-#### func    [utils.RandStr](https://github.com/Is999/go-utils/blob/master/string.go#L93)
+#### func    [utils.RandStr](https://github.com/Is999/go-utils/blob/master/string.go#L96)
 
 ```go
 func RandStr(n int, r ...*rand.Rand) string
@@ -867,7 +867,7 @@ func RandStr(n int, r ...*rand.Rand) string
 
 ------
 
-#### func    [utils.RandStr2](https://github.com/Is999/go-utils/blob/master/string.go#L114)
+#### func    [utils.RandStr2](https://github.com/Is999/go-utils/blob/master/string.go#L117)
 
 ```go
 func RandStr2(n int, r ...*rand.Rand) string
@@ -882,7 +882,7 @@ func RandStr2(n int, r ...*rand.Rand) string
 
 ------
 
-#### func    [utils.RandStr3](https://github.com/Is999/go-utils/blob/master/string.go#L135)
+#### func    [utils.RandStr3](https://github.com/Is999/go-utils/blob/master/string.go#L138)
 
 ```go
 func RandStr3(n int, alpha string, r ...*rand.Rand) string
@@ -3244,10 +3244,10 @@ func UnInteger(value string) bool
 
 ------
 
-#### func    [utils.ZeroUint](https://github.com/Is999/go-utils/blob/master/regexp.go#L63)
+#### func    [utils.UnIntZero](https://github.com/Is999/go-utils/blob/master/regexp.go#L63)
 
 ```go
-func ZeroUint(value string) bool
+func UnIntZero(value string) bool
 ```
 
 备注：无符号整数(正整数+0)验证。
@@ -3300,10 +3300,10 @@ func MixStr(value string) bool
 
 ------
 
-#### func    [utils.AlphaNum](https://github.com/Is999/go-utils/blob/master/regexp.go#L112)
+#### func    [utils.Alnum](https://github.com/Is999/go-utils/blob/master/regexp.go#L112)
 
 ```go
-func AlphaNum(value string) bool
+func Alnum(value string) bool
 ```
 
 备注：英文字母+数字验证。
