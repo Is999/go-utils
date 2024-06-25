@@ -837,7 +837,7 @@ func StrRev(str string) string
 
 ------
 
-#### func    [utils.UniqId](https://github.com/Is999/go-utils/blob/master/string.go#L159)
+#### func    [utils.UniqId](https://github.com/Is999/go-utils/blob/master/string.go#L141)
 
 ```go
 func UniqId(l uint8, r ...*rand.Rand) string
@@ -867,7 +867,7 @@ func RandStr(n int, r ...*rand.Rand) string
 
 ------
 
-#### func    [utils.RandStr2](https://github.com/Is999/go-utils/blob/master/string.go#L117)
+#### func    [utils.RandStr2](https://github.com/Is999/go-utils/blob/master/string.go#L104)
 
 ```go
 func RandStr2(n int, r ...*rand.Rand) string
@@ -882,7 +882,7 @@ func RandStr2(n int, r ...*rand.Rand) string
 
 ------
 
-#### func    [utils.RandStr3](https://github.com/Is999/go-utils/blob/master/string.go#L138)
+#### func    [utils.RandStr3](https://github.com/Is999/go-utils/blob/master/string.go#L120)
 
 ```go
 func RandStr3(n int, alpha string, r ...*rand.Rand) string

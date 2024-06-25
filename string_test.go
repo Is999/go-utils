@@ -159,16 +159,14 @@ func TestRandStr2(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	for _, tt := range tests {
 		wg.Add(1)
-		go func(tt test, t *testing.T) {
+		go t.Run(tt.name, func(t *testing.T) {
 			defer wg.Done()
-			t.Run(tt.name, func(t *testing.T) {
-				if got := utils.RandStr2(tt.args.n, r); len(got) != tt.args.n {
-					t.Errorf("RandStr2() = %v, wantSize %v", got, tt.args.n)
-				} else {
-					// t.Logf("RandStr2() = %v, size %v", got, tt.args.n)
-				}
-			})
-		}(tt, t)
+			if got := utils.RandStr2(tt.args.n, r); len(got) != tt.args.n {
+				t.Errorf("%v RandStr2() = %v, size=%v, wantSize %v", tt.name, got, len(got), tt.args.n)
+			} else {
+				// t.Logf("%v RandStr2() = %v, size %v", tt.name, got, tt.args.n)
+			}
+		})
 	}
 	wg.Wait()
 }

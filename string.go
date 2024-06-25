@@ -94,20 +94,7 @@ func StrRev(str string) string {
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
 func RandStr(n int, r ...*rand.Rand) string {
-	if n <= 0 {
-		return ""
-	}
-
-	if len(r) == 0 {
-		r = append(r, GetRandPool())
-		defer RandPool.Put(r[0])
-	}
-
-	s := make([]byte, n)
-	for i := 0; i < n; i++ {
-		s[i] = ALPHA[int(r[0].Int64())%len(ALPHA)]
-	}
-	return *(*string)(unsafe.Pointer(&s))
+	return RandStr3(n, ALPHA, r...)
 }
 
 // RandStr2 随机生成字符串，使用ALPHANUM规则
@@ -122,12 +109,7 @@ func RandStr2(n int, r ...*rand.Rand) string {
 		r = append(r, GetRandPool())
 		defer RandPool.Put(r[0])
 	}
-	s := make([]byte, n)
-	s[0] = ALPHA[int(r[0].Int64())%len(ALPHA)]
-	for i := 1; i < n; i++ {
-		s[i] = ALNUM[int(r[0].Int64())%len(ALNUM)]
-	}
-	return *(*string)(unsafe.Pointer(&s))
+	return string(ALPHA[int(r[0].Int64())%len(ALPHA)]) + RandStr3(n-1, ALNUM, r...)
 }
 
 // RandStr3 随机生成字符串
