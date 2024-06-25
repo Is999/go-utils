@@ -10,11 +10,14 @@ import (
 )
 
 const (
-	// LETTERS 值为：A-Za-z
-	LETTERS = `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz`
+	// ALPHA 英文字母：A-Za-z
+	ALPHA = `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz`
 
-	// ALPHANUM 值为：A-Za-z0-9
-	ALPHANUM = LETTERS + `0123456789`
+	// DIGIT 数字：0-9
+	DIGIT = `0123456789`
+
+	// ALNUM 英文字母+数字：A-Za-z0-9
+	ALNUM = ALPHA + DIGIT
 )
 
 // Replace 字符串替换
@@ -102,7 +105,7 @@ func RandStr(n int, r ...*rand.Rand) string {
 
 	s := make([]byte, n)
 	for i := 0; i < n; i++ {
-		s[i] = LETTERS[int(r[0].Int64())%len(LETTERS)]
+		s[i] = ALPHA[int(r[0].Int64())%len(ALPHA)]
 	}
 	return *(*string)(unsafe.Pointer(&s))
 }
@@ -120,9 +123,9 @@ func RandStr2(n int, r ...*rand.Rand) string {
 		defer RandPool.Put(r[0])
 	}
 	s := make([]byte, n)
-	s[0] = LETTERS[int(r[0].Int64())%len(LETTERS)]
+	s[0] = ALPHA[int(r[0].Int64())%len(ALPHA)]
 	for i := 1; i < n; i++ {
-		s[i] = ALPHANUM[int(r[0].Int64())%len(ALPHANUM)]
+		s[i] = ALNUM[int(r[0].Int64())%len(ALNUM)]
 	}
 	return *(*string)(unsafe.Pointer(&s))
 }

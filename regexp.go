@@ -59,8 +59,8 @@ func UnInteger(value string) bool {
 	return matched
 }
 
-// ZeroUint 无符号整数(正整数+0)验证
-func ZeroUint(value string) bool {
+// UnIntZero 无符号整数(正整数+0)验证
+func UnIntZero(value string) bool {
 	matched, _ := regexp.MatchString(`^(0|[1-9]\d*)$`, value)
 	return matched
 }
@@ -108,8 +108,8 @@ func MixStr(value string) bool {
 	return matched
 }
 
-// AlphaNum 英文字母+数字验证
-func AlphaNum(value string) bool {
+// Alnum 英文字母+数字验证
+func Alnum(value string) bool {
 	matched, _ := regexp.MatchString(`^[a-zA-Z0-9]+$`, value)
 	return matched
 }
