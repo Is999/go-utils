@@ -56,7 +56,7 @@ func TestIsDir(t *testing.T) {
 		args args
 		want bool
 	}{
-		{name: "001", args: args{"./../utils"}, want: true},
+		{name: "001", args: args{"./errors"}, want: true},
 		{name: "002", args: args{"./slices.go"}, want: false}, // 文件-非目录
 	}
 	for _, tt := range tests {
@@ -77,7 +77,7 @@ func TestIsFile(t *testing.T) {
 		args args
 		want bool
 	}{
-		{name: "001", args: args{"./../utils"}, want: false}, // 目录-非文件
+		{name: "001", args: args{"./errors"}, want: false}, // 目录-非文件
 		{name: "002", args: args{"./array.go"}, want: true},
 	}
 	for _, tt := range tests {
@@ -98,7 +98,7 @@ func TestIsExist(t *testing.T) {
 		args args
 		want bool
 	}{
-		{name: "001", args: args{"./../utils"}, want: true},      // 目录的大小
+		{name: "001", args: args{"./errors"}, want: true},        // 目录的大小
 		{name: "002", args: args{"./slices.go"}, want: true},     // 文件大小
 		{name: "003", args: args{"./not_exist.go"}, want: false}, // 不存在的文件
 		{name: "004", args: args{"./file.go"}, want: true},       // 文件大小
