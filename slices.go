@@ -31,18 +31,15 @@ func Reverse[T Ordered](s []T) []T {
 // Unique 去除s中重复的值
 func Unique[T Ordered](s []T) []T {
 	m := make(map[T]struct{}, len(s))
-	for i := 0; i < len(s); i++ {
-		if _, ok := m[s[i]]; !ok {
-			m[s[i]] = struct{}{}
+	a := make([]T, 0, len(s))
+	for _, v := range s {
+		if _, exists := m[v]; !exists {
+			m[v] = struct{}{}
+			a = append(a, v)
 		}
 	}
 
-	a := make([]T, 0, len(m))
-	for k := range m {
-		a = append(a, k)
-	}
-
-	return a
+	return a[:]
 }
 
 // Diff 计算s1与s2的差集

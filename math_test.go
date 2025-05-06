@@ -27,7 +27,7 @@ func TestRand(t *testing.T) {
 		{name: "008", args: args{min: 10, max: 5}},
 		{name: "009", args: args{min: 10000, max: 100000}},
 	}
-	r := utils.GetRandPool()
+	r := utils.RandSource
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var minInt, maxInt = tt.args.min, tt.args.max
@@ -68,7 +68,7 @@ func BenchmarkRand(t *testing.B) {
 		//{name: "001", args: args{min: -1, max: 2}},
 		{name: "002", args: args{min: 10000, max: 100000}},
 	}
-	r := utils.GetRandPool()
+	r := utils.RandSource
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.B) {
 			for n := 0; n < t.N; n++ {

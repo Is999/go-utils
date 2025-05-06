@@ -16,10 +16,7 @@ func AES(key string, isRandIV ...bool) (*Cipher, error) {
 	case 16, 24, 32:
 	}
 
-	isRand := false
-	if len(isRandIV) > 0 && isRandIV[0] {
-		isRand = true
-	}
+	isRand := len(isRandIV) > 0 && isRandIV[0]
 
 	return NewCipher(key, aes.NewCipher, isRand)
 }

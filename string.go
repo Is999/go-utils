@@ -4,7 +4,6 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unsafe"
 )
@@ -106,8 +105,7 @@ func RandStr2(n int, r ...*rand.Rand) string {
 		return ""
 	}
 	if len(r) == 0 {
-		r = append(r, GetRandPool())
-		defer RandPool.Put(r[0])
+		r = append(r, RandSource)
 	}
 	return string(ALPHA[int(r[0].Int64())%len(ALPHA)]) + RandStr3(n-1, ALNUM, r...)
 }
@@ -122,8 +120,7 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string {
 		return ""
 	}
 	if len(r) == 0 {
-		r = append(r, GetRandPool())
-		defer RandPool.Put(r[0])
+		r = append(r, RandSource)
 	}
 	l := len(alpha)
 	s := make([]byte, n)
@@ -160,10 +157,8 @@ func UniqId(l uint8, r ...*rand.Rand) string {
 	// 计算生成次数(int64转换36位字符串 最大值可转换12个长度的'z', total超出12位需多次生成)
 	n := total / 12
 
-	//r := rand.New(rand.NewSource(nano))
 	if len(r) == 0 {
-		r = append(r, GetRandPool())
-		defer RandPool.Put(r[0])
+		r = append(r, RandSource)
 	}
 
 	for i := 0; i <= n && total > 0; i++ {
@@ -187,12 +182,5 @@ func UniqId(l uint8, r ...*rand.Rand) string {
 	return b.String()
 }
 
-// RandPool rand
-var RandPool = &sync.Pool{New: func() interface{} {
-	return rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
-}}
-
-// GetRandPool 获取随机种子
-func GetRandPool() *rand.Rand {
-	return RandPool.Get().(*rand.Rand)
-}
+// RandSource rand
+var RandSource = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
