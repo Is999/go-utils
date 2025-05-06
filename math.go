@@ -18,9 +18,7 @@ func Rand(minInt, maxInt int64, r ...*rand.Rand) int64 {
 		minInt, maxInt = maxInt, minInt
 	}
 	if len(r) == 0 {
-		source := GetRandPool()
-		defer RandPool.Put(source)
-		r = append(r, source)
+		r = append(r, RandSource)
 	}
 	return r[0].Int64()%(maxInt-minInt+1) + minInt
 }

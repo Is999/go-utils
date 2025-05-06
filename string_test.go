@@ -155,7 +155,7 @@ func TestRandStr2(t *testing.T) {
 		{name: "010", args: args{20}},
 		{name: "011", args: args{20}},
 	}
-	r := utils.GetRandPool()
+	r := utils.RandSource
 	wg := &sync.WaitGroup{}
 	for _, tt := range tests {
 		wg.Add(1)
@@ -182,7 +182,7 @@ func BenchmarkRandStr2(b *testing.B) {
 	}{
 		{name: "001", args: args{10}},
 	}
-	r := utils.GetRandPool()
+	r := utils.RandSource
 	b.ResetTimer()
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
@@ -261,7 +261,7 @@ func TestUniqId(t *testing.T) {
 		{name: "019", args: args{33}},
 	}
 
-	r := utils.GetRandPool()
+	r := utils.RandSource
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			utils.UniqId(tt.args.l, r)
@@ -280,7 +280,7 @@ func BenchmarkUniqId(t *testing.B) {
 	}{
 		{name: "018", args: args{32}},
 	}
-	r := utils.GetRandPool()
+	r := utils.RandSource
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.B) {
 			for n := 0; n < t.N; n++ {
