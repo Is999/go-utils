@@ -71,3 +71,12 @@ func Intersect[T Ordered](s1, s2 []T) []T {
 	}
 	return s
 }
+
+// SumSlice 求和
+func SumSlice[T Number](nums []T) T {
+	var sum T
+	for _, v := range nums {
+		sum += v
+	}
+	return sum
+}

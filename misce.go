@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // Ternary 类似于三目运算
@@ -93,4 +94,39 @@ func LogArgsFormat(args []any) string {
 	}
 	b[len(b)-1] = '\n' // Replace the last space with a newline.
 	return string(b)
+}
+
+// Retry 尝试执行fn, 如果fn返回错误则进行重试
+// 最大重试次数为maxRetries
+// 每次重试休眠100毫秒的指数倍，最大休眠1秒
+func Retry(maxRetries uint8, fn func(tries int) error) error {
+	var (
+		err   error
+		tries = 0
+	)
+	for {
+		tries++
+		if err = fn(tries); err == nil {
+			break
+		}
+
+		// 判断退出条件
+		if tries >= int(maxRetries) {
+			break
+		}
+
+		// 指数退避, 最大延迟1秒
+		maxDelay := 100 << (tries - 1)
+		if maxDelay > 1000 {
+			maxDelay = 1000
+		}
+		// 延迟重试
+		time.Sleep(time.Millisecond * time.Duration(maxDelay))
+	}
+
+	if err != nil {
+		// 重试失败，返回错误信息
+		return fmt.Errorf("Retry方法:%s 重试%d次失败:%w ", GetFunctionName(fn), tries, err)
+	}
+	return nil
 }
