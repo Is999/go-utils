@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"reflect"
 	"runtime"
 )
 
@@ -26,4 +27,14 @@ func RuntimeInfo(skip int) *Frame {
 	info.Line = line
 	info.Func = fPC.Name()
 	return info
+}
+
+// GetFunctionName 获取函数名（普通函数、结构体方法或匿名函数）
+func GetFunctionName(i interface{}) string {
+	pc := reflect.ValueOf(i).Pointer()
+	fn := runtime.FuncForPC(pc)
+	if fn == nil {
+		return "Unknown function"
+	}
+	return fn.Name()
 }

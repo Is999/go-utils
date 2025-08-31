@@ -113,3 +113,12 @@ func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	}
 	return s
 }
+
+// SumMap 计算map的值和
+func SumMap[K Ordered, V Number](m map[K]V) V {
+	var sum V
+	for _, v := range m {
+		sum += v
+	}
+	return sum
+}
