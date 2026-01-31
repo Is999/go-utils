@@ -57,11 +57,9 @@ func (r *RetryOnce) Do(f func() error, maxRetries int) error {
 
 		// 重置sync.Once准备下次重试，并执行指数退避等待
 		r.once = sync.Once{}
-		// 指数退避, 最大延迟1秒
-		maxDelay := 100 << (attempt - 1)
-		if maxDelay > 1000 {
-			maxDelay = 1000
-		}
+		// 计算延迟时间，指数退避策略
+		maxDelay := attempt << 11 / 10 // 204ms 409ms 614ms 819ms 1024ms 1228ms ...
+
 		// 延迟重试
 		time.Sleep(time.Millisecond * time.Duration(maxDelay))
 	}

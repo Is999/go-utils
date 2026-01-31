@@ -42,7 +42,7 @@ func Unique[T Ordered](s []T) []T {
 	return a[:]
 }
 
-// Diff 计算s1与s2的差集
+// Diff 计算s1与s2的差集即s1中有而s2中没有的元素
 func Diff[T Ordered](s1, s2 []T) []T {
 	m := make(map[T]struct{}, len(s2))
 	for i := 0; i < len(s2); i++ {
@@ -57,7 +57,7 @@ func Diff[T Ordered](s1, s2 []T) []T {
 	return s
 }
 
-// Intersect 计算s1与s2的交集
+// Intersect 计算s1与s2的交集即s1中有而s2中也有的元素
 func Intersect[T Ordered](s1, s2 []T) []T {
 	m := make(map[T]struct{}, len(s2))
 	for i := 0; i < len(s2); i++ {

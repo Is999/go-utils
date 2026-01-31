@@ -15,8 +15,17 @@ func MapKeys[K Ordered, V any](m map[K]V) []K {
 
 // MapValues 有序获取map的所有value，对map的key排序并按排序后的key返回其value
 //
-//	isReverse 是否降序排列：true 降序，false 升序
+//	isReverse 是否降序排列：true 降序，false 升序，未指定则不排序直接返回所有value
 func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V {
+	// 未指定排序则直接返回所有 value
+	if len(isReverse) == 0 {
+		vals := make([]V, 0, len(m))
+		for _, v := range m {
+			vals = append(vals, v)
+		}
+		return vals
+	}
+
 	var keys Slice[K] = MapKeys(m)
 
 	// 排序
@@ -66,7 +75,7 @@ func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V
 	return m
 }
 
-// MapDiff 计算m1与m2的值差集
+// MapDiff 计算m1与m2的值差集即m1中有但m2中没有的值
 func MapDiff[K, V Ordered](m1, m2 map[K]V) []V {
 	var s1 = make([]V, 0, len(m1))
 	for _, v := range m1 {
@@ -79,7 +88,7 @@ func MapDiff[K, V Ordered](m1, m2 map[K]V) []V {
 	return Diff(s1, s2)
 }
 
-// MapIntersect 计算m1与m2的值交集
+// MapIntersect 计算m1与m2的值交集即m1与m2都有的值
 func MapIntersect[K, V Ordered](m1, m2 map[K]V) []V {
 	var s1 = make([]V, 0, len(m1))
 	for _, v := range m1 {
@@ -92,7 +101,7 @@ func MapIntersect[K, V Ordered](m1, m2 map[K]V) []V {
 	return Intersect(s1, s2)
 }
 
-// MapDiffKey 计算m1与m2的键差集
+// MapDiffKey 计算m1与m2的键差集即m1中有但m2中没有的键
 func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	var s = make([]K, 0, len(m1))
 	for k := range m1 {
@@ -103,7 +112,7 @@ func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	return s
 }
 
-// MapIntersectKey 计算m1与m2的键交集
+// MapIntersectKey 计算m1与m2的键交集即m1与m2都有的键
 func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	var s = make([]K, 0, len(m1))
 	for k := range m1 {
