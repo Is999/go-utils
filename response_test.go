@@ -71,7 +71,7 @@ func TestResponse(t *testing.T) {
 
 	// 响应json
 	// http://localhost:54333/response/json
-	ExampleJsonResp()
+	ExampleJson()
 
 	// 重定向
 	// http://localhost:54333/response/redirect

@@ -34,7 +34,7 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 
 	// 格式化并保留指定小数位
 	dec := int(decimals)
-	str := fmt.Sprintf("%."+strconv.Itoa(dec)+"F", number)
+	str := fmt.Sprintf("%."+strconv.Itoa(dec)+"f", number)
 
 	// 默认分割(无千分位分割)
 	if decPoint == "." && thousandsSep == "" {
@@ -44,6 +44,7 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 		return str
 	}
 
+	// 分割整数和小数部分
 	prefix, suffix := "", ""
 	if dec > 0 {
 		l := len(str)
@@ -82,20 +83,6 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 	return s
 }
 
-// LogArgsFormat 根据参数生成Format
-func LogArgsFormat(args []any) string {
-	if len(args) == 0 {
-		return "\n"
-	}
-
-	b := make([]byte, 0, len(args)*3)
-	for range args {
-		b = append(b, "%v "...)
-	}
-	b[len(b)-1] = '\n' // Replace the last space with a newline.
-	return string(b)
-}
-
 // Retry 尝试执行fn, 如果fn返回错误则进行重试
 // 最大重试次数为maxRetries
 // 每次重试休眠100毫秒的指数倍，最大休眠1秒
@@ -115,18 +102,16 @@ func Retry(maxRetries uint8, fn func(tries int) error) error {
 			break
 		}
 
-		// 指数退避, 最大延迟1秒
-		maxDelay := 100 << (tries - 1)
-		if maxDelay > 1000 {
-			maxDelay = 1000
-		}
+		// 延迟时间： 204ms 409ms 614ms 819ms 1024ms 1228ms ...
+		maxDelay := tries << 11 / 10
+
 		// 延迟重试
 		time.Sleep(time.Millisecond * time.Duration(maxDelay))
 	}
 
 	if err != nil {
 		// 重试失败，返回错误信息
-		return fmt.Errorf("Retry方法:%s 重试%d次失败:%w ", GetFunctionName(fn), tries, err)
+		return fmt.Errorf("method %s failed after %d retries: %w", GetFunctionName(fn), tries, err)
 	}
 	return nil
 }

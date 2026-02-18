@@ -2,9 +2,10 @@ package utils_test
 
 import (
 	"encoding/base64"
-	"github.com/Is999/go-utils"
 	"reflect"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestAES(t *testing.T) {
@@ -12,8 +13,8 @@ func TestAES(t *testing.T) {
 		key       string
 		iv        string
 		mode      utils.McryptMode
-		encode    utils.Encode
-		decode    utils.Decode
+		encode    utils.EncodeToString
+		decode    utils.DecodeString
 		padding   utils.Padding
 		unPadding utils.UnPadding
 		data      string
@@ -50,18 +51,14 @@ func TestAES(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化AES，并设置key
-			a, err := utils.AES(tt.args.key, false)
+			opts := make([]utils.CipherOption, 0, 1)
+			if len(tt.args.iv) > 0 {
+				opts = append(opts, utils.WithIV(tt.args.iv))
+			}
+			a, err := utils.AES(tt.args.key, opts...)
 			if err != nil {
 				t.Errorf("NewAES() error = %v", err)
 				return
-			}
-
-			// 设置iv
-			if len(tt.args.iv) > 0 {
-				if err := a.SetIv(tt.args.iv); err != nil {
-					t.Errorf("SetIv() error = %v", err)
-					return
-				}
 			}
 
 			// 加密数据
@@ -98,8 +95,8 @@ func TestAESRandIV(t *testing.T) {
 		key       string
 		iv        string
 		mode      utils.McryptMode
-		encode    utils.Encode
-		decode    utils.Decode
+		encode    utils.EncodeToString
+		decode    utils.DecodeString
 		padding   utils.Padding
 		unPadding utils.UnPadding
 		data      string
@@ -117,7 +114,7 @@ func TestAESRandIV(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化AES，并设置key
-			a, err := utils.AES(tt.args.key, true)
+			a, err := utils.AES(tt.args.key, utils.WithRandIV(true))
 			if err != nil {
 				t.Errorf("NewAES() error = %v", err)
 				return

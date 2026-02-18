@@ -8,15 +8,30 @@ type Pool[T any] struct {
 	reset func(*T)
 }
 
-func NewPool[T any](newFn func() *T, resetFn func(*T)) *Pool[T] {
-	return &Pool[T]{
+// PoolOption 对象池配置项
+type PoolOption[T any] func(*Pool[T])
+
+// WithPoolReset 设置对象重置函数
+func WithPoolReset[T any](resetFn func(*T)) PoolOption[T] {
+	return func(p *Pool[T]) {
+		p.reset = resetFn
+	}
+}
+
+func NewPool[T any](newFn func() *T, opts ...PoolOption[T]) *Pool[T] {
+	p := &Pool[T]{
 		pool: sync.Pool{
 			New: func() interface{} {
 				return newFn()
 			},
 		},
-		reset: resetFn,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(p)
+		}
+	}
+	return p
 }
 
 // Get 获取对象（自动类型转换）

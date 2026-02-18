@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"github.com/Is999/go-utils/errors"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -16,6 +15,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 type Curl struct {
@@ -52,20 +53,20 @@ type Curl struct {
 	statusCode []int
 
 	// 在发送请求之前可以对Request处理方法
-	request func(request *http.Request) error
+	beforeRequest func(request *http.Request) error
 
 	// 在发送请求之前可以对Client处理方法
-	client func(client *http.Client) error
+	beforeClient func(client *http.Client) error
 
 	// 在发送请求之后可以对Response处理方法
 	//	isDone 返回true 终止执行调用该方法之后的代码; 返回false 继续执行后续代码
-	response func(response *http.Response) (isDone bool, err error)
+	afterResponse func(response *http.Response) (isDone bool, err error)
 
 	// 在发送请求之后可以对Response.Body处理方法
-	resolve func(body []byte) error
+	afterBody func(body []byte) error
 
 	// 请求完成后的处理方法, 如关闭连接等操作。注意：client、request、response 有可能为nil
-	done func(client *http.Client, request *http.Request, response *http.Response)
+	afterDone func(client *http.Client, request *http.Request, response *http.Response)
 
 	// 请求标识
 	requestId string
@@ -76,6 +77,9 @@ type Curl struct {
 	// dump 模式：使用httputil包下的 DumpRequestOut, DumpResponse 记录请求和响应的详细信息
 	dump bool
 
+	// dump 预览内容长度上限
+	dumpBodyLimit int64
+
 	// 打印默认日志（INFO及以下级别日志: true 打印， false 禁止打印
 	defLogOutput bool
 
@@ -83,7 +87,156 @@ type Curl struct {
 	Logger *slog.Logger
 }
 
-func NewCurl() *Curl {
+// CurlOption Curl配置项
+type CurlOption func(*Curl)
+
+// WithCurlTimeout 设置默认超时时间
+func WithCurlTimeout(timeout time.Duration) CurlOption {
+	return func(c *Curl) {
+		if timeout > 0 {
+			c.timeout = timeout
+		}
+	}
+}
+
+// WithCurlLogger 设置日志对象
+func WithCurlLogger(logger *slog.Logger) CurlOption {
+	return func(c *Curl) {
+		if logger != nil {
+			c.Logger = logger
+		}
+	}
+}
+
+// WithCurlDefLogOutput 设置默认日志输出开关
+func WithCurlDefLogOutput(enable bool) CurlOption {
+	return func(c *Curl) {
+		c.defLogOutput = enable
+	}
+}
+
+// WithCurlRequestId 设置请求ID
+func WithCurlRequestId(requestId string) CurlOption {
+	return func(c *Curl) {
+		c.SetRequestId(requestId)
+	}
+}
+
+// WithCurlContentType 设置请求头 Content-Type
+func WithCurlContentType(contentType string) CurlOption {
+	return func(c *Curl) {
+		c.SetContentType(contentType)
+	}
+}
+
+// WithCurlHeader 设置请求头键值
+func WithCurlHeader(key, value string) CurlOption {
+	return func(c *Curl) {
+		c.SetHeader(key, value)
+	}
+}
+
+// WithCurlHeaders 批量设置请求头键值
+func WithCurlHeaders(headers map[string]string) CurlOption {
+	return func(c *Curl) {
+		c.SetHeaders(headers)
+	}
+}
+
+// WithCurlParams 批量设置请求参数
+func WithCurlParams(params map[string]string) CurlOption {
+	return func(c *Curl) {
+		c.SetParams(params)
+	}
+}
+
+// WithCurlBody 设置请求体
+func WithCurlBody(body io.Reader) CurlOption {
+	return func(c *Curl) {
+		c.SetBody(body)
+	}
+}
+
+// WithCurlBodyBytes 设置请求体字节
+func WithCurlBodyBytes(body []byte) CurlOption {
+	return func(c *Curl) {
+		c.SetBodyBytes(body)
+	}
+}
+
+// WithCurlCookies 设置请求 Cookie
+func WithCurlCookies(cookies ...*http.Cookie) CurlOption {
+	return func(c *Curl) {
+		c.SetCookies(cookies...)
+	}
+}
+
+// WithCurlBasicAuth 设置 BasicAuth 账号密码
+func WithCurlBasicAuth(username, password string) CurlOption {
+	return func(c *Curl) {
+		c.SetBasicAuth(username, password)
+	}
+}
+
+// WithCurlProxyURL 设置代理地址
+func WithCurlProxyURL(proxyURL string) CurlOption {
+	return func(c *Curl) {
+		c.SetProxyURL(proxyURL)
+	}
+}
+
+// WithCurlInsecureSkipVerify 设置是否跳过 HTTPS 验证
+func WithCurlInsecureSkipVerify(isSkip bool) CurlOption {
+	return func(c *Curl) {
+		c.InsecureSkipVerify(isSkip)
+	}
+}
+
+// WithCurlRootCAs 设置根证书路径
+func WithCurlRootCAs(rootCAs string) CurlOption {
+	return func(c *Curl) {
+		c.SetRootCAs(rootCAs)
+	}
+}
+
+// WithCurlCertKey 设置证书和秘钥
+func WithCurlCertKey(cert, key string) CurlOption {
+	return func(c *Curl) {
+		c.SetCertKey(cert, key)
+	}
+}
+
+// WithCurlStatusCode 设置可接受的状态码
+func WithCurlStatusCode(statusCode ...int) CurlOption {
+	return func(c *Curl) {
+		c.SetStatusCode(statusCode...)
+	}
+}
+
+// WithCurlMaxRetry 设置失败重试次数
+func WithCurlMaxRetry(max uint8) CurlOption {
+	return func(c *Curl) {
+		c.SetMaxRetry(max)
+	}
+}
+
+// WithCurlDump 设置是否开启 dump 模式
+func WithCurlDump(dump bool) CurlOption {
+	return func(c *Curl) {
+		c.SetDump(dump)
+	}
+}
+
+// WithCurlDumpBodyLimit 设置 dump 预览内容长度上限
+func WithCurlDumpBodyLimit(limit int64) CurlOption {
+	return func(c *Curl) {
+		if limit > 0 {
+			c.dumpBodyLimit = limit
+		}
+	}
+}
+
+func NewCurl(opts ...CurlOption) *Curl {
 	c := &Curl{
 		cli:                &http.Client{},
 		header:             make(http.Header),
@@ -95,17 +248,18 @@ func NewCurl() *Curl {
 		rootCAs:            "",
 		cert:               "",
 		key:                "",
-		cookies:            make(map[string]*http.Cookie, 0),
+		cookies:            make(map[string]*http.Cookie),
 		params:             make(url.Values),
 		body:               nil,
 		statusCode:         make([]int, 0),
-		request:            nil,
-		client:             nil,
-		response:           nil,
-		resolve:            nil,
+		beforeRequest:      nil,
+		beforeClient:       nil,
+		afterResponse:      nil,
+		afterBody:          nil,
 		requestId:          "",
 		maxRetry:           2,
 		dump:               false,
+		dumpBodyLimit:      4096,
 		defLogOutput:       false,
 	}
 	// set Content-Type
@@ -113,6 +267,12 @@ func NewCurl() *Curl {
 
 	// set X-Request-Id Or Logger
 	c.SetRequestId()
+
+	for _, opt := range opts {
+		if opt != nil {
+			opt(c)
+		}
+	}
 
 	return c
 }
@@ -161,8 +321,8 @@ func (c *Curl) AddHeader(key string, values ...string) *Curl {
 }
 
 // AddHeaders 对header键添加多个值
-func (c *Curl) AddHeaders(Headers map[string][]string) *Curl {
-	for key, values := range Headers {
+func (c *Curl) AddHeaders(headers map[string][]string) *Curl {
+	for key, values := range headers {
 		if values != nil && len(values) > 0 {
 			c.AddHeader(key, values...)
 		}
@@ -171,10 +331,11 @@ func (c *Curl) AddHeaders(Headers map[string][]string) *Curl {
 }
 
 // DelHeaders 删除header键值
-func (c *Curl) DelHeaders(keys ...string) {
+func (c *Curl) DelHeaders(keys ...string) *Curl {
 	for _, key := range keys {
 		c.header.Del(key)
 	}
+	return c
 }
 
 // ReSetHeader 重置header
@@ -237,10 +398,11 @@ func (c *Curl) AddParams(params map[string][]string) *Curl {
 }
 
 // DelParams 删除params键值
-func (c *Curl) DelParams(keys ...string) {
+func (c *Curl) DelParams(keys ...string) *Curl {
 	for _, key := range keys {
 		c.params.Del(key)
 	}
+	return c
 }
 
 // ReSetParams 重置params
@@ -294,21 +456,23 @@ func (c *Curl) AddCookies(cookies ...*http.Cookie) *Curl {
 }
 
 // DelCookies 删除cookie
-func (c *Curl) DelCookies(cookieName ...string) {
+func (c *Curl) DelCookies(cookieName ...string) *Curl {
 	for _, name := range cookieName {
 		delete(c.cookies, name)
 	}
+	return c
 }
 
 // ClearCookies 清空cookie
-func (c *Curl) ClearCookies() {
+func (c *Curl) ClearCookies() *Curl {
 	for name := range c.cookies {
 		delete(c.cookies, name)
 	}
+	return c
 }
 
-// SetTimeout 设置超时时间
-func (c *Curl) SetTimeout(timeout uint8) *Curl {
+// SetTimeout 设置超时时间(秒)
+func (c *Curl) SetTimeout(timeout uint16) *Curl {
 	c.timeout = time.Duration(timeout) * time.Second
 	return c
 }
@@ -400,35 +564,35 @@ func (c *Curl) SetDump(dump bool) *Curl {
 	return c
 }
 
-// Request 在发送请求之前可以对Request处理方法
-func (c *Curl) Request(f func(request *http.Request) error) *Curl {
-	c.request = f
+// BeforeRequest 请求前处理 Request
+func (c *Curl) BeforeRequest(f func(request *http.Request) error) *Curl {
+	c.beforeRequest = f
 	return c
 }
 
-// Client 在发送请求之前可以对Client处理方法
-func (c *Curl) Client(f func(request *http.Client) error) *Curl {
-	c.client = f
+// BeforeClient 请求前处理 Client
+func (c *Curl) BeforeClient(f func(request *http.Client) error) *Curl {
+	c.beforeClient = f
 	return c
 }
 
-// Response 在发送请求之后可以对Response处理方法
+// AfterResponse 请求后处理 Response
 //
 //	isDone 返回true 终止调用该方法之后的代码; 返回false 继续执行后续代码
-func (c *Curl) Response(f func(response *http.Response) (isDone bool, err error)) *Curl {
-	c.response = f
+func (c *Curl) AfterResponse(f func(response *http.Response) (isDone bool, err error)) *Curl {
+	c.afterResponse = f
 	return c
 }
 
-// Resolve 在发送请求之后可以对Response.Body处理方法
-func (c *Curl) Resolve(f func(body []byte) error) *Curl {
-	c.resolve = f
+// AfterBody 请求后处理 Response.Body
+func (c *Curl) AfterBody(f func(body []byte) error) *Curl {
+	c.afterBody = f
 	return c
 }
 
-// Done 请求完成后的处理方法, 如关闭连接等操作。 注意：client、request、response 有可能为nil
-func (c *Curl) Done(f func(client *http.Client, request *http.Request, response *http.Response)) *Curl {
-	c.done = f
+// AfterDone 请求完成后的处理方法, 如关闭连接等操作。 注意：client、request、response 有可能为nil
+func (c *Curl) AfterDone(f func(client *http.Client, request *http.Request, response *http.Response)) *Curl {
+	c.afterDone = f
 	return c
 }
 
@@ -447,7 +611,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// Debug 日志
 	if c.defLogOutput {
-		c.Logger.Debug("HTTP START", "time", t.Format(DateMicrosecond))
+		c.Logger.Debug("HTTP START", "time", t.Format(time.RFC3339Nano))
 	}
 
 	var (
@@ -474,13 +638,13 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		}()
 
 		// 执行 done
-		if c.done != nil {
+		if c.afterDone != nil {
 			// Debug 日志
 			if c.defLogOutput {
 				c.Logger.Debug("done()")
 			}
 
-			c.done(c.cli, req, resp)
+			c.afterDone(c.cli, req, resp)
 		}
 	}()
 
@@ -522,14 +686,14 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		req.SetBasicAuth(c.username, c.password)
 	}
 
-	// 在发送请求之前对Request处理方法
-	if c.request != nil {
+	// 在发送请求之前对 Request处理方法
+	if c.beforeRequest != nil {
 		// Debug 日志
 		if c.defLogOutput {
 			c.Logger.Debug("request()")
 		}
 
-		if err = c.request(req); err != nil {
+		if err = c.beforeRequest(req); err != nil {
 			return errors.Wrap(err)
 		}
 	}
@@ -537,12 +701,11 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 记录请求日志
 	if c.defLogOutput && slog.Default().Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
-			// 使用httputil.DumpRequestOut记录日志
-			dump, err := httputil.DumpRequestOut(req, true)
+			dump, err := dumpRequestSafe(req, c.dumpBodyLimit)
 			if err != nil {
 				return errors.Wrap(err)
 			}
-			c.Logger.Info("httputil.DumpRequestOut()", "request", string(dump)) // Info 日志
+			c.Logger.Info("httputil.DumpRequestOut()", "request", dump) // Info 日志
 		} else {
 			// 只记录关键性日志
 			var b strings.Builder
@@ -644,13 +807,13 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	// 在发送请求之前对Client处理方法
-	if c.client != nil {
+	if c.beforeClient != nil {
 		// Debug 日志
 		if c.defLogOutput {
 			c.Logger.Debug("client()")
 		}
 
-		err = c.client(c.cli)
+		err = c.beforeClient(c.cli)
 		if err != nil {
 			return errors.Wrap(err)
 		}
@@ -663,7 +826,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	t1 := time.Now()
 	// Debug 日志
 	if c.defLogOutput {
-		c.Logger.Debug("client start", "time", t1.Format(DateMicrosecond))
+		c.Logger.Debug("client start", "time", t1.Format(time.RFC3339Nano))
 	}
 
 	// 发送请求
@@ -695,16 +858,15 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 记录返回日志
 	if c.defLogOutput && slog.Default().Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
-			// 使用httputil.DumpResponse记录返回信息
-			dump, err := httputil.DumpResponse(resp, true)
+			dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
 			if err != nil {
 				return errors.Wrap(err)
 			}
-			c.Logger.Info("httputil.DumpResponse()", "response", string(dump)) // Info 日志
+			c.Logger.Info("httputil.DumpResponse()", "response", dump) // Info 日志
 		} else {
 			// 只记录返回的关键信息
 			var b strings.Builder
-			b.WriteString(fmt.Sprintf("Response Status: %d %s\n", resp.StatusCode, resp.Status))
+			b.WriteString(fmt.Sprintf("Response Status: %s\n", resp.Status))
 			b.WriteString("Response Body:\n")
 
 			// 读取body内容
@@ -723,13 +885,13 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	// 在发送请求之后可以对Response处理方法
-	if c.response != nil {
+	if c.afterResponse != nil {
 		// Debug 日志
 		if c.defLogOutput {
 			c.Logger.Debug("response()")
 		}
 
-		isDone, err := c.response(resp)
+		isDone, err := c.afterResponse(resp)
 		if err != nil {
 			return errors.Wrap(err)
 		}
@@ -741,7 +903,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	// 在发送请求之后对Response.Body处理方法
-	if c.resolve != nil {
+	if c.afterBody != nil {
 		// Debug 日志
 		if c.defLogOutput {
 			c.Logger.Debug("resolve()")
@@ -758,7 +920,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			respBody = buf.Bytes()
 		}
 
-		if err = c.resolve(respBody); err != nil {
+		if err = c.afterBody(respBody); err != nil {
 			return errors.Wrap(err)
 		}
 	}
@@ -1000,14 +1162,8 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 	// 处理表单
 	if f.Params != nil {
 		for key, values := range f.Params {
-			if len(values) > 1 {
-				for _, value := range values {
-					if err := writer.WriteField(key, value); err != nil {
-						return nil, "", errors.Wrap(err)
-					}
-				}
-			} else {
-				if err := writer.WriteField(key, values[0]); err != nil {
+			for _, value := range values {
+				if err := writer.WriteField(key, value); err != nil {
 					return nil, "", errors.Wrap(err)
 				}
 			}
@@ -1029,20 +1185,16 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 			return errors.Wrap(err)
 		}
 
-		_, err = io.Copy(part, file)
+		if _, err = io.Copy(part, file); err != nil {
+			return errors.Wrap(err)
+		}
 		return nil
 	}
 
 	// 处理文件
 	for fieldName, files := range f.Files {
-		if len(files) > 1 {
-			for _, file := range files {
-				if err := createFormFile(writer, fieldName, file); err != nil {
-					return nil, "", errors.Wrap(err)
-				}
-			}
-		} else {
-			if err := createFormFile(writer, fieldName, files[0]); err != nil {
+		for _, file := range files {
+			if err := createFormFile(writer, fieldName, file); err != nil {
 				return nil, "", errors.Wrap(err)
 			}
 		}
@@ -1054,4 +1206,95 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 	}
 
 	return b, writer.FormDataContentType(), nil
+}
+
+// dumpRequestSafe 请求日志安全预览
+func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
+	dump, err := httputil.DumpRequestOut(req, false)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+
+	if limit <= 0 || req.Body == nil || req.Body == http.NoBody {
+		return string(dump), nil
+	}
+
+	if req.GetBody == nil {
+		return string(dump) + "\nRequest Body: [skipped: non-rewindable]", nil
+	}
+
+	body, err := req.GetBody()
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+	defer body.Close()
+
+	preview, truncated, err := readBodyPreview(body, limit)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+
+	return formatDumpWithBody(string(dump), "Request Body", preview, truncated), nil
+}
+
+// dumpResponseSafe 响应日志安全预览
+func dumpResponseSafe(resp *http.Response, limit int64) (string, error) {
+	dump, err := httputil.DumpResponse(resp, false)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+
+	if limit <= 0 || resp == nil || resp.Body == nil || resp.Body == http.NoBody {
+		return string(dump), nil
+	}
+
+	preview, truncated, restored, err := readBodyPreviewAndRestore(resp.Body, limit)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+	resp.Body = restored
+
+	return formatDumpWithBody(string(dump), "Response Body", preview, truncated), nil
+}
+
+// readBodyPreview 读取预览内容
+func readBodyPreview(r io.Reader, limit int64) ([]byte, bool, error) {
+	lr := &io.LimitedReader{R: r, N: limit + 1}
+	buf, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, false, errors.Wrap(err)
+	}
+	truncated := int64(len(buf)) > limit
+	if truncated {
+		return buf[:limit], true, nil
+	}
+	return buf, false, nil
+}
+
+// readBodyPreviewAndRestore 读取预览内容并恢复原始流
+func readBodyPreviewAndRestore(body io.ReadCloser, limit int64) ([]byte, bool, io.ReadCloser, error) {
+	lr := &io.LimitedReader{R: body, N: limit + 1}
+	buf, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, false, body, errors.Wrap(err)
+	}
+	truncated := int64(len(buf)) > limit
+	preview := buf
+	if truncated {
+		preview = buf[:limit]
+	}
+	restored := io.NopCloser(io.MultiReader(bytes.NewReader(buf), body))
+	return preview, truncated, restored, nil
+}
+
+// formatDumpWithBody 组装日志内容
+func formatDumpWithBody(header, label string, body []byte, truncated bool) string {
+	if len(body) == 0 {
+		return header
+	}
+	b := header + "\n" + label + ":\n" + string(body)
+	if truncated {
+		b += "\n...[truncated]"
+	}
+	return b
 }

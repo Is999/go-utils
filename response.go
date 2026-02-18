@@ -6,19 +6,50 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 )
 
-type Response[T any] struct {
-	Body[T]
+type Response struct {
+	Body
 	statusCode int
 	writer     http.ResponseWriter
 }
 
-type Body[T any] struct {
+// ResponseOption 响应配置项
+type ResponseOption func(*Response)
+
+// WithStatusCode 设置响应状态码
+func WithStatusCode(statusCode int) ResponseOption {
+	return func(r *Response) {
+		if statusCode > 0 {
+			r.statusCode = statusCode
+		}
+	}
+}
+
+// WithContentType 设置响应头 Content-Type
+func WithContentType(contentType string) ResponseOption {
+	return func(r *Response) {
+		if strings.TrimSpace(contentType) != "" {
+			r.ContentType(contentType)
+		}
+	}
+}
+
+// WithHeader 设置响应头
+func WithHeader(f func(header http.Header)) ResponseOption {
+	return func(r *Response) {
+		if f != nil {
+			r.Header(f)
+		}
+	}
+}
+
+type Body struct {
 	Success bool   `json:"success"` // 响应状态：true 成功, false 失败
 	Code    int    `json:"code"`    // 响应识别码
 	Message string `json:"message"` // 响应信息
-	Data    T      `json:"data"`    // 响应数据
+	Data    any    `json:"data"`    // 响应数据
 }
 
 // Success 成功响应返回Json数据
@@ -26,7 +57,7 @@ type Body[T any] struct {
 //	code 响应识别码
 //	data 响应数据
 //	message 响应信息
-func (r *Response[T]) Success(code int, data T, message ...string) {
+func (r *Response) Success(code int, data any, message ...string) {
 	r.Body.Success = true // 成功状态
 	r.Code = code
 	if len(message) > 0 {
@@ -39,15 +70,15 @@ func (r *Response[T]) Success(code int, data T, message ...string) {
 
 	body, err := r.Encode()
 	if err != nil {
-		uid := UniqId(16)
+		id := UniqId(16)
 		// 记录日志
 		slog.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", uid),
+			slog.String("code", id),
 			slog.String("desc", "Success r.Encode()"),
 			slog.Any("data", data),
 		))
 		// 响应
-		http.Error(r.writer, "Json encoding error, code-"+uid, http.StatusInternalServerError)
+		http.Error(r.writer, "Json encoding error, code-"+id, http.StatusInternalServerError)
 		return
 	}
 	r.Write(body)
@@ -58,7 +89,7 @@ func (r *Response[T]) Success(code int, data T, message ...string) {
 //	code 响应识别码
 //	message 响应信息
 //	data 响应数据
-func (r *Response[T]) Fail(code int, message string, data ...T) {
+func (r *Response) Fail(code int, message string, data ...any) {
 	r.Body.Success = false // 失败状态
 	r.Code = code
 	r.Message = message
@@ -68,45 +99,45 @@ func (r *Response[T]) Fail(code int, message string, data ...T) {
 
 	body, err := r.Encode()
 	if err != nil {
-		uid := UniqId(16)
+		id := UniqId(16)
 		// 记录日志
 		slog.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", uid),
+			slog.String("code", id),
 			slog.String("desc", "Fail r.Encode()"),
 			slog.Any("data", data),
 		))
 		// 响应
-		http.Error(r.writer, "Json encoding error, code-"+uid, http.StatusInternalServerError)
+		http.Error(r.writer, "Json encoding error, code-"+id, http.StatusInternalServerError)
 		return
 	}
 	r.Write(body)
 }
 
 // Text 响应text
-func (r *Response[T]) Text(data string) {
+func (r *Response) Text(data string) {
 	r.ContentType("text/plain")
 	r.Write([]byte(data))
 }
 
 // Html 响应Html
-func (r *Response[T]) Html(data string) {
+func (r *Response) Html(data string) {
 	r.ContentType("text/html")
 	r.Write([]byte(data))
 }
 
 // Xml 响应Xml
-func (r *Response[T]) Xml(data any) {
+func (r *Response) Xml(data any) {
 	xmlData, err := xml.MarshalIndent(data, "", "  ")
 	if err != nil {
-		uid := UniqId(16)
+		id := UniqId(16)
 		// 记录日志
 		slog.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", uid),
+			slog.String("code", id),
 			slog.String("desc", "Xml xml.MarshalIndent()"),
 			slog.Any("data", data),
 		))
 		// 响应
-		http.Error(r.writer, "Xml encoding error, code-"+uid, http.StatusInternalServerError)
+		http.Error(r.writer, "Xml encoding error, code-"+id, http.StatusInternalServerError)
 		return
 	}
 
@@ -119,19 +150,19 @@ func (r *Response[T]) Xml(data any) {
 //
 //	filePath 文件路径
 //	rename 重命名文件名
-func (r *Response[T]) Download(filePath string, rename ...string) {
+func (r *Response) Download(filePath string, rename ...string) {
 	// 打开图片文件
 	file, err := os.Open(filePath)
 	if err != nil {
-		uid := UniqId(16)
+		id := UniqId(16)
 		// 记录日志
 		slog.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", uid),
+			slog.String("code", id),
 			slog.String("desc", "Download os.Open()"),
 			slog.String("filePath", filePath),
 		))
 		// 响应
-		http.Error(r.writer, "Open file error, code-"+uid, http.StatusInternalServerError)
+		http.Error(r.writer, "Open file error, code-"+id, http.StatusInternalServerError)
 		return
 	}
 	defer file.Close()
@@ -142,15 +173,15 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 		// 获取文件信息
 		fileInfo, err := file.Stat()
 		if err != nil {
-			uid := UniqId(16)
+			id := UniqId(16)
 			// 记录日志
 			slog.Error(err.Error(), "trace", slog.GroupValue(
-				slog.String("code", uid),
+				slog.String("code", id),
 				slog.String("desc", "Download file.Stat()"),
 				slog.String("filePath", filePath),
 			))
 			// 响应
-			http.Error(r.writer, "Stat file error, code-"+uid, http.StatusInternalServerError)
+			http.Error(r.writer, "Stat file error, code-"+id, http.StatusInternalServerError)
 			return
 		}
 		fileName = fileInfo.Name()
@@ -162,22 +193,22 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 	if ctype := r.writer.Header().Get("Content-Type"); ctype == "" {
 		ctype, err = FileType(file)
 		if err != nil {
-			uid := UniqId(16)
+			id := UniqId(16)
 			// 记录日志
 			slog.Error(err.Error(), "trace", slog.GroupValue(
-				slog.String("code", uid),
+				slog.String("code", id),
 				slog.String("desc", "Download FileType()"),
 				slog.String("filePath", filePath),
 			))
 			// 响应
-			http.Error(r.writer, "File type error, code-"+uid, http.StatusInternalServerError)
+			http.Error(r.writer, "File type error, code-"+id, http.StatusInternalServerError)
 			return
 		}
 		r.writer.Header().Set("Content-Type", ctype)
 	}
 
 	// herder 处理
-	r.Herder(func(header http.Header) {
+	r.Header(func(header http.Header) {
 		// 设置Content-Disposition头，指定文件名
 		header.Set("Content-Disposition", "attachment; filename="+fileName)
 	})
@@ -185,33 +216,33 @@ func (r *Response[T]) Download(filePath string, rename ...string) {
 	// 将图片数据写入响应
 	_, err = io.Copy(r.writer, file)
 	if err != nil {
-		uid := UniqId(16)
+		id := UniqId(16)
 		// 记录日志
 		slog.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", uid),
+			slog.String("code", id),
 			slog.String("desc", "Download io.Copy"),
 			slog.String("filePath", filePath),
 		))
 		// 响应
-		http.Error(r.writer, "io error, code-"+uid, http.StatusInternalServerError)
+		http.Error(r.writer, "io error, code-"+id, http.StatusInternalServerError)
 		return
 	}
 }
 
 // Show 响应显示文件内容：如图片
-func (r *Response[T]) Show(filePath string) {
+func (r *Response) Show(filePath string) {
 	// 打开文件
 	file, err := os.Open(filePath)
 	if err != nil {
-		uid := UniqId(16)
+		id := UniqId(16)
 		// 记录日志
 		slog.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", uid),
+			slog.String("code", id),
 			slog.String("desc", "Show os.Open()"),
 			slog.String("filePath", filePath),
 		))
 		// 响应
-		http.Error(r.writer, "Open file error, code-"+uid, http.StatusInternalServerError)
+		http.Error(r.writer, "Open file error, code-"+id, http.StatusInternalServerError)
 		return
 	}
 	defer file.Close()
@@ -220,15 +251,15 @@ func (r *Response[T]) Show(filePath string) {
 	if ctype := r.writer.Header().Get("Content-Type"); ctype == "" {
 		ctype, err = FileType(file)
 		if err != nil {
-			uid := UniqId(16)
+			id := UniqId(16)
 			// 记录日志
 			slog.Error(err.Error(), "trace", slog.GroupValue(
-				slog.String("code", uid),
+				slog.String("code", id),
 				slog.String("desc", "Show FileType()"),
 				slog.String("filePath", filePath),
 			))
 			// 响应
-			http.Error(r.writer, "File type error, code-"+uid, http.StatusInternalServerError)
+			http.Error(r.writer, "File type error, code-"+id, http.StatusInternalServerError)
 			return
 		}
 		r.writer.Header().Set("Content-Type", ctype)
@@ -237,87 +268,86 @@ func (r *Response[T]) Show(filePath string) {
 	// 将图片数据写入响应
 	_, err = io.Copy(r.writer, file)
 	if err != nil {
-		uid := UniqId(16)
+		id := UniqId(16)
 		// 记录日志
 		slog.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", uid),
+			slog.String("code", id),
 			slog.String("desc", "Show io.Copy"),
 			slog.String("filePath", filePath),
 		))
 		// 响应
-		http.Error(r.writer, "io error, code-"+uid, http.StatusInternalServerError)
+		http.Error(r.writer, "io error, code-"+id, http.StatusInternalServerError)
 		return
 	}
 }
 
 // Write 写入响应数据
-func (r *Response[T]) Write(body []byte) {
+func (r *Response) Write(body []byte) {
 	r.writer.WriteHeader(r.statusCode)
 	_, err := r.writer.Write(body)
 	if err != nil {
-		uid := UniqId(16)
-		slog.Error("Response Write()", "UID", uid, "err", err.Error())
+		id := UniqId(16)
 		// 记录日志
 		slog.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", uid),
+			slog.String("code", id),
 			slog.String("desc", "Write r.writer.Write"),
 			slog.String("body", string(body)),
 		))
 		// 响应
-		http.Error(r.writer, "Write error, code-"+uid, http.StatusInternalServerError)
+		http.Error(r.writer, "Write error, code-"+id, http.StatusInternalServerError)
 	}
 }
 
 // StatusCode 设置响应状态码，如：http.StatusOK
-func (r *Response[T]) StatusCode(statusCode int) *Response[T] {
+func (r *Response) StatusCode(statusCode int) *Response {
 	r.statusCode = statusCode
 	return r
 }
 
 // ContentType 设置响应头 Content-Type
-func (r *Response[T]) ContentType(contentType string) *Response[T] {
+func (r *Response) ContentType(contentType string) *Response {
 	r.writer.Header().Set("Content-Type", contentType+"; charset=utf-8")
 	return r
 }
 
-// Herder 设置响应头
-func (r *Response[T]) Herder(f func(header http.Header)) *Response[T] {
+// Header 设置响应头
+func (r *Response) Header(f func(header http.Header)) *Response {
 	f(r.writer.Header())
 	return r
 }
 
 // Encode 对数据编码
-func (r *Response[T]) Encode() ([]byte, error) {
+func (r *Response) Encode() ([]byte, error) {
 	return Marshal(r.Body)
 }
 
-// JsonResp 响应Json数据
-//
-//	statusCode 响应状态码：默认响应 200
-func JsonResp[T any](w http.ResponseWriter, statusCode ...int) *Response[T] {
-	resp := &Response[T]{
+// Json 响应Json数据
+func Json(w http.ResponseWriter, opts ...ResponseOption) *Response {
+	resp := &Response{
 		writer:     w,
 		statusCode: http.StatusOK,
 	}
 
-	if len(statusCode) > 0 {
-		resp.statusCode = statusCode[0]
+	for _, opt := range opts {
+		if opt != nil {
+			opt(resp)
+		}
 	}
 
 	return resp.ContentType("application/json")
 }
 
 // View 响应文本视图
-//
-//	statusCode 响应状态码：默认响应 200
-func View(w http.ResponseWriter, statusCode ...int) *Response[string] {
-	resp := &Response[string]{
+func View(w http.ResponseWriter, opts ...ResponseOption) *Response {
+	resp := &Response{
 		writer:     w,
 		statusCode: http.StatusOK,
 	}
 
-	if len(statusCode) > 0 {
-		resp.statusCode = statusCode[0]
+	for _, opt := range opts {
+		if opt != nil {
+			opt(resp)
+		}
 	}
 	return resp
 }
@@ -325,15 +355,16 @@ func View(w http.ResponseWriter, statusCode ...int) *Response[string] {
 // Redirect 重定向
 //
 //	url 重定向地址
-//	statusCode 响应状态码：默认响应 302
-func Redirect(w http.ResponseWriter, url string, statusCode ...int) {
-	resp := &Response[string]{
+func Redirect(w http.ResponseWriter, url string, opts ...ResponseOption) {
+	resp := &Response{
 		writer:     w,
 		statusCode: http.StatusFound,
 	}
 
-	if len(statusCode) > 0 {
-		resp.statusCode = statusCode[0]
+	for _, opt := range opts {
+		if opt != nil {
+			opt(resp)
+		}
 	}
 
 	resp.writer.Header().Set("Location", url)

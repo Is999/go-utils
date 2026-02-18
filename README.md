@@ -25,6 +25,9 @@ golang 帮助函数
 6. utils中返回的error 统一使用了WrapError, 支持error记录追踪
 7. RSA加密解密增加了对长文本的支持，增加了对PEM key 去除头尾标记和还原头尾标记方法
 8. mathd/rand 改1.22版本 mathd/rand/v2, 部分函数形参 rand.Source 改为*rand.Rand
+9. Strtotime函数增强，支持更多时间格式自动解析（毫秒、微秒、纳秒格式）
+10. Response模块增加Header方法（修复Herder拼写错误，Herder方法已标记为废弃）
+11. 修复types.go中"有符合"拼写错误，更正为"有符号"
 
 # Go常用标准库方法及utils包帮助函数
 

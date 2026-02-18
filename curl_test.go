@@ -2,8 +2,6 @@ package utils_test
 
 import (
 	"fmt"
-	"github.com/Is999/go-utils"
-	"github.com/Is999/go-utils/errors"
 	"io"
 	"log/slog"
 	"mime"
@@ -13,6 +11,9 @@ import (
 	"reflect"
 	"syscall"
 	"testing"
+
+	"github.com/Is999/go-utils"
+	"github.com/Is999/go-utils/errors"
 )
 
 var apiUrl = "http://localhost:54334"
@@ -62,12 +63,12 @@ func TestGet(t *testing.T) {
 
 			if r.URL.Query().Get("success") == "false" {
 				// 写入响应数据
-				utils.JsonResp[User](w, http.StatusNotAcceptable).Fail(20000, "fail", user)
+				utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail", user)
 				return
 			}
 
 			// 写入响应数据
-			utils.JsonResp[User](w).Success(10000, user)
+			utils.Json(w).Success(10000, user)
 		})
 
 		httpServer(":54334", serveMux, exit)
@@ -97,7 +98,7 @@ func TestGet(t *testing.T) {
 		{name: "001", args: args{
 			url: apiUrl + "/curl/get",
 			resolve: func(body []byte) error {
-				res := &utils.Body[User]{}
+				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return errors.Wrap(err)
 				}
@@ -123,7 +124,7 @@ func TestGet(t *testing.T) {
 		{name: "002", args: args{
 			url: apiUrl + "/curl/get",
 			resolve: func(body []byte) error {
-				res := &utils.Body[User]{}
+				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return errors.Wrap(err)
 				}
@@ -149,7 +150,7 @@ func TestGet(t *testing.T) {
 		{name: "003", args: args{
 			url: apiUrl + "/curl/get",
 			resolve: func(body []byte) error {
-				res := &utils.Body[User]{}
+				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return errors.Wrap(err)
 				}
@@ -205,7 +206,7 @@ func TestGet(t *testing.T) {
 			}
 
 			// 解析响应数据
-			curl.Resolve(tt.args.resolve)
+			curl.AfterBody(tt.args.resolve)
 
 			// 设置响应状态码
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
@@ -236,7 +237,7 @@ func TestPost(t *testing.T) {
 			if r.Method == http.MethodPost {
 				body, err := io.ReadAll(r.Body)
 				if err != nil {
-					utils.JsonResp[string](w, http.StatusInternalServerError).Fail(2000, "Failed to read request body")
+					utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Failed to read request body")
 					return
 				}
 
@@ -250,14 +251,14 @@ func TestPost(t *testing.T) {
 				// 返回响应
 				if r.URL.Query().Get("success") == "false" {
 					// 写入响应数据
-					utils.JsonResp[*User](w, http.StatusNotAcceptable).Fail(2000, "fail", user)
+					utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
 					return
 				}
 
 				// 写入响应数据
-				utils.JsonResp[*User](w).Success(1000, user)
+				utils.Json(w).Success(1000, user)
 			} else {
-				utils.JsonResp[string](w, http.StatusMethodNotAllowed).Fail(2000, "Method not allowed")
+				utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
 				return
 			}
 		})
@@ -289,7 +290,7 @@ func TestPost(t *testing.T) {
 		{name: "001", args: args{
 			url: apiUrl + "/curl/post",
 			resolve: func(body []byte) error {
-				res := &utils.Body[User]{}
+				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return errors.Wrap(err)
 				}
@@ -315,7 +316,7 @@ func TestPost(t *testing.T) {
 		{name: "002", args: args{
 			url: apiUrl + "/curl/post",
 			resolve: func(body []byte) error {
-				res := &utils.Body[User]{}
+				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return errors.Wrap(err)
 				}
@@ -341,7 +342,7 @@ func TestPost(t *testing.T) {
 		{name: "003", args: args{
 			url: apiUrl + "/curl/post",
 			resolve: func(body []byte) error {
-				res := &utils.Body[User]{}
+				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return errors.Wrap(err)
 				}
@@ -399,7 +400,7 @@ func TestPost(t *testing.T) {
 			curl.SetBodyBytes(marshal)
 
 			// 解析响应数据
-			curl.Resolve(tt.args.resolve)
+			curl.AfterBody(tt.args.resolve)
 
 			// 设置响应状态码
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
@@ -430,7 +431,7 @@ func TestPostForm(t *testing.T) {
 				// 解析表单数据
 				err := r.ParseForm()
 				if err != nil {
-					utils.JsonResp[string](w, http.StatusBadRequest).Fail(2000, "Error parsing form")
+					utils.Json(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
 					return
 				}
 				// 处理接收到的 POST 数据
@@ -449,14 +450,14 @@ func TestPostForm(t *testing.T) {
 				// 返回响应
 				if r.URL.Query().Get("success") == "false" {
 					// 写入响应数据
-					utils.JsonResp[map[string]any](w, http.StatusNotAcceptable).Fail(2000, "fail", info)
+					utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
 					return
 				}
 
 				// 写入响应数据
-				utils.JsonResp[map[string]any](w).Success(1000, info)
+				utils.Json(w).Success(1000, info)
 			} else {
-				utils.JsonResp[string](w, http.StatusMethodNotAllowed).Fail(2000, "Method not allowed")
+				utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
 				return
 			}
 		})
@@ -486,7 +487,7 @@ func TestPostForm(t *testing.T) {
 		{name: "001", args: args{
 			url: apiUrl + "/curl/form",
 			resolve: func(body []byte) error {
-				res := &utils.Body[map[string]any]{}
+				res := &RespBody[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return errors.Wrap(err)
 				}
@@ -529,7 +530,7 @@ func TestPostForm(t *testing.T) {
 				AddParam("hobby", "冒险")  // hobby 追加值
 
 			// 解析响应数据
-			curl.Resolve(tt.args.resolve)
+			curl.AfterBody(tt.args.resolve)
 
 			// 设置响应状态码
 			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
@@ -560,7 +561,7 @@ func TestPostFile(t *testing.T) {
 				// 解析表单数据
 				err := r.ParseMultipartForm(10 << 20) // 10 MB limit for file upload
 				if err != nil {
-					utils.JsonResp[string](w, http.StatusBadRequest).Fail(2000, "Error parsing form")
+					utils.Json(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
 					return
 				}
 
@@ -583,14 +584,14 @@ func TestPostFile(t *testing.T) {
 				// 处理上传的文件
 				_, fileHeader, err := r.FormFile("json_file")
 				if err != nil {
-					utils.JsonResp[string](w, http.StatusInternalServerError).Fail(2000, "Error retrieving file")
+					utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
 					return
 				}
 				info["json_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
 
 				_, fileHeader, err = r.FormFile("env_file")
 				if err != nil {
-					utils.JsonResp[string](w, http.StatusInternalServerError).Fail(2000, "Error retrieving file")
+					utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
 					return
 				}
 				info["env_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
@@ -610,14 +611,14 @@ func TestPostFile(t *testing.T) {
 				// 返回响应
 				if r.URL.Query().Get("success") == "false" {
 					// 写入响应数据
-					utils.JsonResp[map[string]any](w, http.StatusNotAcceptable).Fail(2000, "fail", info)
+					utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
 					return
 				}
 
 				// 写入响应数据
-				utils.JsonResp[map[string]any](w).Success(1000, info)
+				utils.Json(w).Success(1000, info)
 			} else {
-				utils.JsonResp[string](w, http.StatusMethodNotAllowed).Fail(2000, "Method not allowed")
+				utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
 				return
 			}
 		})
@@ -647,7 +648,7 @@ func TestPostFile(t *testing.T) {
 		{name: "001", args: args{
 			url: apiUrl + "/curl/file",
 			resolve: func(body []byte) error {
-				res := &utils.Body[map[string]any]{}
+				res := &RespBody[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
 					return errors.Wrap(err)
 				}
@@ -708,7 +709,7 @@ func TestPostFile(t *testing.T) {
 			curl.SetContentType(contentType)
 
 			// 解析响应数据
-			curl.Resolve(tt.args.resolve)
+			curl.AfterBody(tt.args.resolve)
 
 			// 设置传输的body
 			curl.SetBody(body)
@@ -720,4 +721,11 @@ func TestPostFile(t *testing.T) {
 			}
 		})
 	}
+}
+
+type RespBody[T any] struct {
+	Success bool   `json:"success"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    T      `json:"data"`
 }

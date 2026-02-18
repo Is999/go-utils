@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type RetryOnce struct {
+type Once struct {
 	once sync.Once
 	mu   sync.Mutex
 	done bool
@@ -27,7 +27,7 @@ type RetryOnce struct {
 //   - 线程安全，使用互斥锁保证并发安全
 //   - 使用指数退避策略
 //   - 通过sync.Once保证每次重试只执行一次目标函数
-func (r *RetryOnce) Do(f func() error, maxRetries int) error {
+func (r *Once) Do(f func() error, maxRetries int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -70,8 +70,8 @@ func (r *RetryOnce) Do(f func() error, maxRetries int) error {
 	return r.err
 }
 
-// Reset 重置 RetryOnce 实例状态，使其可以再次执行重试操作
-func (r *RetryOnce) Reset() {
+// Reset 重置 Once 实例状态，使其可以再次执行重试操作
+func (r *Once) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.once = sync.Once{}
