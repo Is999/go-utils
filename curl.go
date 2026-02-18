@@ -450,7 +450,9 @@ func (c *Curl) SetCookies(cookies ...*http.Cookie) *Curl {
 // AddCookies 设置cookies
 func (c *Curl) AddCookies(cookies ...*http.Cookie) *Curl {
 	for _, cookie := range cookies {
-		c.cookies[cookie.Name] = cookie
+		if cookie != nil {
+			c.cookies[cookie.Name] = cookie
+		}
 	}
 	return c
 }
