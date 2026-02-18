@@ -1,7 +1,5 @@
 package utils
 
-import "time"
-
 // 加密模式
 const (
 	ECB McryptMode = iota // 0 电码本模式（Electronic Codebook Book，ECB），ECB无须设置初始化向量IV
@@ -23,25 +21,11 @@ const (
 	EB                            // 1152921504606846976Byte
 )
 
-// 时间格式化格式
 const (
-	Year   string = "2006" // 年
-	Month  string = "01"   // 月
-	Day    string = "02"   // 日
-	Hour   string = "15"   // 时
-	Minute string = "04"   // 分
-	Second string = "05"   // 秒
-
-	DateMonth       = Year + "-" + Month         // 2006-01
-	DateHour        = time.DateOnly + " " + Hour // 2006-01-02 15
-	DateMinute      = DateHour + ":" + Minute    // 2006-01-02 15:04
-	DateMillisecond = time.DateTime + ".000"     // 2006-01-02 15:04:05.000
-	DateMicrosecond = DateMillisecond + "000"    // 2006-01-02 15:04:05.000000
-	DateNanosecond  = DateMicrosecond + "000"    // 2006-01-02 15:04:05.000000000
-
-	MonthSeam  = Year + Month        // 200601
-	DaySeam    = MonthSeam + Day     // 20060102
-	HourSeam   = DaySeam + Hour      // 2006010215
-	MinuteSeam = HourSeam + Minute   // 200601021504
-	SecondSeam = MinuteSeam + Second // 20060102150405
+	YearTime   = "2006"
+	MonthTime  = YearTime + "01"
+	DayTime    = MonthTime + "02"
+	HourTime   = DayTime + "15"
+	MinuteTime = HourTime + "04"
+	SecondTime = MinuteTime + "05"
 )

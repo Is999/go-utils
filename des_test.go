@@ -2,9 +2,10 @@ package utils_test
 
 import (
 	"encoding/base64"
-	"github.com/Is999/go-utils"
 	"reflect"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestDES(t *testing.T) {
@@ -12,8 +13,8 @@ func TestDES(t *testing.T) {
 		key       string
 		iv        string
 		mode      utils.McryptMode
-		encode    utils.Encode
-		decode    utils.Decode
+		encode    utils.EncodeToString
+		decode    utils.DecodeString
 		padding   utils.Padding
 		unPadding utils.UnPadding
 		data      string
@@ -43,18 +44,14 @@ func TestDES(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化DES，并设置key
-			a, err := utils.DES(tt.args.key)
+			opts := make([]utils.CipherOption, 0, 1)
+			if len(tt.args.iv) > 0 {
+				opts = append(opts, utils.WithIV(tt.args.iv))
+			}
+			a, err := utils.DES(tt.args.key, opts...)
 			if err != nil {
 				t.Errorf("NewDES() error = %v", err)
 				return
-			}
-
-			// 设置iv
-			if len(tt.args.iv) > 0 {
-				if err := a.SetIv(tt.args.iv); err != nil {
-					t.Errorf("SetIv() error = %v", err)
-					return
-				}
 			}
 
 			// 加密数据

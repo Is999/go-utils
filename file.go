@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bufio"
-	"github.com/Is999/go-utils/errors"
 	"io"
 	"io/fs"
 	"mime"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // DONE 完成终止
@@ -308,16 +309,42 @@ func Read(r io.Reader, handle ReadBlock) error {
 	}
 }
 
+// WriteOption 写入文件配置项
+type WriteOption func(*writeOptions)
+
+type writeOptions struct {
+	isAppend bool
+	perm     os.FileMode
+}
+
+// WithWriteAppend 设置是否追加写入
+func WithWriteAppend(isAppend bool) WriteOption {
+	return func(o *writeOptions) {
+		o.isAppend = isAppend
+	}
+}
+
+// WithWritePerm 设置文件权限
+func WithWritePerm(perm os.FileMode) WriteOption {
+	return func(o *writeOptions) {
+		o.perm = perm
+	}
+}
+
 // NewWrite 返回一个WriteFile实例
 //
 //	fileName 文件路径: 不存在则创建
-//	isAppend 是否追加文件数据: true 每次写入数据在文件末尾追加数据; false 打开文件时会先清除数据;
-//	prem 文件权限: 默认权限 文件夹0744, 文件0644
-func NewWrite(fileName string, isAppend bool, perm ...os.FileMode) (*WriteFile, error) {
-	var permFile os.FileMode = 0644
-	if len(perm) > 0 {
-		permFile = perm[0]
+//	perm 文件权限: 默认权限 文件夹0744, 文件0644
+func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
+	cfg := writeOptions{
+		perm: 0644,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	permFile := cfg.perm
 	path := filepath.Dir(fileName)
 	if !IsExist(path) {
 		// 本用户组必须拥有读写执行(7)权限
@@ -335,7 +362,7 @@ func NewWrite(fileName string, isAppend bool, perm ...os.FileMode) (*WriteFile, 
 
 	// 打开文件标识
 	flag := os.O_CREATE | os.O_WRONLY
-	if isAppend {
+	if cfg.isAppend {
 		flag = flag | os.O_APPEND
 	} else {
 		flag = flag | os.O_TRUNC

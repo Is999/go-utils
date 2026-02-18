@@ -6,11 +6,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/Is999/go-utils"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 var (
@@ -87,7 +88,11 @@ func TestRSA(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r, err := utils.NewRSA(tt.args.publicKey, tt.args.privateKey, tt.args.isFilePath)
+			opts := make([]utils.RSAOption, 0, 1)
+			if tt.args.isFilePath {
+				opts = append(opts, utils.WithRSAFilePath(true))
+			}
+			r, err := utils.NewRSA(tt.args.publicKey, tt.args.privateKey, opts...)
 			if err != nil {
 				t.Errorf("NewRSA() WrapError = %v", err)
 				return
@@ -178,13 +183,17 @@ func TestRSA_SignAndVerify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			privRsa, err := utils.NewPriRSA(tt.args.privateKey, tt.args.isFilePath)
+			opts := make([]utils.RSAOption, 0, 1)
+			if tt.args.isFilePath {
+				opts = append(opts, utils.WithRSAFilePath(true))
+			}
+			privRsa, err := utils.NewPriRSA(tt.args.privateKey, opts...)
 			if err != nil {
 				t.Errorf("NewRSA() WrapError = %v", err)
 				return
 			}
 
-			pubRsa, err := utils.NewPubRSA(tt.args.publicKey, tt.args.isFilePath)
+			pubRsa, err := utils.NewPubRSA(tt.args.publicKey, opts...)
 			if err != nil {
 				t.Errorf("NewRSA() WrapError = %v", err)
 				return

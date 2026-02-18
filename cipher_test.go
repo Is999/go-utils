@@ -1,37 +1,39 @@
-package utils
+package utils_test
 
 import (
 	"crypto/aes"
 	"encoding/base64"
 	"reflect"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestCipher(t *testing.T) {
 	type args struct {
 		key       string
 		iv        string
-		mode      McryptMode
-		encode    Encode
-		decode    Decode
-		padding   Padding
-		unPadding UnPadding
+		mode      utils.McryptMode
+		encode    utils.EncodeToString
+		decode    utils.DecodeString
+		padding   utils.Padding
+		unPadding utils.UnPadding
 		data      string
 	}
 	tests := []struct {
 		name string
 		args args
 	}{
-		{name: "001", args: args{key: "1234567812345678", mode: CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "002", args: args{key: "1234567812345678", mode: ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "003", args: args{key: "1234567812345678", mode: CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "004", args: args{key: "1234567812345678", mode: CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
-		{name: "005", args: args{key: "1234567812345678", mode: OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: Pkcs7Padding, unPadding: Pkcs7UnPadding, data: "123456"}},
+		{name: "001", args: args{key: "1234567812345678", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "002", args: args{key: "1234567812345678", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "003", args: args{key: "1234567812345678", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "004", args: args{key: "1234567812345678", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "005", args: args{key: "1234567812345678", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化Cipher，并设置key
-			a, err := NewCipher(tt.args.key, aes.NewCipher, false)
+			a, err := utils.NewCipher(tt.args.key, aes.NewCipher)
 			if err != nil {
 				t.Errorf("NewCipher() error = %v", err)
 				return

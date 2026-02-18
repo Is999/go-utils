@@ -1,9 +1,10 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"testing"
 	"time"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestMonthDay(t *testing.T) {
@@ -117,13 +118,13 @@ func TestTimeFormat(t *testing.T) {
 		want string
 	}{
 		{name: "001", args: args{format: time.DateTime}, want: ""},
-		{name: "002", args: args{format: utils.DateNanosecond, ts: []int64{1678718401124685076}}, want: "2023-03-13 22:40:01.124685076"}, // UnixNano纳秒
-		{name: "003", args: args{format: time.DateTime, ts: []int64{1678718401}}, want: "2023-03-13 22:40:01"},                           // Unix秒
-		{name: "004", args: args{format: time.DateTime, ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01"},                // Unix秒 + 纳秒
-		{name: "005", args: args{format: utils.DateMillisecond, ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01.124"},
-		{name: "006", args: args{format: utils.DateMicrosecond, ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01.124685"},
-		{name: "007", args: args{format: utils.DateNanosecond, ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01.124685076"},          // Unix秒 + 纳秒
-		{name: "008", args: args{format: "2006/01/02 15:04:05.000000000", ts: []int64{1678718401124685076}}, want: "2023/03/13 22:40:01.124685076"}, // UnixNano纳秒
+		{name: "002", args: args{format: "2006-01-02 15:04:05.000000000", ts: []int64{1678718401124685076}}, want: "2023-03-13 22:40:01.124685076"}, // UnixNano纳秒
+		{name: "003", args: args{format: time.DateTime, ts: []int64{1678718401}}, want: "2023-03-13 22:40:01"},                                      // Unix秒
+		{name: "004", args: args{format: time.DateTime, ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01"},                           // Unix秒 + 纳秒
+		{name: "005", args: args{format: "2006-01-02 15:04:05.000", ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01.124"},
+		{name: "006", args: args{format: "2006-01-02 15:04:05.000000", ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01.124685"},
+		{name: "007", args: args{format: "2006-01-02 15:04:05.000000000", ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01.124685076"}, // Unix秒 + 纳秒
+		{name: "008", args: args{format: "2006/01/02 15:04:05.000000000", ts: []int64{1678718401124685076}}, want: "2023/03/13 22:40:01.124685076"},   // UnixNano纳秒
 		{name: "009", args: args{format: "20060102150405.000000000", ts: []int64{1678718401, 124685076}}, want: "20230313224001.124685076"},
 		{name: "010", args: args{format: time.DateTime + " Z07:00", ts: []int64{1678718401124685076}}, want: "2023-03-13 22:40:01 +08:00"},
 		{name: "011", args: args{format: time.DateTime + " -0700", ts: []int64{1678718401124685076}}, want: "2023-03-13 22:40:01 +0800"},
@@ -157,15 +158,12 @@ func TestStrtotime(t *testing.T) {
 		{name: "005", args: args{[]string{"Y-m-d H:i:s.msus", "2023-03-13 14:40:01.124685"}}, wantErr: false},
 		{name: "006", args: args{[]string{"Y-m-d H:i:s.msusns", "2023-03-13 14:40:01.124685076"}}, wantErr: false},
 		{name: "007", args: args{[]string{"2023-03-13 14:40:01"}}, wantErr: false},
-		{name: "008", args: args{[]string{"2023-03-13 14:40:01.124"}}, wantErr: false},
-		{name: "009", args: args{[]string{"2023-03-13 14:40:01.124685"}}, wantErr: false},
-		{name: "010", args: args{[]string{"2023-03-13 14:40:01.124685076"}}, wantErr: false},
-		{name: "011", args: args{[]string{"Mar 13 22:40:01.124685076"}}, wantErr: true},
-		{name: "012", args: args{[]string{"2023 Mar 13 22:40:01.124685076"}}, wantErr: true}, // 匹配不到
-		{name: "013", args: args{[]string{"2006-01-02 15:04:05", "2023-03-13 14:40:01"}}, wantErr: false},
-		{name: "014", args: args{[]string{"2006-01-02 15:04:05.000", "2023-03-13 14:40:01.124"}}, wantErr: false},
-		{name: "015", args: args{[]string{"2006-01-02 15:04:05.000000", "2023-03-13 14:40:01.124685"}}, wantErr: false},
-		{name: "016", args: args{[]string{"2006-01-02 15:04:05.000000000", "2023-03-13 14:40:01.124685076"}}, wantErr: false},
+		{name: "008", args: args{[]string{"Mar 13 22:40:01.124685076"}}, wantErr: true},
+		{name: "009", args: args{[]string{"2023 Mar 13 22:40:01.124685076"}}, wantErr: true}, // 匹配不到
+		{name: "010", args: args{[]string{"2006-01-02 15:04:05", "2023-03-13 14:40:01"}}, wantErr: false},
+		{name: "011", args: args{[]string{"2006-01-02 15:04:05.000", "2023-03-13 14:40:01.124"}}, wantErr: false},
+		{name: "012", args: args{[]string{"2006-01-02 15:04:05.000000", "2023-03-13 14:40:01.124685"}}, wantErr: false},
+		{name: "013", args: args{[]string{"2006-01-02 15:04:05.000000000", "2023-03-13 14:40:01.124685076"}}, wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,10 +191,10 @@ func TestEqual(t *testing.T) {
 		{name: "002", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-03-14"}, want: false},
 		{name: "003", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-04-13"}, want: false},
 		{name: "004", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2022-03-13"}, want: false},
-		{name: "005", args: args{layout: utils.DateHour, t1: "2023-03-13 14", t2: "2023-03-13 14"}, want: true},
-		{name: "006", args: args{layout: utils.DateHour, t1: "2023-03-13 14", t2: "2023-03-13 15"}, want: false},
-		{name: "007", args: args{layout: utils.DateMinute, t1: "2023-03-13 14:40", t2: "2023-03-13 14:40"}, want: true},
-		{name: "008", args: args{layout: utils.DateMinute, t1: "2023-03-13 14:40", t2: "2023-03-13 14:41"}, want: false},
+		{name: "005", args: args{layout: "2006-01-02 15", t1: "2023-03-13 14", t2: "2023-03-13 14"}, want: true},
+		{name: "006", args: args{layout: "2006-01-02 15", t1: "2023-03-13 14", t2: "2023-03-13 15"}, want: false},
+		{name: "007", args: args{layout: "2006-01-02 15:04", t1: "2023-03-13 14:40", t2: "2023-03-13 14:40"}, want: true},
+		{name: "008", args: args{layout: "2006-01-02 15:04", t1: "2023-03-13 14:40", t2: "2023-03-13 14:41"}, want: false},
 		{name: "009", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:01", t2: "2023-03-13 14:40:01"}, want: true},
 		{name: "010", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:01", t2: "2023-03-13 14:40:09"}, want: false},
 	}
@@ -224,9 +222,9 @@ func TestAfter(t *testing.T) {
 		{name: "002", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-03-14"}, want: false}, // t1 小于 t2
 		{name: "003", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-04-13"}, want: false},
 		{name: "004", args: args{layout: time.DateOnly, t1: "2023-03-14", t2: "2023-03-13"}, want: true}, // t1 大于 t2
-		{name: "005", args: args{layout: utils.DateHour, t1: "2023-03-13 14", t2: "2023-03-13 14"}, want: false},
-		{name: "006", args: args{layout: utils.DateHour, t1: "2023-03-13 14", t2: "2023-03-13 15"}, want: false},
-		{name: "007", args: args{layout: utils.DateHour, t1: "2023-03-13 15", t2: "2023-03-13 14"}, want: true},
+		{name: "005", args: args{layout: "2006-01-02 15", t1: "2023-03-13 14", t2: "2023-03-13 14"}, want: false},
+		{name: "006", args: args{layout: "2006-01-02 15", t1: "2023-03-13 14", t2: "2023-03-13 15"}, want: false},
+		{name: "007", args: args{layout: "2006-01-02 15", t1: "2023-03-13 15", t2: "2023-03-13 14"}, want: true},
 		{name: "008", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:01", t2: "2023-03-13 14:40:01"}, want: false},
 		{name: "009", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:21", t2: "2023-03-13 14:40:01"}, want: true},
 		{name: "010", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:01", t2: "2023-03-13 14:40:09"}, want: false},
@@ -255,9 +253,9 @@ func TestBefore(t *testing.T) {
 		{name: "002", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-03-14"}, want: true},  // t1 小于 t2
 		{name: "003", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-04-13"}, want: true},
 		{name: "004", args: args{layout: time.DateOnly, t1: "2023-03-14", t2: "2023-03-13"}, want: false}, // t1 大于 t2
-		{name: "005", args: args{layout: utils.DateHour, t1: "2023-03-13 14", t2: "2023-03-13 14"}, want: false},
-		{name: "006", args: args{layout: utils.DateHour, t1: "2023-03-13 14", t2: "2023-03-13 15"}, want: true},
-		{name: "007", args: args{layout: utils.DateHour, t1: "2023-03-13 15", t2: "2023-03-13 14"}, want: false},
+		{name: "005", args: args{layout: "2006-01-02 15", t1: "2023-03-13 14", t2: "2023-03-13 14"}, want: false},
+		{name: "006", args: args{layout: "2006-01-02 15", t1: "2023-03-13 14", t2: "2023-03-13 15"}, want: true},
+		{name: "007", args: args{layout: "2006-01-02 15", t1: "2023-03-13 15", t2: "2023-03-13 14"}, want: false},
 		{name: "008", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:01", t2: "2023-03-13 14:40:01"}, want: false},
 		{name: "009", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:21", t2: "2023-03-13 14:40:01"}, want: false},
 		{name: "010", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:01", t2: "2023-03-13 14:40:09"}, want: true},
@@ -286,7 +284,7 @@ func TestSub(t *testing.T) {
 		{name: "002", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-03-14"}, want: -86400000000000}, // t1 > t2 结果小于 0
 		{name: "004", args: args{layout: time.DateOnly, t1: "2023-03-14", t2: "2023-03-13"}, want: 86400000000000},  // t1 > t2 结果大于 0
 		{name: "005", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:12", t2: "2023-03-13 14:40:01"}, want: 11000000000},
-		{name: "006", args: args{layout: utils.DateNanosecond, t1: "2023-03-13 14:40:01.124685776", t2: "2023-03-13 14:40:01.124685076"}, want: 700},
+		{name: "006", args: args{layout: "2006-01-02 15:04:05.000000000", t1: "2023-03-13 14:40:01.124685776", t2: "2023-03-13 14:40:01.124685076"}, want: 700},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

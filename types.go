@@ -2,7 +2,7 @@ package utils
 
 import "crypto/cipher"
 
-// Signed 有符合整数
+// Signed 有符号整数
 type Signed interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64
 }
@@ -46,15 +46,15 @@ type (
 	// McryptMode 密码模式
 	McryptMode int8
 
-	// Encode 加密方法
+	// EncodeToString 加密方法
 	//	 - hex.EncodeToString
 	//	 - base64.StdEncoding.EncodeToString
-	Encode func([]byte) string
+	EncodeToString func([]byte) string
 
-	// Decode 解密方法
+	// DecodeString 解密方法
 	//	 - hex.DecodeString
 	//	 - base64.StdEncoding.DecodeString
-	Decode func(string) ([]byte, error)
+	DecodeString func(string) ([]byte, error)
 
 	// Padding 填充数据方法
 	//	 - Pkcs7Padding
@@ -94,4 +94,15 @@ type (
 	//	 - lineDone 当前行(num)数据是否读取完毕: true 当前行(num)数据读取完毕; false 当前行(num)数据未读完
 	//	返回值 - error 处理错误信息: 返回的 error == DONE 代表正确处理完数据并终止扫描
 	ReadLine func(num int, line []byte, lineDone bool) error
+)
+
+// json
+type (
+	// Encode json序列化方法
+	//	 - json.Marshal
+	Encode func(any) ([]byte, error)
+
+	// Decode json反序列化方法
+	//	 - json.Unmarshal
+	Decode func([]byte, any) error
 )

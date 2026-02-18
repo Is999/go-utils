@@ -1,8 +1,9 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestGetEnv(t *testing.T) {
@@ -15,7 +16,7 @@ func TestGetEnv(t *testing.T) {
 		args args
 		want string
 	}{
-		{name: "001", args: args{key: "GOHOSTARCH", defaultVal: []string{"amd64"}}, want: "amd64"},
+		{name: "001", args: args{key: "GCCGO", defaultVal: []string{"gccgo"}}, want: "gccgo"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -3,8 +3,9 @@ package utils
 import (
 	"crypto/cipher"
 	"crypto/rand"
-	"github.com/Is999/go-utils/errors"
 	"io"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // 1. Cipher(AES | DES) 加密模式：
@@ -24,23 +25,54 @@ type Cipher struct {
 	block    cipher.Block
 }
 
+// CipherOption 加密器配置项
+type CipherOption func(*cipherOptions)
+
+type cipherOptions struct {
+	randIV bool
+	iv     *string
+}
+
+// WithRandIV 设置是否随机生成IV, 如果设置了IV则以IV为准, 不随机生成IV
+func WithRandIV(isRand bool) CipherOption {
+	return func(o *cipherOptions) {
+		o.randIV = isRand
+	}
+}
+
+// WithIV 设置固定IV, 如果设置了IV则以IV为准, 不随机生成IV
+func WithIV(iv string) CipherOption {
+	return func(o *cipherOptions) {
+		o.iv = &iv
+	}
+}
+
 // NewCipher Cipher
 //
 //	key 秘钥
 //	block 密码: (AES | DES).NewCipher
-//	isRandIV 随机生成IV: true 随机生成的IV会在加密后的密文开头
-func NewCipher(key string, block CipherBlock, isRandIV bool) (*Cipher, error) {
-	c := &Cipher{
-		isRandIV: isRandIV,
+func NewCipher(key string, block CipherBlock, opts ...CipherOption) (*Cipher, error) {
+	cfg := cipherOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
 	}
-	if err := c.SetKey(key, block); err != nil {
+	c := &Cipher{isRandIV: cfg.randIV}
+	if err := c.setKey(key, block); err != nil {
 		return nil, errors.Wrap(err)
+	}
+	if cfg.iv != nil {
+		c.isRandIV = false
+		if err := c.setIV(*cfg.iv); err != nil {
+			return nil, errors.Wrap(err)
+		}
 	}
 	return c, nil
 }
 
-// SetKey 设置秘钥
-func (c *Cipher) SetKey(key string, block CipherBlock) (err error) {
+// setKey 设置秘钥
+func (c *Cipher) setKey(key string, block CipherBlock) (err error) {
 	switch len(key) {
 	default:
 		return errors.Errorf("AES秘钥的长度只能是16、24或32字节，DES秘钥的长度只能是8字节，3DES秘钥的长度只能是24字节。 当前预设置的秘钥[%s]长度: %d", key, len(key))
@@ -58,34 +90,34 @@ func (c *Cipher) SetKey(key string, block CipherBlock) (err error) {
 }
 
 // IsSetKey 是否设置了key
-func (c *Cipher) IsSetKey() bool {
+func (c *Cipher) isSetKey() bool {
 	if len(c.key) == 0 || c.block == nil {
 		return false
 	}
 	return true
 }
 
-// Check 校验key 和 iv
-func (c *Cipher) Check() error {
-	if !c.IsSetKey() {
+// check 校验key 和 iv
+func (c *Cipher) check() error {
+	if !c.isSetKey() {
 		return errors.New("请先设置秘钥")
 	}
 
-	// 随机生成IV
+	// 随机生成 IV
 	if c.isRandIV {
 		return nil
 	}
 
 	if len(c.iv) == 0 {
-		return c.SetIv(string(c.key[:c.block.BlockSize()]))
+		return c.setIV(string(c.key[:c.block.BlockSize()]))
 	}
 
 	return nil
 }
 
-// SetIv 加密偏移量
-func (c *Cipher) SetIv(iv string) error {
-	if !c.IsSetKey() {
+// setIV 设置加密偏移量
+func (c *Cipher) setIV(iv string) error {
+	if !c.isSetKey() {
 		return errors.New("请先设置秘钥")
 	}
 
@@ -139,7 +171,7 @@ func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptCBC 加密
 func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 	// 校验设置
-	if err := c.Check(); err != nil {
+	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
@@ -152,7 +184,7 @@ func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 	// 初始化加密数据接收切片
 	encrypt := make([]byte, Ternary(c.isRandIV, blockSize+len(paddingData), len(paddingData)))
 
-	// 判断是否随机生成IV
+	// 判断是否随机生成 IV
 	if c.isRandIV {
 		// 随机生成IV, 将IV值添加到密文开头
 		if _, err := io.ReadFull(rand.Reader, encrypt[:blockSize]); err != nil {
@@ -161,7 +193,7 @@ func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 		c.iv = encrypt[:blockSize]
 	}
 
-	// 使用CBC加密模式
+	// 使用 CBC加密模式
 	blockMode := cipher.NewCBCEncrypter(c.block, c.iv)
 
 	// 执行加密
@@ -173,14 +205,14 @@ func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 // DecryptCBC 解密
 func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 	// 校验设置
-	if err := c.Check(); err != nil {
+	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
 	// 大小
 	blockSize := c.block.BlockSize()
 
-	// 判断是否是随机生成IV
+	// 判断是否是随机生成 IV
 	if c.isRandIV {
 		if len(data) < blockSize {
 			return nil, errors.New("密文太短")
@@ -194,7 +226,7 @@ func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 		return nil, errors.New("密文不是块大小的倍数")
 	}
 
-	// 使用CBC
+	// 使用 CBC
 	blockMode := cipher.NewCBCDecrypter(c.block, c.iv)
 
 	// 初始化解密数据接收切片
@@ -210,7 +242,7 @@ func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptCTR 加密
 func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 	// 校验设置
-	if err := c.Check(); err != nil {
+	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
@@ -223,7 +255,7 @@ func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 	// 初始化加密数据接收切片
 	encrypt := make([]byte, Ternary(c.isRandIV, blockSize+len(paddingData), len(paddingData)))
 
-	// 判断是否随机生成IV
+	// 判断是否随机生成 IV
 	if c.isRandIV {
 		// 随机生成IV, 将IV值添加到密文开头
 		if _, err := io.ReadFull(rand.Reader, encrypt[:blockSize]); err != nil {
@@ -232,7 +264,7 @@ func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 		c.iv = encrypt[:blockSize]
 	}
 
-	// 使用CTR加密模式
+	// 使用 CTR加密模式
 	stream := cipher.NewCTR(c.block, c.iv)
 
 	// 执行加密
@@ -244,14 +276,14 @@ func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 // DecryptCTR 解密
 func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
 	// 校验设置
-	if err := c.Check(); err != nil {
+	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
 	// 大小
 	blockSize := c.block.BlockSize()
 
-	// 判断是否是随机生成IV
+	// 判断是否是随机生成 IV
 	if c.isRandIV {
 		if len(data) < blockSize {
 			return nil, errors.New("密文太短")
@@ -265,7 +297,7 @@ func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
 		return nil, errors.New("密文不是块大小的倍数")
 	}
 
-	// 使用CTR
+	// 使用 CTR
 	stream := cipher.NewCTR(c.block, c.iv)
 
 	// 初始化解密数据接收切片
@@ -281,7 +313,7 @@ func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptCFB 加密
 func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 	// 校验设置
-	if err := c.Check(); err != nil {
+	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
@@ -294,7 +326,7 @@ func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 	// 初始化加密数据接收切片
 	encrypt := make([]byte, Ternary(c.isRandIV, blockSize+len(paddingData), len(paddingData)))
 
-	// 判断是否随机生成IV
+	// 判断是否随机生成 IV
 	if c.isRandIV {
 		// 随机生成IV, 将IV值添加到密文开头
 		if _, err := io.ReadFull(rand.Reader, encrypt[:blockSize]); err != nil {
@@ -303,7 +335,7 @@ func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 		c.iv = encrypt[:blockSize]
 	}
 
-	// 使用CFB加密模式
+	// 使用 CFB加密模式
 	stream := cipher.NewCFBEncrypter(c.block, c.iv)
 
 	// 执行加密
@@ -315,14 +347,14 @@ func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 // DecryptCFB 解密
 func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	// 校验设置
-	if err := c.Check(); err != nil {
+	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
 	// 大小
 	blockSize := c.block.BlockSize()
 
-	// 判断是否是随机生成IV
+	// 判断是否是随机生成 IV
 	if c.isRandIV {
 		if len(data) < blockSize {
 			return nil, errors.New("密文太短")
@@ -336,7 +368,7 @@ func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 		return nil, errors.New("密文不是块大小的倍数")
 	}
 
-	// 使用CFB
+	// 使用 CFB
 	stream := cipher.NewCFBDecrypter(c.block, c.iv)
 
 	// 初始化解密数据接收切片
@@ -352,7 +384,7 @@ func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptOFB 加密
 func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 	// 校验设置
-	if err := c.Check(); err != nil {
+	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
@@ -365,7 +397,7 @@ func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 	// 初始化加密数据接收切片
 	encrypt := make([]byte, Ternary(c.isRandIV, blockSize+len(paddingData), len(paddingData)))
 
-	// 判断是否随机生成IV
+	// 判断是否随机生成 IV
 	if c.isRandIV {
 		// 随机生成IV, 将IV值添加到密文开头
 		if _, err := io.ReadFull(rand.Reader, encrypt[:blockSize]); err != nil {
@@ -374,7 +406,7 @@ func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 		c.iv = encrypt[:blockSize]
 	}
 
-	// 使用OFB加密模式
+	// 使用 OFB加密模式
 	stream := cipher.NewOFB(c.block, c.iv)
 
 	// 执行加密
@@ -386,14 +418,14 @@ func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 // DecryptOFB 解密
 func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	// 校验设置
-	if err := c.Check(); err != nil {
+	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
 	// 大小
 	blockSize := c.block.BlockSize()
 
-	// 判断是否是随机生成IV
+	// 判断是否是随机生成 IV
 	if c.isRandIV {
 		if len(data) < blockSize {
 			return nil, errors.New("密文太短")
@@ -407,7 +439,7 @@ func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
 		return nil, errors.New("密文不是块大小的倍数")
 	}
 
-	// 使用OFB
+	// 使用 OFB
 	stream := cipher.NewOFB(c.block, c.iv)
 
 	// 初始化解密数据接收切片
@@ -431,7 +463,7 @@ func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
 //	 - OFB: Encrypt(data, OFB, encode, padding)
 //	encode 编码方法
 //	padding 填充数据方法
-func (c *Cipher) Encrypt(data string, mode McryptMode, encode Encode, padding Padding) (string, error) {
+func (c *Cipher) Encrypt(data string, mode McryptMode, encode EncodeToString, padding Padding) (string, error) {
 	var (
 		encrypt []byte
 		err     error
@@ -470,7 +502,7 @@ func (c *Cipher) Encrypt(data string, mode McryptMode, encode Encode, padding Pa
 //	 - OFB: Decrypt(encrypt, OFB, decode, unPadding)
 //	decode 解码方法
 //	unPadding 去除填充数据方法
-func (c *Cipher) Decrypt(encrypt string, mode McryptMode, decode Decode, unPadding UnPadding) (string, error) {
+func (c *Cipher) Decrypt(encrypt string, mode McryptMode, decode DecodeString, unPadding UnPadding) (string, error) {
 	ciphertext, err := decode(encrypt)
 	if err != nil {
 		return "", errors.Wrap(err)

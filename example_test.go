@@ -1,8 +1,9 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"net/http"
+
+	"github.com/Is999/go-utils"
 )
 
 type User struct {
@@ -21,7 +22,7 @@ func ExampleRedirect() {
 	})
 }
 
-func ExampleJsonResp() {
+func ExampleJson() {
 	// 响应json数据
 	serveMux.HandleFunc("/response/json", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
@@ -38,12 +39,12 @@ func ExampleJsonResp() {
 
 		if queryParam == "fail" {
 			// 错误响应
-			utils.JsonResp[any](w, http.StatusNotAcceptable).Fail(20000, "fail")
+			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail")
 			return
 		}
 
 		// 成功响应
-		utils.JsonResp[User](w).Success(10000, user)
+		utils.Json(w).Success(10000, user)
 	})
 }
 
@@ -89,7 +90,7 @@ func ExampleView() {
 			return
 		}
 		// 处理错误
-		utils.View(w, http.StatusNotFound).Text("不存在的文件：" + file)
+		utils.View(w, utils.WithStatusCode(http.StatusNotFound)).Text("不存在的文件：" + file)
 	})
 
 	// 下载文件
@@ -102,6 +103,6 @@ func ExampleView() {
 			return
 		}
 		// 处理错误
-		utils.View(w, http.StatusNotFound).Text("不存在的文件：" + file)
+		utils.View(w, utils.WithStatusCode(http.StatusNotFound)).Text("不存在的文件：" + file)
 	})
 }
