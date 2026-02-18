@@ -30,7 +30,11 @@ func IsDir(path string) bool {
 
 // IsFile 判断给定的文件路径名是否是一个文件
 func IsFile(filepath string) bool {
-	return !IsDir(filepath)
+	f, err := os.Stat(filepath)
+	if err != nil {
+		return false
+	}
+	return !f.IsDir()
 }
 
 // IsExist 判断一个文件（夹）是否存在
@@ -205,12 +209,8 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 		}
 
 		// 处理目录路径末尾路径分割符
-		if !(strings.HasSuffix(path, string('/')) || strings.HasSuffix(path, string('\\'))) {
-			if strings.Index(path, string('/')) != -1 {
-				path += string('/')
-			} else {
-				path += string('\\')
-			}
+		if !strings.HasSuffix(path, string(filepath.Separator)) {
+			path += string(filepath.Separator)
 		}
 
 		// 遍历当前目录所有目录和文件

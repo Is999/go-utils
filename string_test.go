@@ -1,10 +1,11 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"sync"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestReplace(t *testing.T) {

@@ -1,8 +1,9 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestSha1(t *testing.T) {

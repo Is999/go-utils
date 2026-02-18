@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"github.com/Is999/go-utils/errors"
 	"net/url"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // - 对URL字符转义 - url.QueryEscape(str)

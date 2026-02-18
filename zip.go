@@ -2,11 +2,12 @@ package utils
 
 import (
 	"archive/zip"
-	"github.com/Is999/go-utils/errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // Zip 使用zip打包并压缩
@@ -99,7 +100,7 @@ func addSingleFileToZip(zipWriter *zip.Writer, fileToCompress string, fileInfo o
 // addDirectoryToZip 添加目录到zip
 func addDirectoryToZip(zipWriter *zip.Writer, directoryToCompress string, fileInfo os.FileInfo, baseDir string) error {
 	// 压缩目录
-	err := addSingleFileToZip(zipWriter, directoryToCompress, fileInfo, strings.TrimRight(baseDir, fileInfo.Name()))
+	err := addSingleFileToZip(zipWriter, directoryToCompress, fileInfo, strings.TrimSuffix(baseDir, fileInfo.Name()))
 	if err != nil {
 		return errors.Wrap(err)
 	}

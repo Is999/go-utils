@@ -2,10 +2,11 @@ package errors_test
 
 import (
 	"fmt"
-	"github.com/Is999/go-utils/errors"
 	"io"
 	"log/slog"
 	"testing"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 func TestNew(t *testing.T) {

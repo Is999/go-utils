@@ -1,9 +1,10 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"sync"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestRand(t *testing.T) {

@@ -491,7 +491,7 @@ func (c *Cipher) Encrypt(data string, mode McryptMode, encode EncodeToString, pa
 	return encode(encrypt), nil
 }
 
-// Decrypt 加密
+// Decrypt 解密
 //
 //	encrypt 待解密数据
 //	mode 加密模式:

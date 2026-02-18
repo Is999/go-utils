@@ -1,9 +1,10 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"net/http"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestServerIP(t *testing.T) {

@@ -2,10 +2,11 @@ package utils
 
 import (
 	"fmt"
-	"github.com/Is999/go-utils/errors"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // Empty 空字符串验证

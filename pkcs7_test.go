@@ -1,9 +1,10 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"reflect"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestPkcs7Padding(t *testing.T) {
