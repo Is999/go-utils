@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/xml"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -72,11 +71,7 @@ func (r *Response) Success(code int, data any, message ...string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		config.logger.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", id),
-			slog.String("desc", "Success r.Encode()"),
-			slog.Any("data", data),
-		))
+		config.logger.Error(err.Error(), "code", id, "desc", "Success r.Encode()", "data", data)
 		// 响应
 		http.Error(r.writer, "Json encoding error, code-"+id, http.StatusInternalServerError)
 		return
@@ -101,11 +96,7 @@ func (r *Response) Fail(code int, message string, data ...any) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		config.logger.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", id),
-			slog.String("desc", "Fail r.Encode()"),
-			slog.Any("data", data),
-		))
+		config.logger.Error(err.Error(), "code", id, "desc", "Fail r.Encode()", "data", data)
 		// 响应
 		http.Error(r.writer, "Json encoding error, code-"+id, http.StatusInternalServerError)
 		return
@@ -131,11 +122,7 @@ func (r *Response) Xml(data any) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		config.logger.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", id),
-			slog.String("desc", "Xml xml.MarshalIndent()"),
-			slog.Any("data", data),
-		))
+		config.logger.Error(err.Error(), "code", id, "desc", "Xml xml.MarshalIndent()", "data", data)
 		// 响应
 		http.Error(r.writer, "Xml encoding error, code-"+id, http.StatusInternalServerError)
 		return
@@ -156,11 +143,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		config.logger.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", id),
-			slog.String("desc", "Download os.Open()"),
-			slog.String("filePath", filePath),
-		))
+		config.logger.Error(err.Error(), "code", id, "desc", "Download os.Open()", "filePath", filePath)
 		// 响应
 		http.Error(r.writer, "Open file error, code-"+id, http.StatusInternalServerError)
 		return
@@ -175,11 +158,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 		if err != nil {
 			id := UniqId(16)
 			// 记录日志
-			config.logger.Error(err.Error(), "trace", slog.GroupValue(
-				slog.String("code", id),
-				slog.String("desc", "Download file.Stat()"),
-				slog.String("filePath", filePath),
-			))
+			config.logger.Error(err.Error(), "code", id, "desc", "Download file.Stat()", "filePath", filePath)
 			// 响应
 			http.Error(r.writer, "Stat file error, code-"+id, http.StatusInternalServerError)
 			return
@@ -195,11 +174,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 		if err != nil {
 			id := UniqId(16)
 			// 记录日志
-			config.logger.Error(err.Error(), "trace", slog.GroupValue(
-				slog.String("code", id),
-				slog.String("desc", "Download FileType()"),
-				slog.String("filePath", filePath),
-			))
+			config.logger.Error(err.Error(), "code", id, "desc", "Download FileType()", "filePath", filePath)
 			// 响应
 			http.Error(r.writer, "File type error, code-"+id, http.StatusInternalServerError)
 			return
@@ -218,11 +193,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		config.logger.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", id),
-			slog.String("desc", "Download io.Copy"),
-			slog.String("filePath", filePath),
-		))
+		config.logger.Error(err.Error(), "code", id, "desc", "Download io.Copy", "filePath", filePath)
 		// 响应
 		http.Error(r.writer, "io error, code-"+id, http.StatusInternalServerError)
 		return
@@ -236,11 +207,7 @@ func (r *Response) Show(filePath string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		config.logger.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", id),
-			slog.String("desc", "Show os.Open()"),
-			slog.String("filePath", filePath),
-		))
+		config.logger.Error(err.Error(), "code", id, "desc", "Show os.Open()", "filePath", filePath)
 		// 响应
 		http.Error(r.writer, "Open file error, code-"+id, http.StatusInternalServerError)
 		return
@@ -253,11 +220,7 @@ func (r *Response) Show(filePath string) {
 		if err != nil {
 			id := UniqId(16)
 			// 记录日志
-			config.logger.Error(err.Error(), "trace", slog.GroupValue(
-				slog.String("code", id),
-				slog.String("desc", "Show FileType()"),
-				slog.String("filePath", filePath),
-			))
+			config.logger.Error(err.Error(), "code", id, "desc", "Show FileType()", "filePath", filePath)
 			// 响应
 			http.Error(r.writer, "File type error, code-"+id, http.StatusInternalServerError)
 			return
@@ -270,11 +233,7 @@ func (r *Response) Show(filePath string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		config.logger.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", id),
-			slog.String("desc", "Show io.Copy"),
-			slog.String("filePath", filePath),
-		))
+		config.logger.Error(err.Error(), "code", id, "desc", "Show io.Copy", "filePath", filePath)
 		// 响应
 		http.Error(r.writer, "io error, code-"+id, http.StatusInternalServerError)
 		return
@@ -288,11 +247,7 @@ func (r *Response) Write(body []byte) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		config.logger.Error(err.Error(), "trace", slog.GroupValue(
-			slog.String("code", id),
-			slog.String("desc", "Write r.writer.Write"),
-			slog.String("body", string(body)),
-		))
+		config.logger.Error(err.Error(), "code", id, "desc", "Write r.writer.Write", "body", string(body))
 		// 响应
 		http.Error(r.writer, "Write error, code-"+id, http.StatusInternalServerError)
 	}
