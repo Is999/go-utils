@@ -463,12 +463,15 @@ func FileType(f *os.File) (string, error) {
 	ctype := mime.TypeByExtension(filepath.Ext(f.Name()))
 	if ctype == "" {
 		var buf [512]byte
-		n, _ := io.ReadFull(f, buf[:])
+		n, err := io.ReadFull(f, buf[:])
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return "", errors.Wrap(err)
+		}
 
 		ctype = http.DetectContentType(buf[:n])
 
 		// 重置文件指针到原点
-		_, err := f.Seek(0, io.SeekStart)
+		_, err = f.Seek(0, io.SeekStart)
 		if err != nil {
 			return "", errors.Wrap(err)
 		}

@@ -84,7 +84,7 @@ type Curl struct {
 	defLogOutput bool
 
 	// 日志
-	Logger *slog.Logger
+	Logger Logger
 }
 
 // CurlOption Curl配置项
@@ -100,7 +100,7 @@ func WithCurlTimeout(timeout time.Duration) CurlOption {
 }
 
 // WithCurlLogger 设置日志对象
-func WithCurlLogger(logger *slog.Logger) CurlOption {
+func WithCurlLogger(logger Logger) CurlOption {
 	return func(c *Curl) {
 		if logger != nil {
 			c.Logger = logger
@@ -261,6 +261,7 @@ func NewCurl(opts ...CurlOption) *Curl {
 		dump:               false,
 		dumpBodyLimit:      4096,
 		defLogOutput:       false,
+		Logger:             Log(),
 	}
 	// set Content-Type
 	c.SetContentType("application/json")
@@ -450,7 +451,9 @@ func (c *Curl) SetCookies(cookies ...*http.Cookie) *Curl {
 // AddCookies 设置cookies
 func (c *Curl) AddCookies(cookies ...*http.Cookie) *Curl {
 	for _, cookie := range cookies {
-		c.cookies[cookie.Name] = cookie
+		if cookie != nil {
+			c.cookies[cookie.Name] = cookie
+		}
 	}
 	return c
 }
@@ -540,7 +543,7 @@ func (c *Curl) SetRequestId(requestId ...string) *Curl {
 	}
 
 	// 设置日志X-Request-Id
-	c.Logger = slog.With("X-Request-Id", c.requestId)
+	c.Logger = c.Logger.With("X-Request-Id", c.requestId)
 
 	// 设置 header X-Request-Id
 	c.SetHeader("X-Request-Id", c.requestId)
@@ -699,7 +702,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	// 记录请求日志
-	if c.defLogOutput && slog.Default().Enabled(context.Background(), slog.LevelInfo) {
+	if c.defLogOutput && c.Logger.Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
 			dump, err := dumpRequestSafe(req, c.dumpBodyLimit)
 			if err != nil {
@@ -856,7 +859,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	var respBody []byte
 
 	// 记录返回日志
-	if c.defLogOutput && slog.Default().Enabled(context.Background(), slog.LevelInfo) {
+	if c.defLogOutput && c.Logger.Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
 			dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
 			if err != nil {
