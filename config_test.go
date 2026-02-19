@@ -3,7 +3,6 @@ package utils_test
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"testing"
 
 	"github.com/Is999/go-utils"
@@ -91,12 +90,12 @@ type testLogger struct {
 	logs []string
 }
 
-func (l *testLogger) Debug(msg string, args ...any)                { l.logs = append(l.logs, "DEBUG: "+msg) }
-func (l *testLogger) Info(msg string, args ...any)                 { l.logs = append(l.logs, "INFO: "+msg) }
-func (l *testLogger) Warn(msg string, args ...any)                 { l.logs = append(l.logs, "WARN: "+msg) }
-func (l *testLogger) Error(msg string, args ...any)                { l.logs = append(l.logs, "ERROR: "+msg) }
-func (l *testLogger) With(args ...any) utils.Logger                { return l }
-func (l *testLogger) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (l *testLogger) Debug(msg string, args ...any)                    { l.logs = append(l.logs, "DEBUG: "+msg) }
+func (l *testLogger) Info(msg string, args ...any)                     { l.logs = append(l.logs, "INFO: "+msg) }
+func (l *testLogger) Warn(msg string, args ...any)                     { l.logs = append(l.logs, "WARN: "+msg) }
+func (l *testLogger) Error(msg string, args ...any)                    { l.logs = append(l.logs, "ERROR: "+msg) }
+func (l *testLogger) With(args ...any) utils.Logger                    { return l }
+func (l *testLogger) Enabled(_ context.Context, _ utils.LogLevel) bool { return true }
 
 func TestWithLogger(t *testing.T) {
 	// 测试 WithLogger 选项
@@ -134,5 +133,5 @@ func TestLog(t *testing.T) {
 	}
 
 	// Enabled 应返回 bool
-	_ = logger.Enabled(context.Background(), slog.LevelInfo)
+	_ = logger.Enabled(context.Background(), utils.LevelInfo)
 }
