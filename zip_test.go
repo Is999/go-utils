@@ -16,7 +16,7 @@ func TestZip(t *testing.T) {
 		args    args
 		wantErr bool
 	}{
-		{name: "001", args: args{zipFiles: []string{"./readme.md", "./"}, zipFileName: "/tmp/go-utils.zip"}, wantErr: false},
+		{name: "001", args: args{zipFiles: []string{"./README.md", "./"}, zipFileName: "/tmp/go-utils.zip"}, wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

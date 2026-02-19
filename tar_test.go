@@ -16,7 +16,7 @@ func TestTar(t *testing.T) {
 		args    args
 		wantErr bool
 	}{
-		{name: "001", args: args{zipFiles: []string{"./readme.md", "./"}, zipFileName: "/tmp/go-utils.tar"}, wantErr: false},
+		{name: "001", args: args{zipFiles: []string{"./README.md", "./"}, zipFileName: "/tmp/go-utils.tar"}, wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -37,7 +37,7 @@ func TestTarGz(t *testing.T) {
 		args    args
 		wantErr bool
 	}{
-		{name: "001", args: args{zipFiles: []string{"./readme.md", "./"}, zipFileName: "/tmp/go-utils.tar.gz"}, wantErr: false},
+		{name: "001", args: args{zipFiles: []string{"./README.md", "./"}, zipFileName: "/tmp/go-utils.tar.gz"}, wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
