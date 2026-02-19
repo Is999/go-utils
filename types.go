@@ -114,13 +114,14 @@ type (
 type LogLevel int
 
 const (
-	// LevelDebug 调试级别
+	// LevelDebug 调试级别 (-4 对应 slog.LevelDebug)
 	LevelDebug LogLevel = -4
-	// LevelInfo 信息级别
+	// LevelInfo 信息级别 (0 对应 slog.LevelInfo)
 	LevelInfo LogLevel = 0
-	// LevelWarn 警告级别
+	// LevelWarn 警告级别 (4 对应 slog.LevelWarn)
 	LevelWarn LogLevel = 4
-	// LevelError 错误级别
+	// LevelError 错误级别 (8 对应 slog.LevelError)
+	// 这些值与 slog.Level 保持一致，以便内部默认实现的平滑转换
 	LevelError LogLevel = 8
 )
 

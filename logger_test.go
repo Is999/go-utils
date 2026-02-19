@@ -76,7 +76,6 @@ func TestThirdPartyLoggerCompatibility(t *testing.T) {
 	}
 	
 	// 测试 Info 方法
-	mock.debugCalled = false
 	logger.Info("info message")
 	if !mock.infoCalled {
 		t.Error("Info() was not called")

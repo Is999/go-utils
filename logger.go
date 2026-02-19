@@ -48,6 +48,8 @@ func toSlogLevel(level LogLevel) slog.Level {
 	case LevelError:
 		return slog.LevelError
 	default:
+		// 对于自定义级别，直接转换（假设用户知道 slog 的级别语义）
+		// For custom levels, directly convert (assumes user understands slog level semantics)
 		return slog.Level(level)
 	}
 }

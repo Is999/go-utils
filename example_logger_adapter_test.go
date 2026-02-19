@@ -45,8 +45,13 @@ func (z *zapLoggerAdapter) Error(msg string, args ...any) {
 }
 
 func (z *zapLoggerAdapter) With(args ...any) utils.Logger {
+	// 在真实实现中，应该创建一个新的 logger 实例并附加上下文
+	// In real implementation, should create a new logger instance with context
 	// return &zapLoggerAdapter{logger: z.logger.With(args...)}
-	return z
+	
+	// 为了演示，这里返回一个新实例（实际上是同一个 logger）
+	// For demonstration, return a new instance (actually the same logger)
+	return &zapLoggerAdapter{logger: z.logger}
 }
 
 func (z *zapLoggerAdapter) Enabled(ctx context.Context, level utils.LogLevel) bool {
@@ -95,8 +100,13 @@ func (l *logrusLoggerAdapter) Error(msg string, args ...any) {
 }
 
 func (l *logrusLoggerAdapter) With(args ...any) utils.Logger {
+	// 在真实实现中，应该创建一个带有附加字段的新 logger
+	// In real implementation, should create a new logger with additional fields
 	// return &logrusLoggerAdapter{logger: l.logger.WithFields(argsToFields(args))}
-	return l
+	
+	// 为了演示，这里返回一个新实例（实际上是同一个 logger）
+	// For demonstration, return a new instance (actually the same logger)
+	return &logrusLoggerAdapter{logger: l.logger}
 }
 
 func (l *logrusLoggerAdapter) Enabled(ctx context.Context, level utils.LogLevel) bool {
@@ -147,7 +157,8 @@ func Example_zapLoggerAdapter() {
 	zapAdapter.Info("Application started", "version", "1.0.0")
 	zapAdapter.Debug("Debug information", "key", "value")
 	
-	// 使用 With 添加上下文字段
+	// 使用 With 添加上下文字段（注意：此演示实现不保留上下文）
+	// Use With to add context fields (note: this demo implementation doesn't retain context)
 	childLogger := zapAdapter.With("request_id", "12345")
 	childLogger.Info("Processing request")
 	
