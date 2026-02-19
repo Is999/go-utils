@@ -3,7 +3,6 @@ package utils
 import (
 	"context"
 	"crypto/cipher"
-	"log/slog"
 )
 
 // Signed 有符号整数
@@ -111,7 +110,22 @@ type (
 	Decode func([]byte, any) error
 )
 
+// LogLevel 日志级别类型，兼容各种第三方日志库
+type LogLevel int
+
+const (
+	// LevelDebug 调试级别
+	LevelDebug LogLevel = -4
+	// LevelInfo 信息级别
+	LevelInfo LogLevel = 0
+	// LevelWarn 警告级别
+	LevelWarn LogLevel = 4
+	// LevelError 错误级别
+	LevelError LogLevel = 8
+)
+
 // Logger 日志接口，可通过 Configure 设置自定义实现，若未设置则默认使用 log/slog 标准库。
+// 该接口设计为与第三方日志库（如 zap、logrus 等）兼容。
 type Logger interface {
 	// Debug 调试级别日志
 	Debug(msg string, args ...any)
@@ -124,5 +138,5 @@ type Logger interface {
 	// With 创建携带附加字段的子 Logger
 	With(args ...any) Logger
 	// Enabled 判断指定级别的日志是否启用
-	Enabled(ctx context.Context, level slog.Level) bool
+	Enabled(ctx context.Context, level LogLevel) bool
 }

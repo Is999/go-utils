@@ -31,8 +31,25 @@ func (s *slogLogger) With(args ...any) Logger {
 	return &slogLogger{l: s.logger().With(args...)}
 }
 
-func (s *slogLogger) Enabled(ctx context.Context, level slog.Level) bool {
-	return s.logger().Enabled(ctx, level)
+// Enabled 将自定义 LogLevel 转换为 slog.Level 进行判断
+func (s *slogLogger) Enabled(ctx context.Context, level LogLevel) bool {
+	return s.logger().Enabled(ctx, toSlogLevel(level))
+}
+
+// toSlogLevel 将自定义 LogLevel 转换为 slog.Level
+func toSlogLevel(level LogLevel) slog.Level {
+	switch level {
+	case LevelDebug:
+		return slog.LevelDebug
+	case LevelInfo:
+		return slog.LevelInfo
+	case LevelWarn:
+		return slog.LevelWarn
+	case LevelError:
+		return slog.LevelError
+	default:
+		return slog.Level(level)
+	}
 }
 
 // Log 获取全局 Logger 实例。
