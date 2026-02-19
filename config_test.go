@@ -1,7 +1,9 @@
 package utils_test
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"testing"
 
 	"github.com/Is999/go-utils"
@@ -82,4 +84,55 @@ func TestUnmarshal(t *testing.T) {
 			}
 		})
 	}
+}
+
+// testLogger 用于测试的自定义 Logger 实现
+type testLogger struct {
+	logs []string
+}
+
+func (l *testLogger) Debug(msg string, args ...any)                { l.logs = append(l.logs, "DEBUG: "+msg) }
+func (l *testLogger) Info(msg string, args ...any)                 { l.logs = append(l.logs, "INFO: "+msg) }
+func (l *testLogger) Warn(msg string, args ...any)                 { l.logs = append(l.logs, "WARN: "+msg) }
+func (l *testLogger) Error(msg string, args ...any)                { l.logs = append(l.logs, "ERROR: "+msg) }
+func (l *testLogger) With(args ...any) utils.Logger                { return l }
+func (l *testLogger) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+func TestWithLogger(t *testing.T) {
+	// 测试 WithLogger 选项
+	opt := utils.WithLogger(&testLogger{})
+	if opt == nil {
+		t.Error("WithLogger() returned nil")
+	}
+}
+
+func TestWithLoggerNil(t *testing.T) {
+	// 测试传入nil参数
+	opt := utils.WithLogger(nil)
+	if opt == nil {
+		t.Error("WithLogger() with nil param returned nil")
+	}
+}
+
+func TestLog(t *testing.T) {
+	// 默认 Logger 不为 nil
+	logger := utils.Log()
+	if logger == nil {
+		t.Error("Log() returned nil")
+	}
+
+	// 默认 Logger 应能正常调用各级别方法（不 panic）
+	logger.Debug("debug test")
+	logger.Info("info test")
+	logger.Warn("warn test")
+	logger.Error("error test")
+
+	// With 返回新的 Logger
+	child := logger.With("key", "value")
+	if child == nil {
+		t.Error("Logger.With() returned nil")
+	}
+
+	// Enabled 应返回 bool
+	_ = logger.Enabled(context.Background(), slog.LevelInfo)
 }

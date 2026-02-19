@@ -72,7 +72,7 @@ func (r *Response) Success(code int, data any, message ...string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		slog.Error(err.Error(), "trace", slog.GroupValue(
+		config.logger.Error(err.Error(), "trace", slog.GroupValue(
 			slog.String("code", id),
 			slog.String("desc", "Success r.Encode()"),
 			slog.Any("data", data),
@@ -101,7 +101,7 @@ func (r *Response) Fail(code int, message string, data ...any) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		slog.Error(err.Error(), "trace", slog.GroupValue(
+		config.logger.Error(err.Error(), "trace", slog.GroupValue(
 			slog.String("code", id),
 			slog.String("desc", "Fail r.Encode()"),
 			slog.Any("data", data),
@@ -131,7 +131,7 @@ func (r *Response) Xml(data any) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		slog.Error(err.Error(), "trace", slog.GroupValue(
+		config.logger.Error(err.Error(), "trace", slog.GroupValue(
 			slog.String("code", id),
 			slog.String("desc", "Xml xml.MarshalIndent()"),
 			slog.Any("data", data),
@@ -156,7 +156,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		slog.Error(err.Error(), "trace", slog.GroupValue(
+		config.logger.Error(err.Error(), "trace", slog.GroupValue(
 			slog.String("code", id),
 			slog.String("desc", "Download os.Open()"),
 			slog.String("filePath", filePath),
@@ -175,7 +175,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 		if err != nil {
 			id := UniqId(16)
 			// 记录日志
-			slog.Error(err.Error(), "trace", slog.GroupValue(
+			config.logger.Error(err.Error(), "trace", slog.GroupValue(
 				slog.String("code", id),
 				slog.String("desc", "Download file.Stat()"),
 				slog.String("filePath", filePath),
@@ -195,7 +195,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 		if err != nil {
 			id := UniqId(16)
 			// 记录日志
-			slog.Error(err.Error(), "trace", slog.GroupValue(
+			config.logger.Error(err.Error(), "trace", slog.GroupValue(
 				slog.String("code", id),
 				slog.String("desc", "Download FileType()"),
 				slog.String("filePath", filePath),
@@ -218,7 +218,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		slog.Error(err.Error(), "trace", slog.GroupValue(
+		config.logger.Error(err.Error(), "trace", slog.GroupValue(
 			slog.String("code", id),
 			slog.String("desc", "Download io.Copy"),
 			slog.String("filePath", filePath),
@@ -236,7 +236,7 @@ func (r *Response) Show(filePath string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		slog.Error(err.Error(), "trace", slog.GroupValue(
+		config.logger.Error(err.Error(), "trace", slog.GroupValue(
 			slog.String("code", id),
 			slog.String("desc", "Show os.Open()"),
 			slog.String("filePath", filePath),
@@ -253,7 +253,7 @@ func (r *Response) Show(filePath string) {
 		if err != nil {
 			id := UniqId(16)
 			// 记录日志
-			slog.Error(err.Error(), "trace", slog.GroupValue(
+			config.logger.Error(err.Error(), "trace", slog.GroupValue(
 				slog.String("code", id),
 				slog.String("desc", "Show FileType()"),
 				slog.String("filePath", filePath),
@@ -270,7 +270,7 @@ func (r *Response) Show(filePath string) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		slog.Error(err.Error(), "trace", slog.GroupValue(
+		config.logger.Error(err.Error(), "trace", slog.GroupValue(
 			slog.String("code", id),
 			slog.String("desc", "Show io.Copy"),
 			slog.String("filePath", filePath),
@@ -288,7 +288,7 @@ func (r *Response) Write(body []byte) {
 	if err != nil {
 		id := UniqId(16)
 		// 记录日志
-		slog.Error(err.Error(), "trace", slog.GroupValue(
+		config.logger.Error(err.Error(), "trace", slog.GroupValue(
 			slog.String("code", id),
 			slog.String("desc", "Write r.writer.Write"),
 			slog.String("body", string(body)),
