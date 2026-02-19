@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"github.com/Is999/go-utils/errors"
 	"strconv"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // Str2Int string 转 int，失败返回零值。

@@ -78,8 +78,9 @@ func TestIsFile(t *testing.T) {
 		args args
 		want bool
 	}{
-		{name: "001", args: args{"./errors"}, want: false}, // 目录-非文件
-		{name: "002", args: args{"./array.go"}, want: true},
+		{name: "001", args: args{"./errors"}, want: false},   // 目录-非文件
+		{name: "002", args: args{"./slices.go"}, want: true}, // 存在的文件
+		{name: "003", args: args{"./array.go"}, want: false}, // 不存在的文件
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -584,6 +585,58 @@ func TestWrite(t *testing.T) {
 				t.Errorf("Line() error = %v", WrapError)
 			}*/
 
+		})
+	}
+}
+
+func TestSizeFormat(t *testing.T) {
+	tests := []struct {
+		name string
+		size int64
+		want string
+	}{
+		{name: "bytes", size: 500, want: "500B"},
+		{name: "zero", size: 0, want: "0B"},
+		{name: "1KB", size: 1024, want: "1.0000K"},
+		{name: "1MB", size: 1024 * 1024, want: "1.0000M"},
+		{name: "1GB", size: 1024 * 1024 * 1024, want: "1.0000G"},
+		{name: "1.5KB", size: 1536, want: "1.5000K"},
+		{name: "mixed", size: 2560, want: "2.5000K"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := utils.SizeFormat(tt.size, 4)
+			if got != tt.want {
+				t.Errorf("SizeFormat(%d) = %v, want %v", tt.size, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFileType(t *testing.T) {
+	tests := []struct {
+		name     string
+		filePath string
+		wantErr  bool
+	}{
+		{name: "go_file", filePath: "./file.go", wantErr: false},
+		{name: "mod_file", filePath: "./go.mod", wantErr: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := os.Open(tt.filePath)
+			if err != nil {
+				t.Fatalf("os.Open() error = %v", err)
+			}
+			defer f.Close()
+
+			ctype, err := utils.FileType(f)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FileType() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if ctype == "" {
+				t.Error("FileType() returned empty string")
+			}
 		})
 	}
 }

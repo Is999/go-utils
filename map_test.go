@@ -1,10 +1,11 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestMapKeys(t *testing.T) {
@@ -315,4 +316,33 @@ func TestMapRange(t *testing.T) {
 			utils.MapRange(tt.args.m, tt.args.f, tt.args.isReverse)
 		})
 	}
+}
+
+func TestSumMap(t *testing.T) {
+	// int 类型
+	t.Run("int", func(t *testing.T) {
+		m := map[string]int{"a": 1, "b": 2, "c": 3}
+		got := utils.SumMap(m)
+		if got != 6 {
+			t.Errorf("SumMap() = %v, want 6", got)
+		}
+	})
+
+	// float64 类型
+	t.Run("float64", func(t *testing.T) {
+		m := map[string]float64{"x": 1.5, "y": 2.5, "z": 3.0}
+		got := utils.SumMap(m)
+		if got != 7.0 {
+			t.Errorf("SumMap() = %v, want 7.0", got)
+		}
+	})
+
+	// 空 map
+	t.Run("empty", func(t *testing.T) {
+		m := map[string]int{}
+		got := utils.SumMap(m)
+		if got != 0 {
+			t.Errorf("SumMap() = %v, want 0", got)
+		}
+	})
 }

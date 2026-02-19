@@ -1,11 +1,12 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
 	"math/rand/v2"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestIsHas(t *testing.T) {
@@ -228,4 +229,38 @@ func TestIntersect(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSumSlice(t *testing.T) {
+	// int 类型
+	t.Run("int", func(t *testing.T) {
+		got := utils.SumSlice([]int{1, 2, 3, 4, 5})
+		if got != 15 {
+			t.Errorf("SumSlice() = %v, want 15", got)
+		}
+	})
+
+	// float64 类型
+	t.Run("float64", func(t *testing.T) {
+		got := utils.SumSlice([]float64{1.1, 2.2, 3.3})
+		if got < 6.59 || got > 6.61 {
+			t.Errorf("SumSlice() = %v, want ~6.6", got)
+		}
+	})
+
+	// 空切片
+	t.Run("empty", func(t *testing.T) {
+		got := utils.SumSlice([]int{})
+		if got != 0 {
+			t.Errorf("SumSlice() = %v, want 0", got)
+		}
+	})
+
+	// 负数
+	t.Run("negative", func(t *testing.T) {
+		got := utils.SumSlice([]int{-1, -2, 3})
+		if got != 0 {
+			t.Errorf("SumSlice() = %v, want 0", got)
+		}
+	})
 }

@@ -1,9 +1,11 @@
 package utils_test
 
 import (
-	"github.com/Is999/go-utils"
+	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestTernary(t *testing.T) {
@@ -79,5 +81,50 @@ func TestNumberFormat(t *testing.T) {
 				t.Errorf("NumberFormat() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRetry_Success(t *testing.T) {
+	callCount := 0
+	err := utils.Retry(3, func(tries int) error {
+		callCount++
+		return nil
+	})
+	if err != nil {
+		t.Errorf("Retry() error = %v, want nil", err)
+	}
+	if callCount != 1 {
+		t.Errorf("Retry() callCount = %d, want 1", callCount)
+	}
+}
+
+func TestRetry_SuccessAfterRetries(t *testing.T) {
+	callCount := 0
+	err := utils.Retry(5, func(tries int) error {
+		callCount++
+		if callCount < 3 {
+			return errors.New("temporary error")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("Retry() error = %v, want nil", err)
+	}
+	if callCount != 3 {
+		t.Errorf("Retry() callCount = %d, want 3", callCount)
+	}
+}
+
+func TestRetry_MaxRetriesExhausted(t *testing.T) {
+	callCount := 0
+	err := utils.Retry(3, func(tries int) error {
+		callCount++
+		return errors.New("persistent error")
+	})
+	if err == nil {
+		t.Error("Retry() error = nil, want error")
+	}
+	if callCount != 3 {
+		t.Errorf("Retry() callCount = %d, want 3", callCount)
 	}
 }

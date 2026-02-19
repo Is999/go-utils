@@ -101,7 +101,7 @@ func (r *RSA) SetPublicKey(publicKey string, isFilePath bool) error {
 	}
 
 	block, _ := pem.Decode(key) // 将密钥解析成公钥实例
-	if block == nil || -1 == strings.Index(strings.ToUpper(block.Type), "PUBLIC") {
+	if block == nil || !strings.Contains(strings.ToUpper(block.Type), "PUBLIC") {
 		return errors.New("Public key error ")
 	}
 
@@ -112,7 +112,7 @@ func (r *RSA) SetPublicKey(publicKey string, isFilePath bool) error {
 
 	// PKCS8
 	pubInterface, err = x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil && -1 != strings.Index(err.Error(), "ParsePKCS1PublicKey") {
+	if err != nil && strings.Contains(err.Error(), "ParsePKCS1PublicKey") {
 		// PKCS1
 		pubInterface, err = x509.ParsePKCS1PublicKey(block.Bytes)
 	}
@@ -148,7 +148,7 @@ func (r *RSA) SetPrivateKey(privateKey string, isFilePath bool) error {
 
 	// 将密钥解析成私钥实例
 	block, _ := pem.Decode(key)
-	if block == nil || -1 == strings.Index(strings.ToUpper(block.Type), "PRIVATE") {
+	if block == nil || !strings.Contains(strings.ToUpper(block.Type), "PRIVATE") {
 		return errors.New("Private key error ")
 	}
 
@@ -159,7 +159,7 @@ func (r *RSA) SetPrivateKey(privateKey string, isFilePath bool) error {
 
 	// PKCS1
 	priInterface, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil && -1 != strings.Index(err.Error(), "ParsePKCS8PrivateKey") {
+	if err != nil && strings.Contains(err.Error(), "ParsePKCS8PrivateKey") {
 		// PKCS8
 		priInterface, err = x509.ParsePKCS8PrivateKey(block.Bytes)
 	}
@@ -526,7 +526,7 @@ func RemovePEMHeaders(pem string) string {
 	// 替换头尾标记为空字符串
 	pem = re.ReplaceAllString(pem, "")
 	// 去掉换行符和回车符
-	pem = strings.Replace(pem, "\n", "", -1)
+	pem = strings.ReplaceAll(pem, "\n", "")
 	// 去掉多余的空格
 	return strings.TrimSpace(pem)
 }

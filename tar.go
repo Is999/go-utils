@@ -3,11 +3,12 @@ package utils
 import (
 	"archive/tar"
 	"compress/gzip"
-	"github.com/Is999/go-utils/errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // Tar 使用tar打包
@@ -135,7 +136,7 @@ func addSingleFileToTar(tarWriter *tar.Writer, fileToCompress string, fileInfo o
 // addDirectoryToTar 添加目录到tar
 func addDirectoryToTar(tarWriter *tar.Writer, directoryToCompress string, fileInfo os.FileInfo, baseDir string) error {
 	// 压缩目录
-	err := addSingleFileToTar(tarWriter, directoryToCompress, fileInfo, strings.TrimRight(baseDir, fileInfo.Name()))
+	err := addSingleFileToTar(tarWriter, directoryToCompress, fileInfo, strings.TrimSuffix(baseDir, fileInfo.Name()))
 	if err != nil {
 		return errors.Wrap(err)
 	}

@@ -210,7 +210,7 @@ func (r *Response) Download(filePath string, rename ...string) {
 	// herder 处理
 	r.Header(func(header http.Header) {
 		// 设置Content-Disposition头，指定文件名
-		header.Set("Content-Disposition", "attachment; filename="+fileName)
+		header.Set("Content-Disposition", `attachment; filename="`+fileName+`"`)
 	})
 
 	// 将图片数据写入响应
