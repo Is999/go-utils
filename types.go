@@ -1,6 +1,10 @@
 package utils
 
-import "crypto/cipher"
+import (
+	"context"
+	"crypto/cipher"
+	"log/slog"
+)
 
 // Signed 有符号整数
 type Signed interface {
@@ -106,3 +110,19 @@ type (
 	//	 - json.Unmarshal
 	Decode func([]byte, any) error
 )
+
+// Logger 日志接口，可通过 Configure 设置自定义实现，若未设置则默认使用 log/slog 标准库。
+type Logger interface {
+	// Debug 调试级别日志
+	Debug(msg string, args ...any)
+	// Info 信息级别日志
+	Info(msg string, args ...any)
+	// Warn 警告级别日志
+	Warn(msg string, args ...any)
+	// Error 错误级别日志
+	Error(msg string, args ...any)
+	// With 创建携带附加字段的子 Logger
+	With(args ...any) Logger
+	// Enabled 判断指定级别的日志是否启用
+	Enabled(ctx context.Context, level slog.Level) bool
+}

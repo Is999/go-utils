@@ -250,9 +250,9 @@ func UnTar(tarFile, destDir string) error {
 			if err != nil {
 				return errors.Wrap(err)
 			}
+			defer file.Close()
 
 			_, err = io.Copy(file, tarReader)
-			file.Close()
 			if err != nil {
 				return errors.Wrap(err)
 			}

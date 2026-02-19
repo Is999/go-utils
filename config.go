@@ -13,6 +13,8 @@ var (
 			encode: json.Marshal,
 			decode: json.Unmarshal,
 		},
+		// 设置日志(三方日志库)，若未设置则默认使用 log/slog(标准库)。
+		logger: newSlogLogger(),
 	}
 )
 
@@ -29,6 +31,8 @@ type _json struct {
 type options struct {
 	// 设置 json 编解码方法(三方开源库)，若未设置则默认使用 encoding/json(标准库)。
 	json _json
+	// 设置日志(三方日志库)，若未设置则默认使用 log/slog(标准库)。
+	logger Logger
 }
 
 // WithJSON 设置自定义 JSON 编码、解码方法
@@ -42,6 +46,16 @@ func WithJSON(encode Encode, decode Decode) Option {
 	}
 }
 
+// WithLogger 设置自定义 Logger，若未设置则默认使用 log/slog 标准库。
+func WithLogger(logger Logger) Option {
+	return func(o *options) {
+		if logger == nil {
+			return
+		}
+		o.logger = logger
+	}
+}
+
 // Configure 设置全局参数入口。只需在程序入口处设置一次。
 func Configure(opts ...Option) {
 	setOptionsOnce.Do(func() {
@@ -51,6 +65,8 @@ func Configure(opts ...Option) {
 				encode: json.Marshal,
 				decode: json.Unmarshal,
 			},
+			// 设置日志(三方日志库)，若未设置则默认使用 log/slog(标准库)。
+			logger: newSlogLogger(),
 		}
 		for _, opt := range opts {
 			if opt != nil {
