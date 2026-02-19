@@ -82,3 +82,11 @@ func TestUnwrap(t *testing.T) {
 		})
 	}
 }
+
+func TestTrace(t *testing.T) {
+	t.Run("nil error", func(t *testing.T) {
+		if got := errors.Trace(nil); got != nil {
+			t.Errorf("Trace(nil) = %v, want nil", got)
+		}
+	})
+}

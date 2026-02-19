@@ -535,7 +535,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	// 记录请求日志
-	if c.defLogOutput && slog.Default().Enabled(context.Background(), slog.LevelInfo) {
+	if c.defLogOutput && c.Logger != nil && c.Logger.Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
 			// 使用httputil.DumpRequestOut记录日志
 			dump, err := httputil.DumpRequestOut(req, true)
@@ -693,7 +693,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	var respBody []byte
 
 	// 记录返回日志
-	if c.defLogOutput && slog.Default().Enabled(context.Background(), slog.LevelInfo) {
+	if c.defLogOutput && c.Logger != nil && c.Logger.Enabled(context.Background(), slog.LevelInfo) {
 		if c.dump {
 			// 使用httputil.DumpResponse记录返回信息
 			dump, err := httputil.DumpResponse(resp, true)

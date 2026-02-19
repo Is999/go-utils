@@ -73,6 +73,10 @@ func Unwrap(err error) error {
 
 // Trace 获取error日志追踪，返回 slog.LogValuer 接口
 func Trace(err error) slog.LogValuer {
+	if err == nil {
+		return nil
+	}
+
 	var we *wrapError
 	if errors.As(err, &we) {
 		return we
