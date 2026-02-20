@@ -84,6 +84,33 @@ func Trace(err error) slog.LogValuer {
 	return newWrapError(err.Error(), nil)
 }
 
+// TraceString 获取error日志追踪的字符串表示，兼容任意第三方日志库（如 zap、logrus 等）。
+// 使用 fmt.Sprintf("%+v", err) 可获取相同信息，TraceString 提供更简洁的调用方式。
+func TraceString(err error) string {
+	if err == nil {
+		return ""
+	}
+	var we *wrapError
+	if errors.As(err, &we) {
+		return we.String()
+	}
+
+	return newWrapError(err.Error(), nil).String()
+}
+
+// TraceJSON 获取error日志追踪的完整 JSON 字符串表示（含嵌套 wrap 信息），兼容任意第三方日志库。
+func TraceJSON(err error) string {
+	if err == nil {
+		return ""
+	}
+	var we *wrapError
+	if errors.As(err, &we) {
+		return we.GoString()
+	}
+
+	return newWrapError(err.Error(), nil).GoString()
+}
+
 type stackTrace []uintptr
 
 func (st stackTrace) callers(skip int) []*info {

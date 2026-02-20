@@ -15,6 +15,215 @@ golang 帮助函数
 1. utils包中代码仅供参考，造成损失概不负责。
 2. 版本要求golang 1.22
 
+------
+
+### 全局配置 Configure
+
+`Configure` 是全局配置入口，只需在程序入口处（如 `main` 函数）调用一次。支持自定义 JSON 编解码器和自定义 Logger。
+
+```go
+import utils "github.com/Is999/go-utils"
+
+func main() {
+utils.Configure(
+utils.WithJSON(json.Marshal, json.Unmarshal), // 可选：自定义 JSON 编解码器
+utils.WithLogger(yourLogger), // 可选：自定义 Logger
+)
+}
+```
+
+#### JSON 编解码配置
+
+通过 `WithJSON` 设置自定义的 JSON
+编解码方法（如 [sonic](https://github.com/bytedance/sonic)、[go-json](https://github.com/goccy/go-json)
+等高性能库），若未设置则默认使用标准库 `encoding/json`。
+
+```go
+import "github.com/bytedance/sonic"
+
+utils.Configure(utils.WithJSON(sonic.Marshal, sonic.Unmarshal))
+```
+
+设置后，使用 `utils.Marshal()` 和 `utils.Unmarshal()` 即会调用自定义的编解码器。
+
+#### Logger 配置
+
+通过 `WithLogger` 设置自定义 Logger，若未设置则默认使用标准库 `log/slog`。
+
+Logger 接口定义如下，实现 6 个方法即可集成任何第三方日志库（如 zap、logrus 等）：
+
+```go
+type Logger interface {
+Debug(msg string, args ...any)
+Info(msg string, args ...any)
+Warn(msg string, args ...any)
+Error(msg string, args ...any)
+With(args ...any) Logger
+Enabled(ctx context.Context, level LogLevel) bool
+}
+```
+
+日志级别定义（与 `slog.Level` 值一致）：
+
+```go
+const (
+LevelDebug LogLevel = -4
+LevelInfo  LogLevel = 0
+LevelWarn  LogLevel = 4
+LevelError LogLevel = 8
+)
+```
+
+##### 集成 Zap 示例
+
+```go
+import (
+"context"
+"go.uber.org/zap"
+"go.uber.org/zap/zapcore"
+utils "github.com/Is999/go-utils"
+)
+
+type zapLoggerAdapter struct {
+logger *zap.SugaredLogger
+}
+
+func (z *zapLoggerAdapter) Debug(msg string, args ...any) { z.logger.Debugw(msg, args...) }
+func (z *zapLoggerAdapter) Info(msg string, args ...any)  { z.logger.Infow(msg, args...) }
+func (z *zapLoggerAdapter) Warn(msg string, args ...any)  { z.logger.Warnw(msg, args...) }
+func (z *zapLoggerAdapter) Error(msg string, args ...any) { z.logger.Errorw(msg, args...) }
+
+func (z *zapLoggerAdapter) With(args ...any) utils.Logger {
+return &zapLoggerAdapter{logger: z.logger.With(args...)}
+}
+
+func (z *zapLoggerAdapter) Enabled(ctx context.Context, level utils.LogLevel) bool {
+var zapLevel zapcore.Level
+switch level {
+case utils.LevelDebug:
+zapLevel = zapcore.DebugLevel
+case utils.LevelInfo:
+zapLevel = zapcore.InfoLevel
+case utils.LevelWarn:
+zapLevel = zapcore.WarnLevel
+case utils.LevelError:
+zapLevel = zapcore.ErrorLevel
+default:
+zapLevel = zapcore.InfoLevel
+}
+return z.logger.Desugar().Core().Enabled(zapLevel)
+}
+
+func main() {
+zapLogger, _ := zap.NewProduction()
+utils.Configure(utils.WithLogger(&zapLoggerAdapter{logger: zapLogger.Sugar()}))
+}
+```
+
+##### 集成 Logrus 示例
+
+```go
+import (
+"context"
+"github.com/sirupsen/logrus"
+utils "github.com/Is999/go-utils"
+)
+
+type logrusLoggerAdapter struct {
+logger *logrus.Logger
+fields logrus.Fields
+}
+
+func (l *logrusLoggerAdapter) entry() *logrus.Entry {
+if len(l.fields) > 0 {
+return l.logger.WithFields(l.fields)
+}
+return logrus.NewEntry(l.logger)
+}
+
+func (l *logrusLoggerAdapter) Debug(msg string, args ...any) {
+l.entry().WithFields(argsToFields(args)).Debug(msg)
+}
+func (l *logrusLoggerAdapter) Info(msg string, args ...any) {
+l.entry().WithFields(argsToFields(args)).Info(msg)
+}
+func (l *logrusLoggerAdapter) Warn(msg string, args ...any) {
+l.entry().WithFields(argsToFields(args)).Warn(msg)
+}
+func (l *logrusLoggerAdapter) Error(msg string, args ...any) {
+l.entry().WithFields(argsToFields(args)).Error(msg)
+}
+
+func (l *logrusLoggerAdapter) With(args ...any) utils.Logger {
+newFields := argsToFields(args)
+merged := make(logrus.Fields, len(l.fields)+len(newFields))
+for k, v := range l.fields {
+merged[k] = v
+}
+for k, v := range newFields {
+merged[k] = v
+}
+return &logrusLoggerAdapter{logger: l.logger, fields: merged}
+}
+
+func (l *logrusLoggerAdapter) Enabled(_ context.Context, level utils.LogLevel) bool {
+var logrusLevel logrus.Level
+switch level {
+case utils.LevelDebug:
+logrusLevel = logrus.DebugLevel
+case utils.LevelInfo:
+logrusLevel = logrus.InfoLevel
+case utils.LevelWarn:
+logrusLevel = logrus.WarnLevel
+case utils.LevelError:
+logrusLevel = logrus.ErrorLevel
+default:
+logrusLevel = logrus.InfoLevel
+}
+return l.logger.IsLevelEnabled(logrusLevel)
+}
+
+func argsToFields(args []any) logrus.Fields {
+fields := make(logrus.Fields)
+for i := 0; i < len(args)-1; i += 2 {
+if key, ok := args[i].(string); ok {
+fields[key] = args[i+1]
+}
+}
+return fields
+}
+
+func main() {
+logrusLogger := logrus.New()
+utils.Configure(utils.WithLogger(&logrusLoggerAdapter{logger: logrusLogger}))
+}
+```
+
+##### Error 追踪与第三方日志库配合
+
+`errors` 包提供了多种方式获取错误追踪信息，兼容不同日志库：
+
+```go
+import "github.com/Is999/go-utils/errors"
+
+err := errors.Wrap(originalErr, "操作失败")
+
+// 方式1: 使用 slog（默认日志库），Trace 返回 slog.LogValuer 接口
+slog.Error(err.Error(), "trace", errors.Trace(err))
+
+// 方式2: 使用第三方日志库（zap/logrus 等），TraceString 返回简洁字符串
+logger.Error("操作失败", "error", err.Error(), "trace", errors.TraceString(err))
+
+// 方式3: 获取完整 JSON 格式追踪（含嵌套 wrap 信息）
+logger.Error("操作失败", "error", err.Error(), "trace", errors.TraceJSON(err))
+
+// 方式4: 使用 fmt 格式化
+fmt.Sprintf("%+v", err) // 等同于 TraceString
+fmt.Sprintf("%#v", err) // 等同于 TraceJSON
+```
+
+------
+
 ### 历史变更
 
 1. 版本要求golang 1.18变更为1.22

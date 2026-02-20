@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httputil"
@@ -702,7 +701,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	// 记录请求日志
-	if c.defLogOutput && c.Logger.Enabled(context.Background(), slog.LevelInfo) {
+	if c.defLogOutput && c.Logger.Enabled(context.Background(), LevelInfo) {
 		if c.dump {
 			dump, err := dumpRequestSafe(req, c.dumpBodyLimit)
 			if err != nil {
@@ -859,7 +858,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	var respBody []byte
 
 	// 记录返回日志
-	if c.defLogOutput && c.Logger.Enabled(context.Background(), slog.LevelInfo) {
+	if c.defLogOutput && c.Logger.Enabled(context.Background(), LevelInfo) {
 		if c.dump {
 			dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
 			if err != nil {
