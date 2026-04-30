@@ -79,3 +79,18 @@ func TestNewPool_StructType(t *testing.T) {
 		t.Errorf("Item should be reset: Name=%s, Value=%d", item2.Name, item2.Value)
 	}
 }
+
+func TestNewPool_NilFactoryShouldFallback(t *testing.T) {
+	pool := utils.NewPool[bytes.Buffer](nil)
+	buf := pool.Get()
+	if buf == nil {
+		t.Fatal("Pool.Get() returned nil")
+	}
+}
+
+func TestPoolPutNilShouldBeSafe(t *testing.T) {
+	pool := utils.NewPool(func() *bytes.Buffer {
+		return new(bytes.Buffer)
+	})
+	pool.Put(nil)
+}

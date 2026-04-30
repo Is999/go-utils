@@ -128,3 +128,17 @@ func TestRetry_MaxRetriesExhausted(t *testing.T) {
 		t.Errorf("Retry() callCount = %d, want 3", callCount)
 	}
 }
+
+func TestRetry_ZeroMaxRetriesRunsOnce(t *testing.T) {
+	callCount := 0
+	err := utils.Retry(0, func(tries int) error {
+		callCount++
+		return errors.New("persistent error")
+	})
+	if err == nil {
+		t.Fatal("Retry() error = nil, want error")
+	}
+	if callCount != 1 {
+		t.Fatalf("Retry() callCount = %d, want 1", callCount)
+	}
+}

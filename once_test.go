@@ -3,6 +3,7 @@ package utils_test
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Is999/go-utils"
@@ -105,12 +106,14 @@ func TestOnce_Do_Concurrent(t *testing.T) {
 	var o utils.Once
 	var wg sync.WaitGroup
 	errCh := make(chan error, 10)
+	var callCount atomic.Int32
 
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			err := o.Do(func() error {
+				callCount.Add(1)
 				return nil
 			}, 3)
 			errCh <- err
@@ -124,5 +127,33 @@ func TestOnce_Do_Concurrent(t *testing.T) {
 		if err != nil {
 			t.Errorf("Once.Do() concurrent error = %v, want nil", err)
 		}
+	}
+	if got := callCount.Load(); got != 1 {
+		t.Errorf("Once.Do() concurrent callCount = %d, want 1", got)
+	}
+}
+
+func TestOnce_Do_PanicShouldReturnError(t *testing.T) {
+	var o utils.Once
+	err := o.Do(func() error {
+		panic("boom")
+	}, 3)
+	if err == nil {
+		t.Fatal("Once.Do() panic expected error")
+	}
+}
+
+func TestOnce_Do_MaxRetriesZeroShouldRunOnce(t *testing.T) {
+	var o utils.Once
+	callCount := 0
+	err := o.Do(func() error {
+		callCount++
+		return errors.New("once error")
+	}, 0)
+	if err == nil {
+		t.Fatal("Once.Do() expected error")
+	}
+	if callCount != 1 {
+		t.Fatalf("Once.Do() callCount = %d, want 1", callCount)
 	}
 }

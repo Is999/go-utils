@@ -1070,7 +1070,7 @@ func UniqId(l uint8, r ...*rand.Rand) string
 | 参数  | 描述                                          |
 |-----|---------------------------------------------|
 | *l* | 生成字符串的长度。                                   |
-| *r* | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
+| *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：生成一个长度范围16-32位的唯一ID字符串(可排序的字符串)，UniqId函数生成字符串并不保证唯一性。
 
@@ -1087,7 +1087,7 @@ func RandStr(n int, r ...*rand.Rand) string
 | *n* | 生成字符串的长度。                                   |
 | *r* | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
 
-备注：随机生成字符串 LETTERS。LETTERS 值为：a-zA-z
+备注：随机生成字符串 ALPHA。ALPHA 值为：A-Za-z
 
 ------
 
@@ -1100,9 +1100,9 @@ func RandStr2(n int, r ...*rand.Rand) string
 | 参数  | 描述                                          |
 |-----|---------------------------------------------|
 | *n* | 生成字符串的长度。                                   |
-| *r* | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
+| *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
-备注：随机生成字符串 ALPHANUM。ALPHANUM 值为：0-9a-zA-z
+备注：随机生成字符串 ALNUM。ALNUM 值为：A-Za-z0-9；为兼容旧行为，首字符固定为字母，不会以数字开头。
 
 ------
 
@@ -1116,7 +1116,7 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string
 |---------|---------------------------------------------|
 | *n*     | 生成字符串的长度。                                   |
 | *alpha* | 生成随机字符串的种子。                                 |
-| *r*     | 随机种子 utils.RandPool()：批量生成时传入r参数可提升生成随机数效率。 |
+| *r*     | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：随机生成字符串。alpha 指定生成随机字符串的种子。
 
@@ -1884,10 +1884,11 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error)
 | 参数     | 描述                                                                                                                                      |
 |--------|-----------------------------------------------------------------------------------------------------------------------------------------|
 | *path* | 文件名路径。                                                                                                                                  |
-| *bits* | 生成秘钥位大小: 512、1024、2048、4096。                                                                                                            |
+| *bits* | 生成秘钥位大小，生产环境要求至少 2048。                                                                                                                  |
 | *pkcs* | 秘钥格式, 默认格式(公钥PKCS8格式 私钥PKCS1格式):<br />   - pkcs[0] isPubPKCS8 公钥是否是PKCS8格式: 默认 true <br />   - pkcs[1] isPriPKCS1 私钥是否是PKCS1格式: 默认 true |
 
-备注：生成秘钥，默认格式(公钥PKCS8格式 私钥PKCS1格式)。返回两个文件名, 第一个公钥文件名, 第二个私钥文件名。
+备注：生成秘钥，默认格式(公钥PKCS8格式 私钥PKCS1格式)。返回两个文件名, 第一个公钥文件名, 第二个私钥文件名；为保证生产安全，密钥位数不能低于
+2048。
 
 ------
 
@@ -1991,6 +1992,26 @@ fmt.Log("Verify() = 验证成功")
 
 ------
 
+#### 加密模式选型建议
+
+| 场景         | 推荐方案                                        | 说明                                     |
+|------------|---------------------------------------------|----------------------------------------|
+| 新系统对称加密    | `AES + GCM`                                 | 默认优先方案，带机密性和完整性校验，支持 `additionalData`。 |
+| 兼容分组协议     | `AES/DES + CBC + WithIV/WithRandIV`         | 需要补位，适合和旧系统的固定协议对接。                    |
+| 流式对称加密     | `AES + CTR + NoPadding/NoUnPadding`         | 无需块补位，开销更低，适合短报文和二进制数据。                |
+| 旧系统流模式兼容   | `CFB/OFB + WithAllowUnsafeStreamMode(true)` | 默认禁用，仅用于兼容历史协议。                        |
+| 旧系统 ECB 兼容 | `ECB + WithAllowUnsafeECB(true)`            | 默认禁用，不建议新系统使用。                         |
+| RSA 加密     | `EncryptOAEP/DecryptOAEP`                   | 新协议优先，适合加密小数据或对称密钥。                    |
+| RSA 签名     | `SignPSS/VerifyPSS`                         | 新协议优先，推荐配合 `SHA256` 或更强摘要。             |
+
+备注：
+
+- RSA 适合加密小块数据或密钥封装，不建议直接承载大体积正文。
+- `PKCS#1 v1.5` 加解密与签名接口主要保留给旧系统兼容；新系统优先使用 OAEP/PSS。
+- 生产环境推荐 `2048` 位及以上 RSA 密钥，摘要算法推荐 `SHA256` / `SHA384` / `SHA512`。
+
+------
+
 #### RSA [秘钥格式转换](https://github.com/Is999/go-utils/blob/master/rsa.go#L523)
 
 ```go
@@ -2055,7 +2076,11 @@ return
 }
 ```
 
-备注：先实例化AES 设置key，可通过 WithIV 设置IV或通过 WithRandIV 随机生成IV，之后便可加密或解密数据。
+备注：先实例化 AES 并设置 key；CBC/CTR/CFB/OFB 等需要显式通过 `WithIV` 设置固定 IV，或通过 `WithRandIV(true)` 使用随机 IV。
+`ECB` 默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
+IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `WithAllowUnsafeKeyIV(true)`。
+
+补充：`CTR/CFB/OFB` 若无需补位，建议配合 `NoPadding` / `NoUnPadding` 使用，避免多余填充和块长度约束。
 
 ------
 
@@ -2088,11 +2113,89 @@ return
 }
 ```
 
-备注：先实例化DES 设置key，可通过 WithIV 设置IV或通过 WithRandIV 随机生成IV，之后便可加密或解密数据。
+备注：先实例化 DES 并设置 key；CBC/CTR/CFB/OFB 等需要显式通过 `WithIV` 设置固定 IV，或通过 `WithRandIV(true)` 使用随机 IV。
+`ECB` 默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
+IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `WithAllowUnsafeKeyIV(true)`。
+
+补充：`CTR/CFB/OFB` 若无需补位，建议配合 `NoPadding` / `NoUnPadding` 使用，避免多余填充和块长度约束。
 
 ------
 
 ### 5.6 pkcs7 填充与反填充
+
+------
+
+#### AES GCM（推荐）
+
+```go
+// 实例化 AES
+a, err := AES(key)
+if err != nil {
+fmt.Errorf("AES() error = %v", err)
+return
+}
+
+// GCM 加密，additionalData 可为空
+encryptStr, err := a.EncryptGCMString(data, base64.StdEncoding.EncodeToString, []byte("request-id=r-1"))
+if err != nil {
+fmt.Errorf("EncryptGCMString() error = %v", err)
+return
+}
+
+// GCM 解密，additionalData 必须与加密时一致
+got, err := a.DecryptGCMString(encryptStr, base64.StdEncoding.DecodeString, []byte("request-id=r-1"))
+if err != nil {
+fmt.Errorf("DecryptGCMString() error = %v", err)
+return
+}
+```
+
+备注：GCM 属于 AEAD 认证加密模式，优先级高于 CBC/CTR/CFB/OFB；每次加密都会自动生成随机 nonce 并写入密文头部。
+
+------
+
+#### NoPadding / NoUnPadding
+
+```go
+// CTR 模式下直接关闭补位
+a, err := AES(key, WithRandIV(true))
+if err != nil {
+return
+}
+
+encryptStr, err := a.Encrypt(data, CTR, base64.StdEncoding.EncodeToString, NoPadding)
+if err != nil {
+return
+}
+
+got, err := a.Decrypt(encryptStr, CTR, base64.StdEncoding.DecodeString, NoUnPadding)
+if err != nil {
+return
+}
+```
+
+备注：`NoPadding` / `NoUnPadding` 适合 `CTR/CFB/OFB/GCM` 这类不依赖块补位的模式，不建议用于 `CBC/ECB`。
+
+------
+
+#### 加密模块性能验证命令
+
+```bash
+# 对称加密基准
+go test -run '^$' -bench 'BenchmarkCipherAES(CBCEncrypt|CBCDecrypt|CTRNoPaddingEncrypt|CTRNoPaddingDecrypt|GCMEncrypt|GCMDecrypt)$' -benchmem ./...
+
+# RSA 基准
+go test -run '^$' -bench 'BenchmarkRSA(EncryptOAEP|DecryptOAEP|SignPSS|VerifyPSS)$' -benchmem ./...
+
+# 全量竞态验证
+go test -race ./...
+```
+
+备注：
+
+- 基准数据受 CPU、系统负载、Go 版本影响较大，建议关注相对变化而不是绝对数值。
+- `RSA` 私钥解密/签名天然比公钥加密/验签更重，属于算法特性，不是实现异常。
+- 对称加密建议把 `CBC`、`CTR-NoPadding`、`GCM` 分开观察，分别对应兼容模式、轻量流模式和认证加密模式。
 
 ------
 
@@ -2465,7 +2568,7 @@ func Unique[T Ordered](s []T) []T
 func Diff[T Ordered](s1, s2 []T) []T
 ```
 
-备注：计算s1与s2的差集。
+备注：计算s1与s2的差集，返回结果保持 s1 原有顺序，并保留 s1 中原本存在的重复值。
 
 ------
 
@@ -2479,7 +2582,7 @@ func Diff[T Ordered](s1, s2 []T) []T
 func Intersect[T Ordered](s1, s2 []T) []T
 ```
 
-备注：计算s1与s2的交集。
+备注：计算s1与s2的交集，返回结果保持 s1 原有顺序，并保留 s1 中原本存在的重复值。
 
 ------
 
@@ -2942,7 +3045,7 @@ func MapKeys[K Ordered, V any](m map[K]V) []K
 
 ------
 
-### 8.2 有序获取map的所有value
+### 8.2 获取map的所有value
 
 ------
 
@@ -2957,7 +3060,7 @@ func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V
 | *m*         | map。                     |
 | *isReverse* | 是否降序排列：true 降序，false 升序。 |
 
-备注：对map的key排序并按排序后的key返回其value
+备注：当传入 isReverse 参数时，会先按 key 排序后返回对应 value；未传入时直接返回 map 当前遍历到的所有 value，顺序不保证稳定。
 
 ------
 
@@ -3010,7 +3113,7 @@ func MapFilter[K Ordered, V any](m map[K]V, f func (key K, val V) bool) map[K]V
 func MapDiff[K, V Ordered](m1, m2 map[K]V) []V
 ```
 
-备注：计算m1与m2的值差集。
+备注：计算 m1 与 m2 的值差集，返回结果保留 m1 当前遍历结果中的重复值。
 
 ------
 
@@ -3034,7 +3137,7 @@ func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K
 func MapIntersect[K, V Ordered](m1, m2 map[K]V) []V
 ```
 
-备注：计算m1与m2的值交集。
+备注：计算 m1 与 m2 的值交集，返回结果保留 m1 当前遍历结果中的重复值。
 
 ------
 
@@ -3901,7 +4004,7 @@ func Zip(zipFile string, files []string) error
 | zipFile | 打包压缩后文件    |
 | files   | 待打包压缩文件【夹】 |
 
-备注：使用zip打包并压缩。
+备注：使用 zip 打包并压缩；为保证安全，默认不支持符号链接打包。
 
 ------
 
@@ -3916,7 +4019,7 @@ func UnZip(zipFile, destDir string) error
 | zipFile | 代解压的文件 |
 | destDir | 解压文件目录 |
 
-备注：解压zip文件。
+备注：解压 zip 文件；默认仅允许解压到目标目录内，拒绝绝对路径、目录穿越和不支持的条目类型，并尽量恢复归档中的文件权限。
 
 ------
 
@@ -3965,7 +4068,7 @@ func UnTar(tarFile, destDir string) error
 | tarFile | 代解压的文件 |
 | destDir | 解压文件目录 |
 
-备注：解压zip文件。
+备注：解压 tar 或 tar.gz 文件；默认仅允许解压到目标目录内，拒绝绝对路径、目录穿越和不支持的条目类型，并尽量恢复归档中的文件权限。
 
 ------
 
@@ -4095,7 +4198,8 @@ func LocalIP() string
 func ClientIP(r *http.Request) string
 ```
 
-备注：获取客户端IP。
+备注：获取客户端 IP。默认仅在请求来自可信代理（回环、私网、链路本地地址）时信任 `X-Forwarded-For` / `X-Real-IP`，否则回退到
+`RemoteAddr`，避免被伪造请求头欺骗。
 
 ------
 
@@ -4156,7 +4260,8 @@ func Retry(maxRetries uint8, fn func (tries int) error) error
 | *maxRetries* | 最大重试次数。                            |
 | *fn*         | 要执行的函数，参数tries为当前第几次尝试，返回nil则停止重试。 |
 
-备注：尝试执行fn，如果fn返回错误则进行重试，每次重试休眠指数递增的时间，最大重试次数为maxRetries。
+备注：尝试执行 fn，如果 fn 返回错误则进行重试；当前退避间隔为 `100ms`、`200ms`、`400ms`、`800ms`，之后封顶为 `1s`。当
+`maxRetries <= 0` 时会按 1 次处理。
 
 ------
 
@@ -4179,7 +4284,8 @@ return nil
 o.Reset()
 ```
 
-备注：线程安全的带重试机制的一次性执行器，使用互斥锁保证并发安全，采用指数退避策略。
+备注：线程安全的带重试机制的一次性执行器；同一轮只会有一个 goroutine 真正执行目标函数，其余调用方等待最终结果。成功或最终失败后会缓存结果，需重新执行时调用
+`Reset()`。
 
 ------
 
@@ -4204,7 +4310,8 @@ buf := pool.Get()
 pool.Put(buf)
 ```
 
-备注：基于 sync.Pool 封装的泛型对象池，支持通过 WithPoolReset 设置对象归还时的重置函数。
+备注：基于 sync.Pool 封装的泛型对象池，支持通过 `WithPoolReset` 设置对象归还时的重置函数；未传工厂函数时会回退为 `new(T)`，
+`Put(nil)` 会被安全忽略。
 
 ------
 

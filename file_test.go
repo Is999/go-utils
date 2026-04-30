@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -638,6 +639,54 @@ func TestFileType(t *testing.T) {
 				t.Error("FileType() returned empty string")
 			}
 		})
+	}
+}
+
+func TestWriteBufReturnsFlushError(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "flush.log")
+	w, err := utils.NewWrite(fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = w.WriteBuf(func(write *bufio.Writer) (int, error) {
+		n, writeErr := write.WriteString("flush error test")
+		return n, writeErr
+	})
+	if err == nil {
+		t.Fatal("WriteBuf() expected flush error after file closed")
+	}
+}
+
+func TestFileTypePreservesOffset(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "sample")
+	content := []byte("hello world for content type")
+	if err := os.WriteFile(fileName, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.Open(fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	if _, err := f.Seek(5, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := utils.FileType(f); err != nil {
+		t.Fatalf("FileType() error = %v", err)
+	}
+
+	offset, err := f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offset != 5 {
+		t.Fatalf("file offset = %d, want %d", offset, 5)
 	}
 }
 

@@ -33,7 +33,16 @@ func TestCipher(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化Cipher，并设置key
-			a, err := utils.NewCipher(tt.args.key, aes.NewCipher)
+			opts := make([]utils.CipherOption, 0, 3)
+			switch tt.args.mode {
+			case utils.ECB:
+				opts = append(opts, utils.WithAllowUnsafeECB(true))
+			case utils.CBC, utils.CTR:
+				opts = append(opts, utils.WithRandIV(true))
+			case utils.CFB, utils.OFB:
+				opts = append(opts, utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
+			}
+			a, err := utils.NewCipher(tt.args.key, aes.NewCipher, opts...)
 			if err != nil {
 				t.Errorf("NewCipher() error = %v", err)
 				return

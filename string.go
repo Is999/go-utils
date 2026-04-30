@@ -2,10 +2,10 @@ package utils
 
 import (
 	"math/rand/v2"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 )
 
 const (
@@ -28,9 +28,17 @@ func Replace(s string, oldnew map[string]string) string {
 	if length == 0 {
 		return s
 	}
+
+	// map 遍历无序，先排序可保证重叠替换规则结果稳定。
+	keys := make([]string, 0, length)
+	for old := range oldnew {
+		keys = append(keys, old)
+	}
+	sort.Strings(keys)
+
 	pairs := make([]string, 0, length*2)
-	for old, news := range oldnew {
-		pairs = append(pairs, old, news)
+	for _, old := range keys {
+		pairs = append(pairs, old, oldnew[old])
 	}
 	return strings.NewReplacer(pairs...).Replace(s)
 }
@@ -88,7 +96,7 @@ func StrRev(str string) string {
 	return string(Reverse([]rune(str)))
 }
 
-// RandStr 随机生成字符串，使用LETTERS规则
+// RandStr 随机生成字符串，使用 ALPHA 规则
 //
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
@@ -96,7 +104,8 @@ func RandStr(n int, r ...*rand.Rand) string {
 	return RandStr3(n, ALPHA, r...)
 }
 
-// RandStr2 随机生成字符串，使用ALPHANUM规则
+// RandStr2 随机生成字符串，使用 ALNUM 规则。
+// 为兼容旧行为，首字符固定从 ALPHA 中选择，避免数字开头。
 //
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
@@ -106,20 +115,20 @@ func RandStr2(n int, r ...*rand.Rand) string {
 	}
 	s := make([]byte, n)
 	if len(r) == 0 || r[0] == nil {
-		s[0] = ALPHA[int(rand.Int64())%len(ALPHA)]
+		s[0] = ALPHA[rand.IntN(len(ALPHA))]
 		for i := 1; i < n; i++ {
-			s[i] = ALNUM[int(rand.Int64())%len(ALNUM)]
+			s[i] = ALNUM[rand.IntN(len(ALNUM))]
 		}
-		return *(*string)(unsafe.Pointer(&s))
+		return string(s)
 	}
 
 	randSourceMu.Lock()
-	s[0] = ALPHA[int(r[0].Int64())%len(ALPHA)]
+	s[0] = ALPHA[r[0].IntN(len(ALPHA))]
 	for i := 1; i < n; i++ {
-		s[i] = ALNUM[int(r[0].Int64())%len(ALNUM)]
+		s[i] = ALNUM[r[0].IntN(len(ALNUM))]
 	}
 	randSourceMu.Unlock()
-	return *(*string)(unsafe.Pointer(&s))
+	return string(s)
 }
 
 // RandStr3 随机生成字符串
@@ -135,17 +144,17 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string {
 	s := make([]byte, n)
 	if len(r) == 0 || r[0] == nil {
 		for i := 0; i < n; i++ {
-			s[i] = alpha[int(rand.Int64())%l]
+			s[i] = alpha[rand.IntN(l)]
 		}
-		return *(*string)(unsafe.Pointer(&s))
+		return string(s)
 	}
 
 	randSourceMu.Lock()
 	for i := 0; i < n; i++ {
-		s[i] = alpha[int(r[0].Int64())%l]
+		s[i] = alpha[r[0].IntN(l)]
 	}
 	randSourceMu.Unlock()
-	return *(*string)(unsafe.Pointer(&s))
+	return string(s)
 }
 
 // UniqId 生成一个长度范围16-32位的唯一ID字符串(可排序的字符串)，UniqId只生成字符串并不保证唯一性。

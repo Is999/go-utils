@@ -6,11 +6,14 @@ import (
 	"time"
 )
 
+// Once 提供带重试能力的一次性执行控制器。
+// 同一轮生命周期内只会有一个 goroutine 真正执行目标函数，其余调用方等待最终结果。
 type Once struct {
-	once sync.Once
-	mu   sync.Mutex
-	done bool
-	err  error
+	mu      sync.Mutex
+	cond    *sync.Cond
+	running bool
+	done    bool
+	err     error
 }
 
 // Do 执行带有重试机制的函数调用
@@ -24,57 +27,90 @@ type Once struct {
 //	error: 执行成功时返回nil，失败时返回包含重试次数的错误信息
 //
 // 特性:
-//   - 线程安全，使用互斥锁保证并发安全
-//   - 使用指数退避策略
-//   - 通过sync.Once保证每次重试只执行一次目标函数
+//   - 线程安全：同一时刻仅一个 goroutine 执行目标函数，其余 goroutine 等待结果
+//   - 使用有上限的指数退避策略，避免重试间隔无限增大
+//   - 成功或最终失败后都会缓存结果，后续调用直接复用；需重新执行时调用 Reset
 func (r *Once) Do(f func() error, maxRetries int) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// 检查是否已完成执行（包括成功或最终失败）
-	if r.done {
-		return r.err
+	if f == nil {
+		return fmt.Errorf("Once.Do() f 不能为空")
+	}
+	if maxRetries <= 0 {
+		maxRetries = 1
 	}
 
-	attempt := 0
-	for {
-		// 使用sync.Once保证目标函数在单次循环中只执行一次
-		r.once.Do(func() {
-			r.err = f()
-		})
+	r.mu.Lock()
+	r.initCondLocked()
 
-		// 成功执行后标记完成状态
-		if r.err == nil {
-			r.done = true
-			return r.err
+	for {
+		// 已有最终结果时直接复用，避免重复执行。
+		if r.done {
+			err := r.err
+			r.mu.Unlock()
+			return err
 		}
 
-		// 重试次数达到上限时终止循环
-		attempt++
-		if attempt >= maxRetries {
+		// 当前无执行中的任务时，由当前 goroutine 负责执行。
+		if !r.running {
+			r.running = true
 			break
 		}
 
-		// 重置sync.Once准备下次重试，并执行指数退避等待
-		r.once = sync.Once{}
-		// 计算延迟时间，指数退避策略
-		maxDelay := attempt << 11 / 10 // 204ms 409ms 614ms 819ms 1024ms 1228ms ...
-
-		// 延迟重试
-		time.Sleep(time.Millisecond * time.Duration(maxDelay))
+		// 其余 goroutine 等待执行结果落定。
+		r.cond.Wait()
 	}
+	r.mu.Unlock()
 
-	// 标记最终失败状态并构造错误信息
+	err := r.doWithRetry(f, maxRetries)
+
+	r.mu.Lock()
+	r.err = err
 	r.done = true
-	r.err = fmt.Errorf("failed after %d retries: %v", maxRetries, r.err)
-	return r.err
+	r.running = false
+	r.cond.Broadcast()
+	r.mu.Unlock()
+	return err
 }
 
 // Reset 重置 Once 实例状态，使其可以再次执行重试操作
 func (r *Once) Reset() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.once = sync.Once{}
+	r.initCondLocked()
+	for r.running {
+		r.cond.Wait()
+	}
 	r.done = false
 	r.err = nil
+	r.mu.Unlock()
+}
+
+// initCondLocked 初始化条件变量。
+// 调用方必须先持有互斥锁。
+func (r *Once) initCondLocked() {
+	if r.cond == nil {
+		r.cond = sync.NewCond(&r.mu)
+	}
+}
+
+// doWithRetry 执行带重试的目标函数。
+func (r *Once) doWithRetry(f func() error, maxRetries int) (finalErr error) {
+	defer func() {
+		if recoverErr := recover(); recoverErr != nil {
+			finalErr = fmt.Errorf("Once.Do() panic: %v", recoverErr)
+		}
+	}()
+
+	var err error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err = f()
+		if err == nil {
+			return nil
+		}
+		if attempt >= maxRetries {
+			break
+		}
+
+		// 使用有上限的指数退避，避免失败风暴下重试间隔失控。
+		time.Sleep(retryDelay(attempt))
+	}
+	return fmt.Errorf("failed after %d retries: %v", maxRetries, err)
 }

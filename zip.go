@@ -46,9 +46,12 @@ func Zip(zipFile string, files []string) error {
 //	fileToCompress 需要压缩的文件
 //	baseDir 打包文件根目录
 func AddFileToZip(zipWriter *zip.Writer, fileToCompress string, baseDir string) error {
-	fileInfo, err := os.Stat(fileToCompress)
+	fileInfo, err := os.Lstat(fileToCompress)
 	if err != nil {
 		return errors.Wrap(err)
+	}
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.Errorf("zip 打包不支持符号链接: %s", fileToCompress)
 	}
 
 	if fileInfo.IsDir() {
@@ -154,8 +157,14 @@ func UnZip(zipFile, destDir string) error {
 	}
 	defer r.Close()
 
+	// 规范化目标目录，后续所有解压路径都必须限制在该目录下。
+	destRoot, err := filepath.Abs(destDir)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
 	// 创建目标目录
-	err = os.MkdirAll(destDir, 0755)
+	err = os.MkdirAll(destRoot, 0755)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -163,12 +172,20 @@ func UnZip(zipFile, destDir string) error {
 	// 遍历ZIP文件中的文件和目录
 	for _, file := range r.File {
 		err = func(f *zip.File) error {
-			// 构建解压后的文件路径
-			destPath := filepath.Join(destDir, f.Name)
+			// 解析并校验解压路径，防止 ../、绝对路径和跨平台分隔符绕过。
+			destPath, err := safeUnzipPath(destRoot, f.Name)
+			if err != nil {
+				return errors.Wrap(err)
+			}
+
+			mode := f.Mode()
+			if mode&os.ModeSymlink != 0 || !mode.IsDir() && !mode.IsRegular() {
+				return errors.Errorf("不支持的 zip 条目类型: %s", f.Name)
+			}
 
 			// 如果文件是一个目录，则创建对应的目录
 			if f.FileInfo().IsDir() {
-				err := os.MkdirAll(destPath, 0744)
+				err := os.MkdirAll(destPath, unzipDirPerm(mode))
 				if err != nil {
 					return errors.Wrap(err)
 				}
@@ -177,29 +194,36 @@ func UnZip(zipFile, destDir string) error {
 
 			// 判断目录是否存在, 不存在则创建
 			if !IsExist(filepath.Dir(destPath)) {
-				err := os.MkdirAll(filepath.Dir(destPath), 0744)
+				err := os.MkdirAll(filepath.Dir(destPath), 0755)
 				if err != nil {
 					return errors.Wrap(err)
 				}
 			}
 
 			// 创建解压后的文件
-			file, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0744)
+			file, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, unzipFilePerm(mode))
 			if err != nil {
 				return errors.Wrap(err)
 			}
-			defer file.Close()
 
 			// 读取ZIP文件中的数据并写入解压后的文件
 			rc, err := f.Open()
 			if err != nil {
+				_ = file.Close()
 				return errors.Wrap(err)
 			}
-			defer rc.Close()
 
 			_, err = io.Copy(file, rc)
+			closeReadErr := rc.Close()
+			closeWriteErr := file.Close()
 			if err != nil {
 				return errors.Wrap(err)
+			}
+			if closeReadErr != nil {
+				return errors.Wrap(closeReadErr)
+			}
+			if closeWriteErr != nil {
+				return errors.Wrap(closeWriteErr)
 			}
 			return nil
 		}(file)
@@ -210,4 +234,56 @@ func UnZip(zipFile, destDir string) error {
 	}
 
 	return nil
+}
+
+// safeUnzipPath 计算安全的解压目标路径。
+// 仅允许写入目标目录内，拒绝空路径、绝对路径、目录穿越和 Windows 风格分隔符绕过。
+func safeUnzipPath(destRoot, entryName string) (string, error) {
+	if entryName == "" {
+		return "", errors.New("zip 条目名称不能为空")
+	}
+	if strings.Contains(entryName, "\x00") {
+		return "", errors.New("zip 条目名称不能包含空字符")
+	}
+
+	normalizedName := strings.ReplaceAll(entryName, "\\", "/")
+	if strings.HasPrefix(normalizedName, "/") || filepath.IsAbs(normalizedName) {
+		return "", errors.Errorf("zip 条目不允许使用绝对路径: %s", entryName)
+	}
+
+	cleanName := filepath.Clean(filepath.FromSlash(normalizedName))
+	if cleanName == "." {
+		return destRoot, nil
+	}
+
+	destPath := filepath.Join(destRoot, cleanName)
+	relPath, err := filepath.Rel(destRoot, destPath)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+		return "", errors.Errorf("zip 条目路径越界: %s", entryName)
+	}
+	return destPath, nil
+}
+
+// unzipDirPerm 计算解压目录权限。
+func unzipDirPerm(mode os.FileMode) os.FileMode {
+	perm := mode.Perm()
+	if perm == 0 {
+		return 0755
+	}
+	if perm&0700 != 0700 {
+		perm |= 0700
+	}
+	return perm
+}
+
+// unzipFilePerm 计算解压文件权限。
+func unzipFilePerm(mode os.FileMode) os.FileMode {
+	perm := mode.Perm()
+	if perm == 0 {
+		return 0644
+	}
+	return perm
 }

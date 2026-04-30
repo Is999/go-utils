@@ -1,7 +1,7 @@
 package utils
 
-// IsHas 检查s中是否存在v。 1.21版本以上推荐使用标准库 slices.Contains(s,v)
-func IsHas[T Ordered](v T, s []T) bool {
+// IsHas 检查 s 中是否存在 v。1.21 版本以上推荐使用标准库 slices.Contains(s, v)。
+func IsHas[T comparable](v T, s []T) bool {
 	for i := 0; i < len(s); i++ {
 		if v == s[i] {
 			return true
@@ -11,7 +11,7 @@ func IsHas[T Ordered](v T, s []T) bool {
 }
 
 // HasCount 统计v在s中出现次数
-func HasCount[T Ordered](v T, s []T) (count int) {
+func HasCount[T comparable](v T, s []T) (count int) {
 	for i := 0; i < len(s); i++ {
 		if v == s[i] {
 			count++
@@ -20,8 +20,8 @@ func HasCount[T Ordered](v T, s []T) (count int) {
 	return
 }
 
-// Reverse 反转s 1.21版本以上推荐使用标准库 slices.Reverse(s)
-func Reverse[T Ordered](s []T) []T {
+// Reverse 反转 s。1.21 版本以上推荐使用标准库 slices.Reverse(s)。
+func Reverse[T any](s []T) []T {
 	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
 		s[i], s[j] = s[j], s[i]
 	}
@@ -29,7 +29,7 @@ func Reverse[T Ordered](s []T) []T {
 }
 
 // Unique 去除s中重复的值
-func Unique[T Ordered](s []T) []T {
+func Unique[T comparable](s []T) []T {
 	m := make(map[T]struct{}, len(s))
 	a := make([]T, 0, len(s))
 	for _, v := range s {
@@ -39,11 +39,12 @@ func Unique[T Ordered](s []T) []T {
 		}
 	}
 
-	return a[:]
+	return a
 }
 
-// Diff 计算s1与s2的差集即s1中有而s2中没有的元素
-func Diff[T Ordered](s1, s2 []T) []T {
+// Diff 计算 s1 与 s2 的差集，即 s1 中有而 s2 中没有的元素。
+// 返回结果保持 s1 原有顺序，并保留 s1 中原本存在的重复值。
+func Diff[T comparable](s1, s2 []T) []T {
 	m := make(map[T]struct{}, len(s2))
 	for i := 0; i < len(s2); i++ {
 		m[s2[i]] = struct{}{}
@@ -57,8 +58,9 @@ func Diff[T Ordered](s1, s2 []T) []T {
 	return s
 }
 
-// Intersect 计算s1与s2的交集即s1中有而s2中也有的元素
-func Intersect[T Ordered](s1, s2 []T) []T {
+// Intersect 计算 s1 与 s2 的交集，即 s1 中有而 s2 中也有的元素。
+// 返回结果保持 s1 原有顺序，并保留 s1 中原本存在的重复值。
+func Intersect[T comparable](s1, s2 []T) []T {
 	m := make(map[T]struct{}, len(s2))
 	for i := 0; i < len(s2); i++ {
 		m[s2[i]] = struct{}{}

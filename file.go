@@ -40,7 +40,7 @@ func IsFile(filepath string) bool {
 // IsExist 判断一个文件（夹）是否存在
 func IsExist(path string) bool {
 	_, err := os.Stat(path)
-	return err == nil || os.IsExist(err)
+	return err == nil || !os.IsNotExist(err)
 }
 
 // Size 取得文件大小
@@ -406,11 +406,19 @@ func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (in
 	f.Lock.Lock()
 	defer f.Lock.Unlock()
 
+	if handler == nil {
+		return 0, errors.New("handler 不能为空")
+	}
+
 	w := bufio.NewWriter(f.File)
-
-	defer w.Flush()
-
-	return handler(w)
+	size, err := handler(w)
+	if err != nil {
+		return size, errors.Wrap(err)
+	}
+	if err = w.Flush(); err != nil {
+		return size, errors.Wrap(err)
+	}
+	return size, nil
 }
 
 // Close 关闭文件
@@ -462,6 +470,12 @@ func SizeFormat(size int64, decimals uint) string {
 func FileType(f *os.File) (string, error) {
 	ctype := mime.TypeByExtension(filepath.Ext(f.Name()))
 	if ctype == "" {
+		// 记录当前文件偏移，检测完成后恢复，避免影响调用方后续读取逻辑。
+		currentOffset, err := f.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return "", errors.Wrap(err)
+		}
+
 		var buf [512]byte
 		n, err := io.ReadFull(f, buf[:])
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
@@ -470,8 +484,8 @@ func FileType(f *os.File) (string, error) {
 
 		ctype = http.DetectContentType(buf[:n])
 
-		// 重置文件指针到原点
-		_, err = f.Seek(0, io.SeekStart)
+		// 恢复文件指针到调用前位置，保持函数无副作用。
+		_, err = f.Seek(currentOffset, io.SeekStart)
 		if err != nil {
 			return "", errors.Wrap(err)
 		}

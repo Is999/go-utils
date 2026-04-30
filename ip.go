@@ -15,7 +15,7 @@ import (
 // 返回值：服务器对外 IP 地址字符串，获取失败返回空字符串
 func ServerIP() string {
 	// 连接外部服务获取出站 IP
-	conn, err := net.DialTimeout("udp", "8.8.8.8:80", 5*time.Second)
+	conn, err := net.DialTimeout("udp", "8.8.8.8:80", time.Second)
 	if err != nil {
 		return LocalIP()
 	}
@@ -59,37 +59,31 @@ func LocalIP() string {
 }
 
 // ClientIP 获取客户端 IP 地址。
-// 优先从请求头中获取，依次检查 X-Forwarded-For、X-Real-IP、RemoteAddr。
+// 默认仅在请求来自可信代理（回环、私网、链路本地地址）时信任转发头，避免被客户端伪造。
 //
 // 参数说明：
 //   - r：HTTP 请求对象
 //
 // 返回值：客户端 IP 地址字符串
 func ClientIP(r *http.Request) string {
-	// 优先从 X-Forwarded-For 获取
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		ips := strings.Split(xff, ",")
-		for _, ip := range ips {
-			ip = strings.TrimSpace(ip)
-			if !isPrivateIP(ip) {
-				return ip
-			}
+	if r == nil {
+		return ""
+	}
+
+	remoteIP := parseRequestIP(r.RemoteAddr)
+	if isTrustedProxyIP(remoteIP) {
+		if forwardedIP := firstForwardedIP(r.Header.Get("X-Forwarded-For")); forwardedIP != nil {
+			return forwardedIP.String()
+		}
+		if realIP := parseRequestIP(r.Header.Get("X-Real-Ip")); realIP != nil {
+			return realIP.String()
 		}
 	}
 
-	// 从 X-Real-IP 获取
-	xri := strings.TrimSpace(r.Header.Get("X-Real-Ip"))
-	ip := strings.TrimSpace(strings.Split(xri, ",")[0])
-	if ip != "" {
-		return ip
+	if remoteIP != nil {
+		return remoteIP.String()
 	}
-
-	// 从 RemoteAddr 获取
-	if ip, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr)); err == nil {
-		return ip
-	}
-	return r.RemoteAddr
+	return ""
 }
 
 // isPrivateIP 检查 IP 地址是否为私有地址或回环地址。
@@ -101,4 +95,53 @@ func ClientIP(r *http.Request) string {
 func isPrivateIP(ip string) bool {
 	parsedIP := net.ParseIP(ip)
 	return parsedIP != nil && (parsedIP.IsLoopback() || parsedIP.IsPrivate())
+}
+
+// parseRequestIP 从请求相关字符串中解析 IP。
+// 支持 RemoteAddr、X-Real-IP 以及单个 IP 字符串。
+func parseRequestIP(raw string) net.IP {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	// 请求头中可能错误地带了多个值，这里只取第一个。
+	raw = strings.TrimSpace(strings.Split(raw, ",")[0])
+	if raw == "" {
+		return nil
+	}
+
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		raw = host
+	} else {
+		raw = strings.Trim(raw, "[]")
+	}
+
+	return net.ParseIP(raw)
+}
+
+// firstForwardedIP 获取 X-Forwarded-For 中最适合作为客户端地址的 IP。
+// 优先返回第一个合法公网 IP；如果全是内网地址，则回退到第一个合法 IP。
+func firstForwardedIP(xff string) net.IP {
+	var firstValidIP net.IP
+	for _, ipText := range strings.Split(xff, ",") {
+		if ip := parseRequestIP(ipText); ip != nil {
+			if firstValidIP == nil {
+				firstValidIP = ip
+			}
+			if !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() {
+				return ip
+			}
+		}
+	}
+	return firstValidIP
+}
+
+// isTrustedProxyIP 判断来源地址是否可被视为可信代理。
+// 默认信任回环、私网和链路本地地址，以兼容常见内网反向代理部署。
+func isTrustedProxyIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }

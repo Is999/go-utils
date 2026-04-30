@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Is999/go-utils"
@@ -18,6 +19,10 @@ var (
 	path    = "/tmp/"
 	pubFile = path + "public.pem"
 	priFile = path + "private.pem"
+
+	benchmarkRSAOnce sync.Once
+	benchmarkRSAInst *utils.RSA
+	benchmarkRSAErr  error
 )
 
 func TestGenerateKeyRSA(t *testing.T) {
@@ -31,11 +36,11 @@ func TestGenerateKeyRSA(t *testing.T) {
 		args    args
 		wantErr bool
 	}{
-		{name: "001", args: args{path: path, bits: 1024}, wantErr: false},
-		{name: "002", args: args{path: path, bits: 1024, pkcs: []bool{false, false}}, wantErr: false},
-		{name: "003", args: args{path: path, bits: 1024, pkcs: []bool{true, true}}, wantErr: false},
-		{name: "004", args: args{path: path, bits: 1024, pkcs: []bool{false, true}}, wantErr: false},
-		{name: "005", args: args{path: path, bits: 1024, pkcs: []bool{true, false}}, wantErr: false},
+		{name: "001", args: args{path: path, bits: 2048}, wantErr: false},
+		{name: "002", args: args{path: path, bits: 2048, pkcs: []bool{false, false}}, wantErr: false},
+		{name: "003", args: args{path: path, bits: 2048, pkcs: []bool{true, true}}, wantErr: false},
+		{name: "004", args: args{path: path, bits: 2048, pkcs: []bool{false, true}}, wantErr: false},
+		{name: "005", args: args{path: path, bits: 2048, pkcs: []bool{true, false}}, wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -83,7 +88,7 @@ func TestRSA(t *testing.T) {
 		//want   *_RSA
 	}{
 		{name: "001", args: args{publicKey: string(pub), privateKey: string(pri), hash: crypto.SHA256, encodeToString: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString}},
-		{name: "002", args: args{publicKey: pubFile, privateKey: priFile, isFilePath: true, hash: crypto.MD5, encodeToString: hex.EncodeToString, decode: hex.DecodeString}},
+		{name: "002", args: args{publicKey: pubFile, privateKey: priFile, isFilePath: true, hash: crypto.SHA512, encodeToString: hex.EncodeToString, decode: hex.DecodeString}},
 	}
 
 	for _, tt := range tests {
@@ -178,7 +183,7 @@ func TestRSA_SignAndVerify(t *testing.T) {
 		//want   *_RSA
 	}{
 		{name: "001", args: args{publicKey: string(pub), privateKey: string(pri), hash: crypto.SHA256, encodeToString: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString}},
-		{name: "002", args: args{publicKey: pubFile, privateKey: priFile, isFilePath: true, hash: crypto.MD5, encodeToString: hex.EncodeToString, decode: hex.DecodeString}},
+		{name: "002", args: args{publicKey: pubFile, privateKey: priFile, isFilePath: true, hash: crypto.SHA512, encodeToString: hex.EncodeToString, decode: hex.DecodeString}},
 	}
 
 	for _, tt := range tests {
@@ -276,3 +281,125 @@ func TestRSA_PEMHeaders(t *testing.T) {
 		t.Errorf("转换后的私钥与原始私钥不相等")
 	}
 }
+
+func TestGenerateKeyRSARejectsWeakBits(t *testing.T) {
+	if _, err := utils.GenerateKeyRSA(t.TempDir(), 1024); err == nil {
+		t.Fatal("GenerateKeyRSA() expected weak bits error")
+	}
+}
+
+func TestRSARejectsWeakHash(t *testing.T) {
+	r, err := utils.NewPriRSA(string(mustReadRSAFile(t, priFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Sign("hello", crypto.MD5, base64.StdEncoding.EncodeToString); err == nil {
+		t.Fatal("Sign() expected weak hash error")
+	}
+}
+
+func mustReadRSAFile(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func benchmarkRSA(b *testing.B) *utils.RSA {
+	b.Helper()
+
+	benchmarkRSAOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "go-utils-rsa-bench-*")
+		if err != nil {
+			benchmarkRSAErr = err
+			return
+		}
+
+		files, err := utils.GenerateKeyRSA(dir, 2048)
+		if err != nil {
+			benchmarkRSAErr = err
+			return
+		}
+
+		pub, err := os.ReadFile(files[0])
+		if err != nil {
+			benchmarkRSAErr = err
+			return
+		}
+		pri, err := os.ReadFile(files[1])
+		if err != nil {
+			benchmarkRSAErr = err
+			return
+		}
+
+		benchmarkRSAInst, benchmarkRSAErr = utils.NewRSA(string(pub), string(pri))
+	})
+
+	if benchmarkRSAErr != nil {
+		b.Fatal(benchmarkRSAErr)
+	}
+	return benchmarkRSAInst
+}
+
+func BenchmarkRSAEncryptOAEP(b *testing.B) {
+	r := benchmarkRSA(b)
+	data := strings.Repeat("rsa-benchmark-payload-", 4)
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		benchRSAString, benchmarkRSAErr = r.EncryptOAEP(data, base64.StdEncoding.EncodeToString, sha256.New())
+		if benchmarkRSAErr != nil {
+			b.Fatal(benchmarkRSAErr)
+		}
+	}
+}
+
+func BenchmarkRSADecryptOAEP(b *testing.B) {
+	r := benchmarkRSA(b)
+	encrypted, err := r.EncryptOAEP(strings.Repeat("rsa-benchmark-payload-", 4), base64.StdEncoding.EncodeToString, sha256.New())
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		benchRSAString, benchmarkRSAErr = r.DecryptOAEP(encrypted, base64.StdEncoding.DecodeString, sha256.New())
+		if benchmarkRSAErr != nil {
+			b.Fatal(benchmarkRSAErr)
+		}
+	}
+}
+
+func BenchmarkRSASignPSS(b *testing.B) {
+	r := benchmarkRSA(b)
+	data := strings.Repeat("rsa-sign-payload-", 8)
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		benchRSAString, benchmarkRSAErr = r.SignPSS(data, crypto.SHA256, base64.StdEncoding.EncodeToString, nil)
+		if benchmarkRSAErr != nil {
+			b.Fatal(benchmarkRSAErr)
+		}
+	}
+}
+
+func BenchmarkRSAVerifyPSS(b *testing.B) {
+	r := benchmarkRSA(b)
+	data := strings.Repeat("rsa-sign-payload-", 8)
+	sign, err := r.SignPSS(data, crypto.SHA256, base64.StdEncoding.EncodeToString, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		benchmarkRSAErr = r.VerifyPSS(data, sign, crypto.SHA256, base64.StdEncoding.DecodeString, nil)
+		if benchmarkRSAErr != nil {
+			b.Fatal(benchmarkRSAErr)
+		}
+	}
+}
+
+var benchRSAString string

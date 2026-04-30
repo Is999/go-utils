@@ -13,13 +13,16 @@ import (
 // 架构说明：
 //   - key 和固定 IV 在构造后只读，Encrypt/Decrypt 过程中不再修改对象状态，便于并发复用。
 //   - WithRandIV(true) 时，加密会把随机 IV 写入密文头部，解密会从密文头部读取 IV。
-//   - ECB 无 IV，保留是为了兼容旧系统；生产环境更建议 CBC/CTR/CFB/OFB 或认证加密模式。
-//   - 当前公开 API 保持原有 padding 语义：CTR/CFB/OFB 也会执行 padding/unPadding。
+//   - ECB 与“未显式设置 IV 时使用 key 派生 IV”都属于兼容旧系统的保留能力，默认禁用。
+//   - 公开 API 同时支持传统 padding 语义和 `NoPadding/NoUnPadding` 零额外拷贝路径。
 type Cipher struct {
-	key      []byte       // AES: 16/24/32 字节；DES: 8 字节；3DES: 24 字节。
-	iv       []byte       // 固定 IV；为空时默认使用 key 前 blockSize 字节。
-	isRandIV bool         // true 表示每次加密生成随机 IV，并把 IV 放在密文头部。
-	block    cipher.Block // Go 标准库分组密码实现。
+	key                   []byte       // AES: 16/24/32 字节；DES: 8 字节；3DES: 24 字节。
+	iv                    []byte       // 固定 IV；为空时表示未显式配置固定 IV。
+	isRandIV              bool         // true 表示每次加密生成随机 IV，并把 IV 放在密文头部。
+	allowUnsafeECB        bool         // true 表示允许使用 ECB 模式，仅兼容旧系统时开启。
+	allowUnsafeKeyIV      bool         // true 表示允许未设置 IV 时退回到 key 派生 IV，仅兼容旧系统时开启。
+	allowUnsafeStreamMode bool         // true 表示允许使用 CFB/OFB 等非认证流模式，仅兼容旧系统时开启。
+	block                 cipher.Block // Go 标准库分组密码实现。
 }
 
 // CipherOption 加密器配置项。
@@ -30,9 +33,15 @@ type CipherOption func(*cipherOptions)
 // 字段说明：
 //   - randIV：是否启用随机 IV。
 //   - iv：固定 IV，优先级高于随机 IV。
+//   - allowUnsafeECB：是否允许使用 ECB。
+//   - allowUnsafeKeyIV：是否允许未配置 IV 时回退到 key 派生 IV。
+//   - allowUnsafeStreamMode：是否允许使用 CFB/OFB 等不推荐模式。
 type cipherOptions struct {
-	randIV bool    // 是否启用随机 IV。
-	iv     *string // 固定 IV 配置。
+	randIV                bool    // 是否启用随机 IV。
+	iv                    *string // 固定 IV 配置。
+	allowUnsafeECB        bool    // 是否允许使用 ECB。
+	allowUnsafeKeyIV      bool    // 是否允许使用 key 派生 IV。
+	allowUnsafeStreamMode bool    // 是否允许使用不安全流模式。
 }
 
 // WithRandIV 设置是否随机生成 IV。
@@ -53,6 +62,39 @@ func WithIV(iv string) CipherOption {
 	}
 }
 
+// WithAllowUnsafeECB 设置是否允许使用 ECB 模式。
+//
+// 安全说明：
+//   - 默认不允许，避免在生产环境中误用会泄露明文模式特征的 ECB。
+//   - 仅在兼容旧系统密文协议时才建议显式开启。
+func WithAllowUnsafeECB(allow bool) CipherOption {
+	return func(o *cipherOptions) {
+		o.allowUnsafeECB = allow
+	}
+}
+
+// WithAllowUnsafeKeyIV 设置是否允许在未显式配置 IV 时退回到 key 派生 IV。
+//
+// 安全说明：
+//   - 默认不允许，避免把固定且与密钥相关的 IV 当作生产默认值。
+//   - 仅在兼容历史密文或旧系统协议时才建议显式开启。
+func WithAllowUnsafeKeyIV(allow bool) CipherOption {
+	return func(o *cipherOptions) {
+		o.allowUnsafeKeyIV = allow
+	}
+}
+
+// WithAllowUnsafeStreamMode 设置是否允许使用 CFB/OFB 等非认证流模式。
+//
+// 安全说明：
+//   - 默认不允许，避免在生产环境中误用已不推荐的非认证模式。
+//   - 仅在兼容旧系统密文协议时才建议显式开启。
+func WithAllowUnsafeStreamMode(allow bool) CipherOption {
+	return func(o *cipherOptions) {
+		o.allowUnsafeStreamMode = allow
+	}
+}
+
 // NewCipher 创建通用分组加密器。
 //
 // key 为原始密钥字符串；block 通常传 aes.NewCipher、des.NewCipher 或 des.NewTripleDESCipher。
@@ -66,7 +108,12 @@ func NewCipher(key string, block CipherBlock, opts ...CipherOption) (*Cipher, er
 	}
 
 	// 先初始化密钥和底层分组算法，再处理 IV 配置。
-	c := &Cipher{isRandIV: cfg.randIV}
+	c := &Cipher{
+		isRandIV:              cfg.randIV,
+		allowUnsafeECB:        cfg.allowUnsafeECB,
+		allowUnsafeKeyIV:      cfg.allowUnsafeKeyIV,
+		allowUnsafeStreamMode: cfg.allowUnsafeStreamMode,
+	}
 	if err := c.setKey(key, block); err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -154,6 +201,9 @@ func (c *Cipher) EncryptECB(data []byte, padding Padding) ([]byte, error) {
 	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
+	if err := c.checkUnsafeECB(); err != nil {
+		return nil, errors.Wrap(err)
+	}
 	// ECB 需要保证输入长度是分组大小的整数倍，因此先执行填充。
 	paddingData, err := c.pad(data, padding)
 	if err != nil {
@@ -175,6 +225,9 @@ func (c *Cipher) EncryptECB(data []byte, padding Padding) ([]byte, error) {
 // 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 	if err := c.check(); err != nil {
+		return nil, errors.Wrap(err)
+	}
+	if err := c.checkUnsafeECB(); err != nil {
 		return nil, errors.Wrap(err)
 	}
 	if err := c.validateBlockCiphertext(data); err != nil {
@@ -256,6 +309,9 @@ func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
 //
 // 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
+	if err := c.checkUnsafeStreamMode("CFB"); err != nil {
+		return nil, errors.Wrap(err)
+	}
 	return c.encryptStream(data, padding, cipher.NewCFBEncrypter)
 }
 
@@ -267,6 +323,9 @@ func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 //
 // 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
+	if err := c.checkUnsafeStreamMode("CFB"); err != nil {
+		return nil, errors.Wrap(err)
+	}
 	return c.decryptStream(data, unPadding, cipher.NewCFBDecrypter)
 }
 
@@ -278,6 +337,9 @@ func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 //
 // 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
+	if err := c.checkUnsafeStreamMode("OFB"); err != nil {
+		return nil, errors.Wrap(err)
+	}
 	return c.encryptStream(data, padding, cipher.NewOFB)
 }
 
@@ -289,6 +351,9 @@ func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 //
 // 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
+	if err := c.checkUnsafeStreamMode("OFB"); err != nil {
+		return nil, errors.Wrap(err)
+	}
 	return c.decryptStream(data, unPadding, cipher.NewOFB)
 }
 
@@ -387,12 +452,36 @@ func (c *Cipher) pad(data []byte, padding Padding) ([]byte, error) {
 	if padding == nil {
 		return nil, errors.New("padding 不能为空")
 	}
+	if isNoPaddingFunc(padding) {
+		return NoPadding(data, c.block.BlockSize()), nil
+	}
 	// 填充后的数据必须满足分组大小要求，否则后续块加密一定失败。
 	paddingData := padding(data, c.block.BlockSize())
 	if len(paddingData) == 0 || len(paddingData)%c.block.BlockSize() != 0 {
 		return nil, errors.New("padding 后数据长度必须是分组大小的倍数")
 	}
 	return paddingData, nil
+}
+
+// checkUnsafeStreamMode 校验是否允许使用不安全流模式。
+//
+// 参数说明：
+//   - modeName：模式名称，如 CFB、OFB。
+//
+// 返回值：错误信息。
+func (c *Cipher) checkUnsafeStreamMode(modeName string) error {
+	if c.allowUnsafeStreamMode {
+		return nil
+	}
+	return errors.Errorf("%s 模式属于非认证加密模式，默认已禁用；如需兼容旧系统，请显式开启 WithAllowUnsafeStreamMode(true)", modeName)
+}
+
+// checkUnsafeECB 校验是否允许使用 ECB 模式。
+func (c *Cipher) checkUnsafeECB() error {
+	if c.allowUnsafeECB {
+		return nil
+	}
+	return errors.New("ECB 模式会泄露明文模式特征，默认已禁用；如需兼容旧系统，请显式开启 WithAllowUnsafeECB(true)")
 }
 
 // prepareBlockEncrypt 为 CBC/CTR/CFB/OFB 等模式准备加密数据。
@@ -457,6 +546,21 @@ func (c *Cipher) prepareBlockDecrypt(data []byte) (body, iv []byte, err error) {
 	return body, iv, nil
 }
 
+// prepareStreamDecrypt 为 CTR/CFB/OFB 等流模式准备解密数据。
+func (c *Cipher) prepareStreamDecrypt(data []byte) (body, iv []byte, err error) {
+	if err = c.check(); err != nil {
+		return nil, nil, errors.Wrap(err)
+	}
+	body, iv, err = c.splitCiphertextIV(data)
+	if err != nil {
+		return nil, nil, errors.Wrap(err)
+	}
+	if len(body) == 0 {
+		return nil, nil, errors.New("密文不能为空")
+	}
+	return body, iv, nil
+}
+
 // encryptStream 使用流模式执行加密。
 //
 // 参数说明：
@@ -483,7 +587,7 @@ func (c *Cipher) encryptStream(data []byte, padding Padding, newStream func(ciph
 //
 // 返回值：明文字节，错误信息。
 func (c *Cipher) decryptStream(data []byte, unPadding UnPadding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
-	body, iv, err := c.prepareBlockDecrypt(data)
+	body, iv, err := c.prepareStreamDecrypt(data)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -493,11 +597,14 @@ func (c *Cipher) decryptStream(data []byte, unPadding UnPadding, newStream func(
 
 	decrypted := make([]byte, len(body))
 	newStream(c.block, iv).XORKeyStream(decrypted, body)
+	if isNoUnPaddingFunc(unPadding) {
+		return decrypted, nil
+	}
 	return unPadding(decrypted)
 }
 
 // fixedIV 获取固定 IV。
-// 未显式设置 IV 时，默认使用密钥前 blockSize 字节作为 IV。
+// 默认要求业务显式设置固定 IV 或启用随机 IV；只有开启兼容开关时才允许退回到 key 派生 IV。
 //
 // 返回值：固定 IV，错误信息。
 func (c *Cipher) fixedIV() ([]byte, error) {
@@ -507,6 +614,9 @@ func (c *Cipher) fixedIV() ([]byte, error) {
 			return nil, errors.Errorf("IV 长度必须是 %d 字节，当前长度: %d", blockSize, len(c.iv))
 		}
 		return c.iv, nil
+	}
+	if !c.allowUnsafeKeyIV {
+		return nil, errors.New("当前模式必须显式设置 WithIV(...) 或开启 WithRandIV(true)；如需兼容旧系统，请显式开启 WithAllowUnsafeKeyIV(true)")
 	}
 	if len(c.key) < blockSize {
 		return nil, errors.New("密钥长度小于分组大小，无法生成默认 IV")

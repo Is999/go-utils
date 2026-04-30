@@ -264,21 +264,19 @@ func WithContext(ctx context.Context, err error) error {
 // 返回值：扁平化的键值对数组，格式为 [key1, value1, key2, value2, ...]
 func extractContextValues(ctx context.Context) []string {
 	var result []string
-	for {
-		select {
-		case <-ctx.Done():
-			return result
-		default:
-		}
-		if values := ctx.Value(contextValuesKey{}); values != nil {
-			if kv, ok := values.([]string); ok {
-				for i := 0; i < len(kv); i += 2 {
-					result = append(result, kv[i], kv[i+1])
-				}
+	select {
+	case <-ctx.Done():
+		return result
+	default:
+	}
+	if values := ctx.Value(contextValuesKey{}); values != nil {
+		if kv, ok := values.([]string); ok {
+			for i := 0; i < len(kv); i += 2 {
+				result = append(result, kv[i], kv[i+1])
 			}
 		}
-		return result
 	}
+	return result
 }
 
 // contextValuesKey 是用于在 context 中存储错误相关键值对的 key 类型。
@@ -297,11 +295,11 @@ type contextValuesKey struct{}
 // 返回值：携带新键值对的 context 对象
 func WithContextErr(ctx context.Context, key, value string) context.Context {
 	kv := []string{key, value}
-	return context.WithValue(ctx, contextValuesKey{}, kv)
+	return context.WithValue(normalizeContext(ctx), contextValuesKey{}, kv)
 }
 
 // WithContextErrs 批量将多对键值存储到 context 中。
-// 内部会对参数进行校验，奇数个参数会触发 panic。
+// 出于稳定性考虑，奇数个参数时不会 panic，而是忽略最后一个不完整项。
 //
 // 参数说明：
 //   - ctx：原始 context 对象
@@ -309,16 +307,52 @@ func WithContextErr(ctx context.Context, key, value string) context.Context {
 //
 // 返回值：携带所有键值对的 context 对象
 //
-// 注意：kvs 长度必须为偶数，否则 panic
+// 注意：kvs 长度为奇数时，会忽略最后一个不完整项
 func WithContextErrs(ctx context.Context, kvs ...string) context.Context {
 	if len(kvs)%2 != 0 {
-		panic("errors.WithContextErrs: kvs must be key-value pairs")
+		kvs = kvs[:len(kvs)-1]
+	}
+	if len(kvs) == 0 {
+		return normalizeContext(ctx)
+	}
+	nextCtx, _ := WithContextErrsE(ctx, kvs...)
+	return nextCtx
+}
+
+// WithContextErrsE 批量将多对键值存储到 context 中，并返回显式错误。
+// 与 WithContextErrs 不同，当前函数在输入参数不完整时会返回错误，便于调用方感知配置问题。
+//
+// 参数说明：
+//   - ctx：原始 context 对象
+//   - kvs：键值对列表，格式为 [key1, value1, key2, value2, ...]
+//
+// 返回值：
+//   - context.Context：携带所有键值对的 context 对象
+//   - error：参数不合法时返回错误
+func WithContextErrsE(ctx context.Context, kvs ...string) (context.Context, error) {
+	parent := normalizeContext(ctx)
+	if len(kvs)%2 != 0 {
+		return parent, Errorf("WithContextErrsE 参数必须成对出现，当前参数个数=%d", len(kvs))
 	}
 	kv := make([]string, 0, len(kvs))
 	for i := 0; i < len(kvs); i += 2 {
 		kv = append(kv, kvs[i], kvs[i+1])
 	}
-	return context.WithValue(ctx, contextValuesKey{}, kv)
+	return context.WithValue(parent, contextValuesKey{}, kv), nil
+}
+
+// normalizeContext 规范化 context 父对象。
+// 当传入 nil context 时，自动回退到 context.Background()，避免库函数内部 panic。
+//
+// 参数说明：
+//   - ctx：原始 context 对象
+//
+// 返回值：可安全使用的 context 对象
+func normalizeContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 // contextError 包装错误并携带 context 中的关键键值对。

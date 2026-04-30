@@ -35,6 +35,11 @@ type rsaOptions struct {
 	isFilePath bool
 }
 
+const (
+	// minRSABits 定义生产环境建议的最小 RSA 密钥位数。
+	minRSABits = 2048
+)
+
 // WithRSAFilePath 指定密钥参数是否为文件路径。
 func WithRSAFilePath(isFilePath bool) RSAOption {
 	return func(o *rsaOptions) {
@@ -190,6 +195,9 @@ func (r *RSA) Sign(data string, hash crypto.Hash, encode EncodeToString) (string
 	if encode == nil {
 		return "", errors.New("encode 不能为空")
 	}
+	if err := validateRSASignHash(hash); err != nil {
+		return "", errors.Wrap(err)
+	}
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
@@ -208,6 +216,9 @@ func (r *RSA) Sign(data string, hash crypto.Hash, encode EncodeToString) (string
 func (r *RSA) Verify(data, sign string, hash crypto.Hash, decode DecodeString) error {
 	if decode == nil {
 		return errors.New("decode 不能为空")
+	}
+	if err := validateRSASignHash(hash); err != nil {
+		return errors.Wrap(err)
 	}
 	if err := r.IsSetPublicKey(); err != nil {
 		return errors.Wrap(err)
@@ -278,6 +289,9 @@ func (r *RSA) SignPSS(data string, hash crypto.Hash, encode EncodeToString, opts
 	if encode == nil {
 		return "", errors.New("encode 不能为空")
 	}
+	if err := validateRSASignHash(hash); err != nil {
+		return "", errors.Wrap(err)
+	}
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
@@ -297,6 +311,9 @@ func (r *RSA) VerifyPSS(data, sign string, hash crypto.Hash, decode DecodeString
 	if decode == nil {
 		return errors.New("decode 不能为空")
 	}
+	if err := validateRSASignHash(hash); err != nil {
+		return errors.Wrap(err)
+	}
 	if err := r.IsSetPublicKey(); err != nil {
 		return errors.Wrap(err)
 	}
@@ -313,9 +330,13 @@ func (r *RSA) VerifyPSS(data, sign string, hash crypto.Hash, decode DecodeString
 
 // GenerateKeyRSA 生成 RSA 密钥文件。
 //
-// path 为密钥存放目录；bits 为密钥位数；生产环境建议至少 2048。
+// path 为密钥存放目录；bits 为密钥位数；生产环境要求至少 2048。
 // pkcs[0] 控制公钥格式是否为 PKCS8，默认 true；pkcs[1] 控制私钥格式是否为 PKCS1，默认 true。
 func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
+	if bits < minRSABits {
+		return nil, errors.Errorf("RSA 密钥位数不能低于 %d，当前位数: %d", minRSABits, bits)
+	}
+
 	isPubPKCS8 := true
 	isPriPKCS1 := true
 	if len(pkcs) > 0 {
@@ -512,6 +533,18 @@ func hashBytes(data []byte, hash crypto.Hash) ([]byte, error) {
 	h := hash.New()
 	_, _ = h.Write(data)
 	return h.Sum(nil), nil
+}
+
+// validateRSASignHash 校验 RSA 签名使用的摘要算法。
+func validateRSASignHash(hash crypto.Hash) error {
+	switch hash {
+	case crypto.MD5, crypto.SHA1:
+		return errors.Errorf("不安全的 RSA 签名摘要算法: %s", hash.String())
+	}
+	if !hash.Available() {
+		return errors.New("hash 不可用")
+	}
+	return nil
 }
 
 func marshalPrivateKey(privateKey *rsa.PrivateKey, isPKCS1 bool) ([]byte, error) {

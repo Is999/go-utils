@@ -16,7 +16,7 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-var apiUrl = "http://localhost:54334"
+var apiUrl = "http://127.0.0.1:54334"
 
 func setLogConfig() {
 	// 日志等级
@@ -222,6 +222,8 @@ func TestGet(t *testing.T) {
 }
 
 func TestPost(t *testing.T) {
+	const postAPIURL = "http://127.0.0.1:54335"
+
 	// 日志配置
 	setLogConfig()
 
@@ -264,9 +266,9 @@ func TestPost(t *testing.T) {
 			}
 		})
 
-		httpServer(":54334", serveMux, exit)
+		httpServer(":54335", serveMux, exit)
 	}()
-	waitHTTPServer(t, ":54334")
+	waitHTTPServer(t, ":54335")
 
 	// 关闭启动的http服务
 	defer func() {
@@ -290,7 +292,7 @@ func TestPost(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: apiUrl + "/curl/post",
+			url: postAPIURL + "/curl/post",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -316,7 +318,7 @@ func TestPost(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "002", args: args{
-			url: apiUrl + "/curl/post",
+			url: postAPIURL + "/curl/post",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -342,7 +344,7 @@ func TestPost(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "003", args: args{
-			url: apiUrl + "/curl/post",
+			url: postAPIURL + "/curl/post",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {

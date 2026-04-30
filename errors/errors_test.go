@@ -2,6 +2,7 @@ package errors_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -762,6 +763,34 @@ func TestConcurrentSafe(t *testing.T) {
 	if failed.Load() {
 		t.Fatal("concurrent reads returned inconsistent results")
 	}
+}
+
+func TestWithContextErrsSafe(t *testing.T) {
+	t.Run("odd kvs should not panic", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("WithContextErrs() should not panic, got %v", r)
+			}
+		}()
+		ctx := errors.WithContextErrs(testNilContext(), "request_id", "r-1", "dangling")
+		if ctx == nil {
+			t.Fatal("WithContextErrs() returned nil context")
+		}
+	})
+
+	t.Run("strict api should return error", func(t *testing.T) {
+		ctx, err := errors.WithContextErrsE(context.Background(), "request_id", "r-1", "dangling")
+		if err == nil {
+			t.Fatal("WithContextErrsE() expected error")
+		}
+		if ctx == nil {
+			t.Fatal("WithContextErrsE() returned nil context")
+		}
+	})
+}
+
+func testNilContext() context.Context {
+	return nil
 }
 
 func TestErrorFormat(t *testing.T) {

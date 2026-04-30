@@ -13,9 +13,9 @@ func MapKeys[K Ordered, V any](m map[K]V) []K {
 	return keys
 }
 
-// MapValues 有序获取map的所有value，对map的key排序并按排序后的key返回其value
+// MapValues 获取 map 的所有 value。
 //
-//	isReverse 是否降序排列：true 降序，false 升序，未指定则不排序直接返回所有value
+//	isReverse 是否降序排列：true 降序，false 升序，未指定则不排序直接返回所有 value
 func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V {
 	// 未指定排序则直接返回所有 value
 	if len(isReverse) == 0 {
@@ -75,30 +75,38 @@ func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V
 	return m
 }
 
-// MapDiff 计算m1与m2的值差集即m1中有但m2中没有的值
-func MapDiff[K, V Ordered](m1, m2 map[K]V) []V {
-	var s1 = make([]V, 0, len(m1))
+// MapDiff 计算 m1 与 m2 的值差集，即 m1 中有但 m2 中没有的值。
+// 返回结果保留 m1 原有遍历结果中的重复值。
+func MapDiff[K comparable, V comparable](m1, m2 map[K]V) []V {
+	set := make(map[V]struct{}, len(m2))
+	for _, v := range m2 {
+		set[v] = struct{}{}
+	}
+
+	result := make([]V, 0, len(m1))
 	for _, v := range m1 {
-		s1 = append(s1, v)
+		if _, ok := set[v]; !ok {
+			result = append(result, v)
+		}
 	}
-	var s2 = make([]V, 0, len(m2))
-	for _, v2 := range m2 {
-		s2 = append(s2, v2)
-	}
-	return Diff(s1, s2)
+	return result
 }
 
-// MapIntersect 计算m1与m2的值交集即m1与m2都有的值
-func MapIntersect[K, V Ordered](m1, m2 map[K]V) []V {
-	var s1 = make([]V, 0, len(m1))
+// MapIntersect 计算 m1 与 m2 的值交集，即 m1 与 m2 都有的值。
+// 返回结果保留 m1 原有遍历结果中的重复值。
+func MapIntersect[K comparable, V comparable](m1, m2 map[K]V) []V {
+	set := make(map[V]struct{}, len(m2))
+	for _, v := range m2 {
+		set[v] = struct{}{}
+	}
+
+	result := make([]V, 0, len(m1))
 	for _, v := range m1 {
-		s1 = append(s1, v)
+		if _, ok := set[v]; ok {
+			result = append(result, v)
+		}
 	}
-	var s2 = make([]V, 0, len(m2))
-	for _, v2 := range m2 {
-		s2 = append(s2, v2)
-	}
-	return Intersect(s1, s2)
+	return result
 }
 
 // MapDiffKey 计算m1与m2的键差集即m1中有但m2中没有的键
@@ -123,8 +131,8 @@ func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	return s
 }
 
-// SumMap 计算map的值和
-func SumMap[K Ordered, V Number](m map[K]V) V {
+// SumMap 计算 map 的值和。
+func SumMap[K comparable, V Number](m map[K]V) V {
 	var sum V
 	for _, v := range m {
 		sum += v

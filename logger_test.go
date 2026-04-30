@@ -2,6 +2,9 @@ package utils_test
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"sync"
 	"testing"
 
 	utils "github.com/Is999/go-utils"
@@ -182,4 +185,21 @@ func TestDefaultSlogLogger(t *testing.T) {
 		// 不期望 panic
 		_ = logger.Enabled(ctx, level)
 	}
+}
+
+func TestLogConcurrentAccess(t *testing.T) {
+	if logger := utils.Log(); logger == nil {
+		t.Fatal("Log() returned nil")
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = utils.Log()
+		}()
+	}
+	wg.Wait()
 }

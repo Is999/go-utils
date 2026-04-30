@@ -66,5 +66,5 @@ func toSlogLevel(level LogLevel) slog.Level {
 //	func (z *ZapAdapter) Debug(msg string, args ...any) { ... }
 //	func (z *ZapAdapter) Enabled(ctx context.Context, level LogLevel) bool { ... }
 func Log() Logger {
-	return config.logger
+	return currentConfig().logger
 }

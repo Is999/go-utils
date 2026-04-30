@@ -85,3 +85,28 @@ func TestClientIP(t *testing.T) {
 		})
 	}
 }
+
+func TestClientIPRejectsSpoofedForwardHeader(t *testing.T) {
+	req := &http.Request{
+		Header: http.Header{
+			"X-Forwarded-For": []string{"175.176.32.112"},
+		},
+		RemoteAddr: "8.8.8.8:443",
+	}
+	if got := utils.ClientIP(req); got != "8.8.8.8" {
+		t.Fatalf("ClientIP() = %v, want %v", got, "8.8.8.8")
+	}
+}
+
+func TestClientIPIgnoresInvalidProxyHeader(t *testing.T) {
+	req := &http.Request{
+		Header: http.Header{
+			"X-Forwarded-For": []string{"not-an-ip"},
+			"X-Real-Ip":       []string{"invalid-ip"},
+		},
+		RemoteAddr: "127.0.0.1:8080",
+	}
+	if got := utils.ClientIP(req); got != "127.0.0.1" {
+		t.Fatalf("ClientIP() = %v, want %v", got, "127.0.0.1")
+	}
+}

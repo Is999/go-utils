@@ -195,9 +195,9 @@ func UnTar(tarFile, destDir string) error {
 	// 判断解压文件是否是.gz
 	if strings.HasSuffix(tarFile, ".tar.gz") {
 		// 创建 gzip.Reader 用于读取压缩数据
-		gzReader, err := gzip.NewReader(file)
-		if err != nil {
-			return errors.Wrap(err)
+		gzReader, gzErr := gzip.NewReader(file)
+		if gzErr != nil {
+			return errors.Wrap(gzErr)
 		}
 		defer gzReader.Close()
 		reader = gzReader
@@ -208,8 +208,14 @@ func UnTar(tarFile, destDir string) error {
 	// 创建一个tar读取器
 	tarReader := tar.NewReader(reader)
 
+	// 规范化目标目录，后续所有解压路径都必须限制在该目录下。
+	destRoot, err := filepath.Abs(destDir)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
 	// 创建目标目录
-	err = os.MkdirAll(destDir, 0755)
+	err = os.MkdirAll(destRoot, 0755)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -225,39 +231,115 @@ func UnTar(tarFile, destDir string) error {
 			return errors.Wrap(err)
 		}
 
-		// 创建解压后的文件路径
-		destPath := filepath.Join(destDir, header.Name)
+		// 解析并校验解压路径，防止 ../ 或绝对路径逃逸到目标目录外。
+		destPath, err := safeUntarPath(destRoot, header.Name)
+		if err != nil {
+			return errors.Wrap(err)
+		}
 
 		// 判断文件条目是一个目录还是一个普通文件
 		switch header.Typeflag {
 		case tar.TypeDir:
 			// 如果是目录，创建目录
-			err := os.MkdirAll(destPath, 0744)
+			err := os.MkdirAll(destPath, untarDirPerm(header.Mode))
 			if err != nil {
 				return errors.Wrap(err)
 			}
 		case tar.TypeReg:
 			// 判断目录是否存在, 不存在则创建
 			if !IsExist(filepath.Dir(destPath)) {
-				err := os.MkdirAll(filepath.Dir(destPath), 0744)
+				err := os.MkdirAll(filepath.Dir(destPath), 0755)
 				if err != nil {
 					return errors.Wrap(err)
 				}
 			}
 
 			// 如果是文件，创建文件并将tar数据写入文件
-			file, err := os.Create(destPath)
+			file, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, untarFilePerm(header.Mode))
 			if err != nil {
 				return errors.Wrap(err)
 			}
-			defer file.Close()
 
 			_, err = io.Copy(file, tarReader)
+			closeErr := file.Close()
 			if err != nil {
 				return errors.Wrap(err)
 			}
+			if closeErr != nil {
+				return errors.Wrap(closeErr)
+			}
+		case tar.TypeXGlobalHeader, tar.TypeXHeader:
+			// PAX 扩展头由 archive/tar 内部消费，这里无需额外处理。
+			continue
+		default:
+			// 为保证解压安全，仅允许目录和普通文件，其余类型统一拒绝。
+			return errors.Errorf("不支持的 tar 条目类型: %d, name=%s", header.Typeflag, header.Name)
 		}
 	}
 
 	return nil
+}
+
+// safeUntarPath 计算安全的解压目标路径。
+// 仅允许写入目标目录内，拒绝绝对路径、空路径和目录穿越路径。
+//
+// 参数说明：
+//   - destRoot：解压根目录绝对路径。
+//   - entryName：tar 条目原始名称。
+//
+// 返回值：安全的目标绝对路径，错误信息。
+func safeUntarPath(destRoot, entryName string) (string, error) {
+	if entryName == "" {
+		return "", errors.New("tar 条目名称不能为空")
+	}
+	if filepath.IsAbs(entryName) {
+		return "", errors.Errorf("tar 条目不允许使用绝对路径: %s", entryName)
+	}
+
+	cleanName := filepath.Clean(entryName)
+	if cleanName == "." {
+		return destRoot, nil
+	}
+
+	destPath := filepath.Join(destRoot, cleanName)
+	relPath, err := filepath.Rel(destRoot, destPath)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+		return "", errors.Errorf("tar 条目路径越界: %s", entryName)
+	}
+	return destPath, nil
+}
+
+// untarDirPerm 计算解压目录权限。
+// 目录至少保留拥有者的读写执行权限，避免创建出不可进入的目录。
+//
+// 参数说明：
+//   - mode：tar 头中的权限位。
+//
+// 返回值：目录权限。
+func untarDirPerm(mode int64) os.FileMode {
+	perm := os.FileMode(mode) & os.ModePerm
+	if perm == 0 {
+		return 0755
+	}
+	if perm&0700 != 0700 {
+		perm |= 0700
+	}
+	return perm
+}
+
+// untarFilePerm 计算解压文件权限。
+//
+// 参数说明：
+//   - mode：tar 头中的权限位。
+//
+// 返回值：文件权限。
+func untarFilePerm(mode int64) os.FileMode {
+	perm := os.FileMode(mode) & os.ModePerm
+	if perm == 0 {
+		return 0644
+	}
+	return perm
 }

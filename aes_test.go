@@ -51,9 +51,17 @@ func TestAES(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化AES，并设置key
-			opts := make([]utils.CipherOption, 0, 1)
+			opts := make([]utils.CipherOption, 0, 3)
 			if len(tt.args.iv) > 0 {
 				opts = append(opts, utils.WithIV(tt.args.iv))
+			} else if tt.args.mode != utils.ECB {
+				opts = append(opts, utils.WithAllowUnsafeKeyIV(true))
+			}
+			if tt.args.mode == utils.ECB {
+				opts = append(opts, utils.WithAllowUnsafeECB(true))
+			}
+			if tt.args.mode == utils.CFB || tt.args.mode == utils.OFB {
+				opts = append(opts, utils.WithAllowUnsafeStreamMode(true))
 			}
 			a, err := utils.AES(tt.args.key, opts...)
 			if err != nil {
@@ -114,7 +122,14 @@ func TestAESRandIV(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 实例化AES，并设置key
-			a, err := utils.AES(tt.args.key, utils.WithRandIV(true))
+			opts := []utils.CipherOption{utils.WithRandIV(true)}
+			if tt.args.mode == utils.ECB {
+				opts = append(opts, utils.WithAllowUnsafeECB(true))
+			}
+			if tt.args.mode == utils.CFB || tt.args.mode == utils.OFB {
+				opts = append(opts, utils.WithAllowUnsafeStreamMode(true))
+			}
+			a, err := utils.AES(tt.args.key, opts...)
 			if err != nil {
 				t.Errorf("NewAES() error = %v", err)
 				return
