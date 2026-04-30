@@ -3,6 +3,7 @@ package utils
 import (
 	"math"
 	"math/rand/v2"
+	"sync"
 )
 
 // Rand 返回min~max之间的随机数，值可能包含min和max
@@ -17,11 +18,20 @@ func Rand(minInt, maxInt int64, r ...*rand.Rand) int64 {
 	if minInt > maxInt {
 		minInt, maxInt = maxInt, minInt
 	}
-	if len(r) == 0 {
-		r = append(r, RandSource)
-	}
-	return r[0].Int64()%(maxInt-minInt+1) + minInt
+	return randInt64(r...)%(maxInt-minInt+1) + minInt
 }
+
+func randInt64(r ...*rand.Rand) int64 {
+	if len(r) == 0 || r[0] == nil {
+		return rand.Int64()
+	}
+	randSourceMu.Lock()
+	n := r[0].Int64()
+	randSourceMu.Unlock()
+	return n
+}
+
+var randSourceMu sync.Mutex
 
 // Round 对num进行四舍五入，并保留指定小数位
 //

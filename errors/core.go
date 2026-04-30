@@ -436,8 +436,46 @@ func Type[T error](err error) (T, bool) {
 	if err == nil {
 		return target, false
 	}
-	if errors.As(err, &target) {
-		return target, true
+
+	for current, depth := err, 0; current != nil && depth < maxChainDepth; depth++ {
+		if v, ok := current.(T); ok {
+			return v, true
+		}
+		if aser, ok := current.(interface{ As(any) bool }); ok && aser.As(&target) {
+			return target, true
+		}
+		next, children := unwrapNode(current)
+		if len(children) > 0 {
+			return typeFromChildren[T](children)
+		}
+		current = next
+	}
+	return target, false
+}
+
+func typeFromChildren[T error](children []error) (T, bool) {
+	var target T
+	var stackBuf [8]error
+	stack := stackBuf[:0]
+	pushChildren(&stack, children)
+	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
+		current := popError(&stack)
+		if current == nil {
+			continue
+		}
+		if v, ok := current.(T); ok {
+			return v, true
+		}
+		if aser, ok := current.(interface{ As(any) bool }); ok && aser.As(&target) {
+			return target, true
+		}
+		next, children := unwrapNode(current)
+		switch {
+		case len(children) > 0:
+			pushChildren(&stack, children)
+		case next != nil:
+			stack = append(stack, next)
+		}
 	}
 	return target, false
 }

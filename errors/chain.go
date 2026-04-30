@@ -31,18 +31,23 @@ func HasStack(err error) bool {
 	if err == nil {
 		return false
 	}
-	for current := err; current != nil; {
-		if _, ok := current.(*stackError); ok {
+	for current, depth := err, 0; current != nil && depth < maxChainDepth; depth++ {
+		switch e := current.(type) {
+		case *stackError:
 			return true
-		}
-		if mu, ok := current.(multiUnwrapper); ok {
-			return hasStackMulti(mu.Unwrap())
-		}
-		next, ok := current.(unwrapper)
-		if !ok {
+		case *messageError:
+			current = e.err
+		case *codeError:
+			current = e.err
+		case *contextError:
+			current = e.err
+		case multiUnwrapper:
+			return hasStackMulti(e.Unwrap())
+		case unwrapper:
+			current = e.Unwrap()
+		default:
 			return false
 		}
-		current = next.Unwrap()
 	}
 	return false
 }
@@ -60,38 +65,19 @@ func Source(err error) error {
 		return nil
 	}
 
-	for current := err; current != nil; {
-		info := inspectError(current)
-		switch {
-		case len(info.children) > 0:
-			return sourceMulti(current)
-		case info.next != nil:
-			current = info.next
-		default:
+	last := err
+	for current, depth := err, 0; current != nil && depth < maxChainDepth; depth++ {
+		last = current
+		next, children := unwrapNode(current)
+		if len(children) > 0 {
+			return sourceMulti(current, children)
+		}
+		if next == nil {
 			return current
 		}
+		current = next
 	}
 
-	var stackBuf [8]error
-	stack := stackBuf[:0]
-	stack = append(stack, err)
-	var last error
-	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
-		current := popError(&stack)
-		if current == nil {
-			continue
-		}
-		last = current
-		info := inspectError(current)
-		switch {
-		case len(info.children) > 0:
-			pushChildren(&stack, info.children)
-		case info.next != nil:
-			stack = append(stack, info.next)
-		default:
-			return current
-		}
-	}
 	return last
 }
 
@@ -115,16 +101,16 @@ func Sources(err error) []error {
 		if current == nil {
 			continue
 		}
-		info := inspectError(current)
+		next, children := unwrapNode(current)
 		switch {
-		case len(info.children) > 0:
+		case len(children) > 0:
 			before := len(stack)
-			pushChildren(&stack, info.children)
+			pushChildren(&stack, children)
 			if len(stack) == before {
 				sources = append(sources, current)
 			}
-		case info.next != nil:
-			stack = append(stack, info.next)
+		case next != nil:
+			stack = append(stack, next)
 		default:
 			sources = append(sources, current)
 		}
@@ -153,12 +139,12 @@ func Chain(err error) []error {
 			continue
 		}
 		chain = append(chain, current)
-		info := inspectError(current)
+		next, children := unwrapNode(current)
 		switch {
-		case len(info.children) > 0:
-			pushChildren(&stack, info.children)
-		case info.next != nil:
-			stack = append(stack, info.next)
+		case len(children) > 0:
+			pushChildren(&stack, children)
+		case next != nil:
+			stack = append(stack, next)
 		}
 	}
 	return chain
@@ -238,15 +224,23 @@ func hasStackMulti(children []error) bool {
 		if current == nil {
 			continue
 		}
-		if _, ok := current.(*stackError); ok {
+		switch e := current.(type) {
+		case *stackError:
 			return true
-		}
-		info := inspectError(current)
-		switch {
-		case len(info.children) > 0:
-			pushChildren(&stack, info.children)
-		case info.next != nil:
-			stack = append(stack, info.next)
+		case *messageError:
+			stack = append(stack, e.err)
+		case *codeError:
+			stack = append(stack, e.err)
+		case *contextError:
+			stack = append(stack, e.err)
+		default:
+			next, children := unwrapNode(current)
+			switch {
+			case len(children) > 0:
+				pushChildren(&stack, children)
+			case next != nil:
+				stack = append(stack, next)
+			}
 		}
 	}
 	return false
@@ -259,10 +253,13 @@ func hasStackMulti(children []error) bool {
 //   - err：Join 多错误
 //
 // 返回值：第一个分支的源错误
-func sourceMulti(err error) error {
+func sourceMulti(err error, children []error) error {
 	var stackBuf [8]error
 	stack := stackBuf[:0]
-	stack = append(stack, err)
+	pushChildren(&stack, children)
+	if len(stack) == 0 {
+		return err
+	}
 	var last error
 	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
 		current := popError(&stack)
@@ -270,15 +267,34 @@ func sourceMulti(err error) error {
 			continue
 		}
 		last = current
-		info := inspectError(current)
+		next, children := unwrapNode(current)
 		switch {
-		case len(info.children) > 0:
-			pushChildren(&stack, info.children)
-		case info.next != nil:
-			stack = append(stack, info.next)
+		case len(children) > 0:
+			pushChildren(&stack, children)
+		case next != nil:
+			stack = append(stack, next)
 		default:
 			return current
 		}
 	}
 	return last
+}
+
+func unwrapNode(err error) (error, []error) {
+	switch e := err.(type) {
+	case *stackError:
+		return e.err, nil
+	case *messageError:
+		return e.err, nil
+	case *codeError:
+		return e.err, nil
+	case *contextError:
+		return e.err, nil
+	case multiUnwrapper:
+		return nil, e.Unwrap()
+	case unwrapper:
+		return e.Unwrap(), nil
+	default:
+		return nil, nil
+	}
 }

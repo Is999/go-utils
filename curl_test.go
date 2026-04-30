@@ -73,6 +73,7 @@ func TestGet(t *testing.T) {
 
 		httpServer(":54334", serveMux, exit)
 	}()
+	waitHTTPServer(t, ":54334")
 
 	// 关闭启动的http服务
 	defer func() {
@@ -265,6 +266,7 @@ func TestPost(t *testing.T) {
 
 		httpServer(":54334", serveMux, exit)
 	}()
+	waitHTTPServer(t, ":54334")
 
 	// 关闭启动的http服务
 	defer func() {
@@ -464,6 +466,7 @@ func TestPostForm(t *testing.T) {
 
 		httpServer(":54334", serveMux, exit)
 	}()
+	waitHTTPServer(t, ":54334")
 
 	// 关闭启动的http服务
 	defer func() {
@@ -625,6 +628,7 @@ func TestPostFile(t *testing.T) {
 
 		httpServer(":54334", serveMux, exit)
 	}()
+	waitHTTPServer(t, ":54334")
 
 	// 关闭启动的http服务
 	defer func() {

@@ -1,29 +1,29 @@
 package utils
 
-import (
-	"bytes"
+import "github.com/Is999/go-utils/errors"
 
-	"github.com/Is999/go-utils/errors"
-)
-
-// ZeroPadding 填充
+// ZeroPadding 使用 0 字节填充到分组大小的整数倍。
+//
+// 注意：ZeroPadding 无法区分明文末尾真实的 0 字节和填充字节，协议允许时优先使用 PKCS#7。
 func ZeroPadding(data []byte, blockSize int) []byte {
-	//判断缺少几位长度。最少1，最多 blockSize
+	if blockSize <= 0 {
+		return append([]byte(nil), data...)
+	}
 	padding := blockSize - len(data)%blockSize
-	//补足位数。把切片[]byte{byte(0)}复制padding个
-	padText := bytes.Repeat([]byte{0}, padding)
-	return append(data, padText...)
+	out := make([]byte, len(data)+padding)
+	copy(out, data)
+	return out
 }
 
-// ZeroUnPadding 填充的反向操作
+// ZeroUnPadding 去除尾部 0 字节填充。
 func ZeroUnPadding(data []byte) ([]byte, error) {
 	length := len(data)
 	if length == 0 {
-		return nil, errors.New("ZeroUnPadding() data 参数长度必须大于0！")
+		return nil, errors.New("ZeroUnPadding() data 参数长度必须大于 0")
 	}
-
-	// 去除填充
-	return bytes.TrimRightFunc(data, func(r rune) bool {
-		return r == rune(0)
-	}), nil
+	end := length
+	for end > 0 && data[end-1] == 0 {
+		end--
+	}
+	return data[:end], nil
 }

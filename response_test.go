@@ -2,10 +2,11 @@ package utils_test
 
 import (
 	"context"
-	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -25,27 +26,44 @@ func httpServer(addr string, header http.Handler, exit chan os.Signal) {
 
 	go func() {
 		timer := time.NewTimer(10 * time.Second)
-		for {
-			select {
-			case <-exit:
-				fmt.Println(addr + " Exit...")
-				srv.Shutdown(context.Background())
-			case <-timer.C:
-				fmt.Println(addr + " Delayed 10s Exit...")
-				srv.Shutdown(context.Background())
-			default:
-				time.Sleep(time.Second)
-				fmt.Println(addr + " Sleep 1s...")
-			}
+		defer timer.Stop()
+		select {
+		case <-exit:
+		case <-timer.C:
 		}
+		_ = srv.Shutdown(context.Background())
 	}()
 
-	// 启动HTTP服务器，监听在指定端口
-	err := srv.ListenAndServe()
-	if err != nil {
-		fmt.Println("HTTP server failed to start:", err)
+	// 启动 HTTP 服务器。部分测试复用固定端口，race 模式下前一个 server
+	// 刚 Shutdown 时端口可能短暂未释放，这里做有限重试，避免测试偶发失败。
+	for i := 0; i < 40; i++ {
+		err := srv.ListenAndServe()
+		if err == nil || err == http.ErrServerClosed {
+			return
+		}
+		if !strings.Contains(err.Error(), "address already in use") {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
+}
+
+func waitHTTPServer(t *testing.T, addr string) {
+	t.Helper()
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("HTTP server %s did not start", addr)
 }
 
 func TestResponse(t *testing.T) {

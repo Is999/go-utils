@@ -6,43 +6,45 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"hash"
 	"os"
-	"regexp"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Is999/go-utils/errors"
 )
 
+// RSA 封装 RSA 公钥、私钥及常用加解密/签名能力。
+//
+// 说明：
+//   - RSA 自身适合加密小块数据；本实现会按密钥长度自动分块，便于加密较长字符串。
+//   - 新系统优先推荐 EncryptOAEP/DecryptOAEP；Encrypt/Decrypt(PKCS#1 v1.5) 主要用于兼容旧系统。
+//   - RSA 对象初始化后只读，公钥/私钥可被多个 goroutine 并发用于加解密和验签。
 type RSA struct {
-	pubKey *rsa.PublicKey  //公钥
-	priKey *rsa.PrivateKey //私钥
+	pubKey *rsa.PublicKey  // 公钥
+	priKey *rsa.PrivateKey // 私钥
 }
 
-// RSAOption RSA配置项
+// RSAOption RSA 配置项。
 type RSAOption func(*rsaOptions)
 
 type rsaOptions struct {
 	isFilePath bool
 }
 
-// WithRSAFilePath 指定密钥参数是否为文件路径
+// WithRSAFilePath 指定密钥参数是否为文件路径。
 func WithRSAFilePath(isFilePath bool) RSAOption {
 	return func(o *rsaOptions) {
 		o.isFilePath = isFilePath
 	}
 }
 
-// NewRSA 实例化RSA并设置公钥和私钥
+// NewRSA 实例化 RSA，并同时设置公钥和私钥。
 func NewRSA(pub, pri string, opts ...RSAOption) (*RSA, error) {
-	cfg := rsaOptions{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&cfg)
-		}
-	}
+	cfg := parseRSAOptions(opts...)
 	r := &RSA{}
 	if err := r.SetPublicKey(pub, cfg.isFilePath); err != nil {
 		return r, errors.Wrap(err)
@@ -53,14 +55,9 @@ func NewRSA(pub, pri string, opts ...RSAOption) (*RSA, error) {
 	return r, nil
 }
 
-// NewPubRSA 实例化RSA并设置公钥，用于加密或验证签名
+// NewPubRSA 实例化只含公钥的 RSA，用于加密或验签。
 func NewPubRSA(pub string, opts ...RSAOption) (*RSA, error) {
-	cfg := rsaOptions{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&cfg)
-		}
-	}
+	cfg := parseRSAOptions(opts...)
 	r := &RSA{}
 	if err := r.SetPublicKey(pub, cfg.isFilePath); err != nil {
 		return r, errors.Wrap(err)
@@ -68,14 +65,9 @@ func NewPubRSA(pub string, opts ...RSAOption) (*RSA, error) {
 	return r, nil
 }
 
-// NewPriRSA 实例化RSA并设置私钥，用于解密或签名
+// NewPriRSA 实例化只含私钥的 RSA，用于解密或签名。
 func NewPriRSA(pri string, opts ...RSAOption) (*RSA, error) {
-	cfg := rsaOptions{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&cfg)
-		}
-	}
+	cfg := parseRSAOptions(opts...)
 	r := &RSA{}
 	if err := r.SetPrivateKey(pri, cfg.isFilePath); err != nil {
 		return r, errors.Wrap(err)
@@ -83,149 +75,99 @@ func NewPriRSA(pri string, opts ...RSAOption) (*RSA, error) {
 	return r, nil
 }
 
-// SetPublicKey 设置公钥
+func parseRSAOptions(opts ...RSAOption) rsaOptions {
+	cfg := rsaOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return cfg
+}
+
+// SetPublicKey 设置公钥。
 //
-//	publicKey 公钥(路径)
-//	isFilePath publicKey 传的是否是文件路径
+// publicKey 可以是 PEM 文本、去掉头尾后的 base64 DER 文本，或文件路径。
 func (r *RSA) SetPublicKey(publicKey string, isFilePath bool) error {
-	var key []byte
-	// 读取文件
-	if isFilePath {
-		content, err := os.ReadFile(publicKey)
-		if err != nil {
-			return errors.Wrap(err)
-		}
-		key = content
-	} else {
-		key = []byte(publicKey)
-	}
-
-	block, _ := pem.Decode(key) // 将密钥解析成公钥实例
-	if block == nil || !strings.Contains(strings.ToUpper(block.Type), "PUBLIC") {
-		return errors.New("Public key error ")
-	}
-
-	var (
-		pubInterface interface{}
-		err          error
-	)
-
-	// PKCS8
-	pubInterface, err = x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil && strings.Contains(err.Error(), "ParsePKCS1PublicKey") {
-		// PKCS1
-		pubInterface, err = x509.ParsePKCS1PublicKey(block.Bytes)
-	}
-
+	key, err := readKeyData(publicKey, isFilePath)
 	if err != nil {
 		return errors.Wrap(err)
 	}
-
-	var ok bool
-	if r.pubKey, ok = pubInterface.(*rsa.PublicKey); !ok {
-		return errors.New("PublicKey 类型错误 ")
+	der, err := decodeKeyDER(key, "PUBLIC")
+	if err != nil {
+		return errors.Wrap(err)
 	}
-
+	pub, err := parseRSAPublicKey(der)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+	r.pubKey = pub
 	return nil
 }
 
-// SetPrivateKey 设置私钥
+// SetPrivateKey 设置私钥。
 //
-//	privateKey 私钥(路径)
-//	isFilePath publicKey 传的是否是文件路径
+// privateKey 可以是 PEM 文本、去掉头尾后的 base64 DER 文本，或文件路径。
 func (r *RSA) SetPrivateKey(privateKey string, isFilePath bool) error {
-	var key []byte
-	// 读取文件
-	if isFilePath {
-		content, err := os.ReadFile(privateKey)
-		if err != nil {
-			return errors.Wrap(err)
-		}
-		key = content
-	} else {
-		key = []byte(privateKey)
-	}
-
-	// 将密钥解析成私钥实例
-	block, _ := pem.Decode(key)
-	if block == nil || !strings.Contains(strings.ToUpper(block.Type), "PRIVATE") {
-		return errors.New("Private key error ")
-	}
-
-	var (
-		priInterface interface{}
-		err          error
-	)
-
-	// PKCS1
-	priInterface, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil && strings.Contains(err.Error(), "ParsePKCS8PrivateKey") {
-		// PKCS8
-		priInterface, err = x509.ParsePKCS8PrivateKey(block.Bytes)
-	}
-
+	key, err := readKeyData(privateKey, isFilePath)
 	if err != nil {
 		return errors.Wrap(err)
 	}
-
-	var ok bool
-	if r.priKey, ok = priInterface.(*rsa.PrivateKey); !ok {
-		return errors.New("PrivateKey 类型错误 ")
+	der, err := decodeKeyDER(key, "PRIVATE")
+	if err != nil {
+		return errors.Wrap(err)
 	}
-
+	pri, err := parseRSAPrivateKey(der)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+	r.priKey = pri
 	return nil
 }
 
-// IsSetPublicKey 是否正确设置 PublicKey
+// IsSetPublicKey 校验公钥是否已设置。
 func (r *RSA) IsSetPublicKey() error {
-	if r.pubKey == nil {
-		return errors.New("Public Key is not set ")
+	if r == nil || r.pubKey == nil {
+		return errors.New("Public Key is not set")
 	}
 	return nil
 }
 
-// IsSetPrivateKey 是否正确设置 PrivateKey
+// IsSetPrivateKey 校验私钥是否已设置。
 func (r *RSA) IsSetPrivateKey() error {
-	if r.priKey == nil {
-		return errors.New("Private Key is not set ")
+	if r == nil || r.priKey == nil {
+		return errors.New("Private Key is not set")
 	}
 	return nil
 }
 
-// Encrypt 加密(公钥)
+// Encrypt 使用公钥和 PKCS#1 v1.5 填充加密。
 //
-//	data 待加密数据
-//	encode 编码方法
+// 生产新协议更建议使用 EncryptOAEP。
 func (r *RSA) Encrypt(data string, encode EncodeToString) (string, error) {
+	if encode == nil {
+		return "", errors.New("encode 不能为空")
+	}
 	if err := r.IsSetPublicKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
-	var encryptedData bytes.Buffer
-	maxLength := r.pubKey.Size() - 11
-	if maxLength <= 0 {
-		return "", errors.New("加密失败：最大加密长度小于等于 0")
-	}
-	for start := 0; start < len(data); start += maxLength {
-		end := start + maxLength
-		if end > len(data) {
-			end = len(data)
-		}
-		chunk := []byte(data[start:end])
-		encryptedChunk, err := rsa.EncryptPKCS1v15(rand.Reader, r.pubKey, chunk) // RSA 算法加密
-		if err != nil {
-			return "", errors.Wrap(err)
-		}
-		encryptedData.Write(encryptedChunk)
-	}
 
-	return encode(encryptedData.Bytes()), nil
+	keySize := r.pubKey.Size()
+	maxPayload := keySize - 11
+	encrypted, err := rsaEncryptChunks([]byte(data), keySize, maxPayload, func(chunk []byte) ([]byte, error) {
+		return rsa.EncryptPKCS1v15(rand.Reader, r.pubKey, chunk)
+	})
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+	return encode(encrypted), nil
 }
 
-// Decrypt 解密(私钥)
-//
-//	encrypt 代解密数据
-//	decode 解码方法
+// Decrypt 使用私钥和 PKCS#1 v1.5 填充解密。
 func (r *RSA) Decrypt(encrypt string, decode DecodeString) (string, error) {
+	if decode == nil {
+		return "", errors.New("decode 不能为空")
+	}
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
@@ -234,41 +176,27 @@ func (r *RSA) Decrypt(encrypt string, decode DecodeString) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err)
 	}
-
-	var decryptedData bytes.Buffer
-	maxLength := r.priKey.Size()
-
-	for start := 0; start < len(ciphertext); start += maxLength {
-		end := start + maxLength
-		if end > len(ciphertext) {
-			end = len(ciphertext)
-		}
-
-		chunk := ciphertext[start:end]
-		decryptedChunk, err := rsa.DecryptPKCS1v15(rand.Reader, r.priKey, chunk) // RSA 算法解密
-		if err != nil {
-			return "", errors.Wrap(err)
-		}
-		decryptedData.Write(decryptedChunk)
+	decrypted, err := rsaDecryptChunks(ciphertext, r.priKey.Size(), func(chunk []byte) ([]byte, error) {
+		return rsa.DecryptPKCS1v15(rand.Reader, r.priKey, chunk)
+	})
+	if err != nil {
+		return "", errors.Wrap(err)
 	}
-
-	return decryptedData.String(), nil
+	return string(decrypted), nil
 }
 
-// Sign 签名(私钥)
-//
-//	data 待签名数据
-//	hash 加密哈希函数标识:
-//	 - crypto.SHA256 : Sign(data, crypto.SHA256, encode)
-//	 - crypto.MD5 : Sign(data, crypto.MD5, encode)
-//	encode - 编码方法
+// Sign 使用私钥生成 PKCS#1 v1.5 签名。
 func (r *RSA) Sign(data string, hash crypto.Hash, encode EncodeToString) (string, error) {
+	if encode == nil {
+		return "", errors.New("encode 不能为空")
+	}
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
-	h := hash.New()
-	h.Write([]byte(data))
-	hashed := h.Sum(nil)
+	hashed, err := hashBytes([]byte(data), hash)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
 	sign, err := rsa.SignPKCS1v15(rand.Reader, r.priKey, hash, hashed)
 	if err != nil {
 		return "", errors.Wrap(err)
@@ -276,15 +204,11 @@ func (r *RSA) Sign(data string, hash crypto.Hash, encode EncodeToString) (string
 	return encode(sign), nil
 }
 
-// Verify 验证签名(公钥)
-//
-//	data 待验证数据
-//	sign 签名串
-//	hash 加密哈希函数标识:
-//	 - crypto.SHA256 : Verify(data, signature, crypto.SHA256, decode)
-//	 - crypto.MD5 : Verify(data, signature, crypto.MD5, decode)
-//	decode 解码方法
+// Verify 使用公钥验证 PKCS#1 v1.5 签名。
 func (r *RSA) Verify(data, sign string, hash crypto.Hash, decode DecodeString) error {
+	if decode == nil {
+		return errors.New("decode 不能为空")
+	}
 	if err := r.IsSetPublicKey(); err != nil {
 		return errors.Wrap(err)
 	}
@@ -292,48 +216,45 @@ func (r *RSA) Verify(data, sign string, hash crypto.Hash, decode DecodeString) e
 	if err != nil {
 		return errors.Wrap(err)
 	}
-	h := hash.New()
-	h.Write([]byte(data))
-	hashed := h.Sum(nil)
+	hashed, err := hashBytes([]byte(data), hash)
+	if err != nil {
+		return errors.Wrap(err)
+	}
 	return rsa.VerifyPKCS1v15(r.pubKey, hash, hashed, signByte)
 }
 
-// EncryptOAEP 加密(公钥)
-//
-//	data 待加密数据
-//	encode 编码方法
-//	hash OAEP编码方法
+// EncryptOAEP 使用公钥和 OAEP 填充加密。
 func (r *RSA) EncryptOAEP(data string, encode EncodeToString, hash hash.Hash) (string, error) {
+	if encode == nil {
+		return "", errors.New("encode 不能为空")
+	}
+	if hash == nil {
+		return "", errors.New("hash 不能为空")
+	}
 	if err := r.IsSetPublicKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
-	var encryptedData bytes.Buffer
-	maxLength := r.pubKey.Size() - 2*hash.Size() - 2
-	if maxLength <= 0 {
-		return "", errors.New("加密失败：最大加密长度小于等于 0")
-	}
-	for start := 0; start < len(data); start += maxLength {
-		end := start + maxLength
-		if end > len(data) {
-			end = len(data)
-		}
-		chunk := []byte(data[start:end])
-		encryptedChunk, err := rsa.EncryptOAEP(hash, rand.Reader, r.pubKey, chunk, nil) // RSA 算法加密
-		if err != nil {
-			return "", errors.Wrap(err)
-		}
-		encryptedData.Write(encryptedChunk)
-	}
 
-	return encode(encryptedData.Bytes()), nil
+	keySize := r.pubKey.Size()
+	maxPayload := keySize - 2*hash.Size() - 2
+	encrypted, err := rsaEncryptChunks([]byte(data), keySize, maxPayload, func(chunk []byte) ([]byte, error) {
+		hash.Reset()
+		return rsa.EncryptOAEP(hash, rand.Reader, r.pubKey, chunk, nil)
+	})
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
+	return encode(encrypted), nil
 }
 
-// DecryptOAEP 解密(私钥)
-//
-//	encrypt 代解密数据
-//	decode 解码方法
-//	hash OAEP编码方法
+// DecryptOAEP 使用私钥和 OAEP 填充解密。
 func (r *RSA) DecryptOAEP(encrypt string, decode DecodeString, hash hash.Hash) (string, error) {
+	if decode == nil {
+		return "", errors.New("decode 不能为空")
+	}
+	if hash == nil {
+		return "", errors.New("hash 不能为空")
+	}
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
@@ -342,42 +263,28 @@ func (r *RSA) DecryptOAEP(encrypt string, decode DecodeString, hash hash.Hash) (
 	if err != nil {
 		return "", errors.Wrap(err)
 	}
-
-	var decryptedData bytes.Buffer
-	maxLength := r.priKey.Size()
-
-	for start := 0; start < len(ciphertext); start += maxLength {
-		end := start + maxLength
-		if end > len(ciphertext) {
-			end = len(ciphertext)
-		}
-
-		chunk := ciphertext[start:end]
-		decryptedChunk, err := rsa.DecryptOAEP(hash, rand.Reader, r.priKey, chunk, nil) // RSA 算法解密
-		if err != nil {
-			return "", errors.Wrap(err)
-		}
-		decryptedData.Write(decryptedChunk)
+	decrypted, err := rsaDecryptChunks(ciphertext, r.priKey.Size(), func(chunk []byte) ([]byte, error) {
+		hash.Reset()
+		return rsa.DecryptOAEP(hash, rand.Reader, r.priKey, chunk, nil)
+	})
+	if err != nil {
+		return "", errors.Wrap(err)
 	}
-
-	return decryptedData.String(), nil
+	return string(decrypted), nil
 }
 
-// SignPSS 签名(私钥)
-//
-//	data 待签名数据
-//	hash 加密哈希函数标识:
-//	 - crypto.SHA256 : Sign(data, crypto.SHA256, encode)
-//	 - crypto.MD5 : Sign(data, crypto.MD5, encode)
-//	encode - 编码方法
-//	opts - *rsa.PSSOptions
+// SignPSS 使用私钥生成 PSS 签名。
 func (r *RSA) SignPSS(data string, hash crypto.Hash, encode EncodeToString, opts *rsa.PSSOptions) (string, error) {
+	if encode == nil {
+		return "", errors.New("encode 不能为空")
+	}
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Wrap(err)
 	}
-	h := hash.New()
-	h.Write([]byte(data))
-	hashed := h.Sum(nil)
+	hashed, err := hashBytes([]byte(data), hash)
+	if err != nil {
+		return "", errors.Wrap(err)
+	}
 	sign, err := rsa.SignPSS(rand.Reader, r.priKey, hash, hashed, opts)
 	if err != nil {
 		return "", errors.Wrap(err)
@@ -385,15 +292,11 @@ func (r *RSA) SignPSS(data string, hash crypto.Hash, encode EncodeToString, opts
 	return encode(sign), nil
 }
 
-// VerifyPSS 验证签名(公钥)
-//
-//	data 待验证数据
-//	sign 签名串
-//	hash 加密哈希函数标识:
-//	 - crypto.SHA256 : Verify(data, signature, crypto.SHA256, decode)
-//	 - crypto.MD5 : Verify(data, signature, crypto.MD5, decode)
-//	decode 解码方法
+// VerifyPSS 使用公钥验证 PSS 签名。
 func (r *RSA) VerifyPSS(data, sign string, hash crypto.Hash, decode DecodeString, opts *rsa.PSSOptions) error {
+	if decode == nil {
+		return errors.New("decode 不能为空")
+	}
 	if err := r.IsSetPublicKey(); err != nil {
 		return errors.Wrap(err)
 	}
@@ -401,25 +304,20 @@ func (r *RSA) VerifyPSS(data, sign string, hash crypto.Hash, decode DecodeString
 	if err != nil {
 		return errors.Wrap(err)
 	}
-	h := hash.New()
-	h.Write([]byte(data))
-	hashed := h.Sum(nil)
+	hashed, err := hashBytes([]byte(data), hash)
+	if err != nil {
+		return errors.Wrap(err)
+	}
 	return rsa.VerifyPSS(r.pubKey, hash, hashed, signByte, opts)
 }
 
-// GenerateKeyRSA 生成秘钥(公钥PKCS8格式 私钥PKCS1格式)
+// GenerateKeyRSA 生成 RSA 密钥文件。
 //
-//	path 秘钥存放地址
-//	bits 生成秘钥位大小: 512、1024、2048、4096
-//	pkcs 秘钥格式, 默认格式(公钥PKCS8格式 私钥PKCS1格式):
-//	 - pkcs[0] isPubPKCS8 公钥是否是PKCS8格式: 默认 true
-//	 - pkcs[1] isPriPKCS1 私钥是否是PKCS1格式: 默认 true
-//
-//	RETURN:
-//	- []string 返回两个文件名, 第一个公钥文件名, 第二个私钥文件名
+// path 为密钥存放目录；bits 为密钥位数；生产环境建议至少 2048。
+// pkcs[0] 控制公钥格式是否为 PKCS8，默认 true；pkcs[1] 控制私钥格式是否为 PKCS1，默认 true。
 func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
-	isPubPKCS8 := true // 默认 公钥PKCS8格式
-	isPriPKCS1 := true // 默认 私钥PKCS1格式
+	isPubPKCS8 := true
+	isPriPKCS1 := true
 	if len(pkcs) > 0 {
 		isPubPKCS8 = pkcs[0]
 		if len(pkcs) > 1 {
@@ -427,137 +325,217 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 		}
 	}
 
-	/*
-		生成私钥
-	*/
-	// 使用 RSA中的GenerateKey方法生成私钥
 	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
-	var fileName = make([]string, 2)
-	var privateStream []byte
-	// 通过X509标准将得到的RAS私钥序列化为：ASN.1 的DER编码字符串
-	if isPriPKCS1 {
-		privateStream = x509.MarshalPKCS1PrivateKey(privateKey)
-	} else {
-		privateStream, err = x509.MarshalPKCS8PrivateKey(privateKey)
-		if err != nil {
-			return nil, errors.Wrap(err)
-		}
-	}
-
-	// 将私钥字符串设置到 pem格式块中
-	block1 := pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: privateStream,
-	}
-
-	// 创建私钥文件
-	if isPriPKCS1 {
-		fileName[1] = path + "private_pkcs1_" + time.Now().Format(SecondTime) + ".pem"
-	} else {
-		fileName[1] = path + "private_pkcs8_" + time.Now().Format(SecondTime) + ".pem"
-	}
-	fPrivate, err := os.Create(fileName[1])
+	privateStream, err := marshalPrivateKey(privateKey, isPriPKCS1)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
-	defer func(fPrivate *os.File) {
-		_ = fPrivate.Close()
-	}(fPrivate)
-
-	// 通过 pem将设置的数据进行编码
-	err = pem.Encode(fPrivate, &block1)
+	publicStream, err := marshalPublicKey(&privateKey.PublicKey, isPubPKCS8)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
-	/*
-		生成公钥
-	*/
-	var publicStream []byte
-	// 公钥序列化
-	if isPubPKCS8 {
-		publicStream, err = x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-		if err != nil {
-			return nil, errors.Wrap(err)
-		}
-	} else {
-		publicStream = x509.MarshalPKCS1PublicKey(&privateKey.PublicKey)
-	}
+	ts := time.Now().Format(SecondTime)
+	fileName := make([]string, 2)
+	fileName[0] = filepath.Join(path, Ternary(isPubPKCS8, "public_pkcs8_", "public_pkcs1_")+ts+".pem")
+	fileName[1] = filepath.Join(path, Ternary(isPriPKCS1, "private_pkcs1_", "private_pkcs8_")+ts+".pem")
 
-	// 将公钥字符串设置到 pem格式块中
-	block2 := pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: publicStream,
-	}
-
-	// 创建公钥文件
-	if isPubPKCS8 {
-		fileName[0] = path + "public_pkcs8_" + time.Now().Format(`20060102150405`) + ".pem"
-	} else {
-		fileName[0] = path + "public_pkcs1_" + time.Now().Format(`20060102150405`) + ".pem"
-	}
-	fPublic, err := os.Create(fileName[0])
-	if err != nil {
-		return nil, errors.Wrap(err)
-	}
-	defer func(fPublic *os.File) {
-		_ = fPublic.Close()
-	}(fPublic)
-
-	// 通过 pem将设置的数据进行编码
-	err = pem.Encode(fPublic, &block2)
-	if err != nil {
+	publicType := Ternary(isPubPKCS8, "PUBLIC KEY", "RSA PUBLIC KEY")
+	if err = writePEMFile(fileName[0], &pem.Block{Type: publicType, Bytes: publicStream}, 0o644); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
+	// 保持旧版本 PEM 头兼容：PKCS8 私钥也使用 RSA PRIVATE KEY 头，解析时按 DER 自动识别。
+	if err = writePEMFile(fileName[1], &pem.Block{Type: "RSA PRIVATE KEY", Bytes: privateStream}, 0o600); err != nil {
+		return nil, errors.Wrap(err)
+	}
 	return fileName, nil
 }
 
-// RemovePEMHeaders 去掉 RSA秘钥串 头尾标记和换行符
-//
-//	pem 秘钥
-func RemovePEMHeaders(pem string) string {
-	// 定义正则表达式，匹配 PEM 头尾标记，不区分大小写
-	re := regexp.MustCompile(`(?i)-----BEGIN.*?-----|-----END.*?-----`)
-	// 替换头尾标记为空字符串
-	pem = re.ReplaceAllString(pem, "")
-	// 去掉换行符和回车符
-	pem = strings.ReplaceAll(pem, "\n", "")
-	// 去掉多余的空格
-	return strings.TrimSpace(pem)
+// RemovePEMHeaders 去掉 PEM 头尾标记和空白字符。
+func RemovePEMHeaders(pemText string) string {
+	var b strings.Builder
+	b.Grow(len(pemText))
+	for _, line := range strings.Split(pemText, "\n") {
+		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "-----BEGIN ") || strings.HasPrefix(upper, "-----END ") {
+			continue
+		}
+		b.WriteString(line)
+	}
+	return strings.TrimSpace(b.String())
 }
 
-// AddPEMHeaders 为 RSA 密钥串添加头尾标记
+// AddPEMHeaders 为 RSA 密钥串添加 PEM 头尾标记。
 //
-//	key 秘钥
-//	keyType 秘钥类型
+// keyType 支持 public/private。
 func AddPEMHeaders(key, keyType string) (string, error) {
 	var header, footer string
-
-	if strings.EqualFold(keyType, "public") {
+	switch {
+	case strings.EqualFold(keyType, "public"):
 		header = "-----BEGIN PUBLIC KEY-----"
 		footer = "-----END PUBLIC KEY-----"
-	} else if strings.EqualFold(keyType, "private") {
+	case strings.EqualFold(keyType, "private"):
 		header = "-----BEGIN RSA PRIVATE KEY-----"
 		footer = "-----END RSA PRIVATE KEY-----"
-	} else {
+	default:
 		return "", errors.New("Invalid key type")
 	}
 
-	// 将密钥字符串转换为 64 个字符一行的格式
-	keyLines := []string{header}
-	for i := 0; i < len(key); i += 64 {
-		endIndex := i + 64
-		if endIndex > len(key) {
-			endIndex = len(key)
+	body := RemovePEMHeaders(key)
+	var b strings.Builder
+	b.Grow(len(body) + len(header) + len(footer) + len(body)/64 + 4)
+	b.WriteString(header)
+	for i := 0; i < len(body); i += 64 {
+		end := i + 64
+		if end > len(body) {
+			end = len(body)
 		}
-		keyLines = append(keyLines, key[i:endIndex])
+		b.WriteByte('\n')
+		b.WriteString(body[i:end])
 	}
-	keyLines = append(keyLines, footer)
+	b.WriteByte('\n')
+	b.WriteString(footer)
+	return b.String(), nil
+}
 
-	return strings.Join(keyLines, "\n"), nil
+func readKeyData(key string, isFilePath bool) ([]byte, error) {
+	if isFilePath {
+		return os.ReadFile(key)
+	}
+	return []byte(key), nil
+}
+
+func decodeKeyDER(key []byte, wantType string) ([]byte, error) {
+	key = bytes.TrimSpace(key)
+	if len(key) == 0 {
+		return nil, errors.New("密钥不能为空")
+	}
+	if block, _ := pem.Decode(key); block != nil {
+		if wantType != "" && !strings.Contains(strings.ToUpper(block.Type), wantType) {
+			return nil, errors.Errorf("%s key type error", strings.Title(strings.ToLower(wantType)))
+		}
+		return block.Bytes, nil
+	}
+
+	body := RemovePEMHeaders(string(key))
+	if body == "" {
+		return nil, errors.New("密钥内容为空")
+	}
+	if der, err := base64.StdEncoding.DecodeString(body); err == nil {
+		return der, nil
+	}
+	return key, nil
+}
+
+func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
+	if pubAny, err := x509.ParsePKIXPublicKey(der); err == nil {
+		pub, ok := pubAny.(*rsa.PublicKey)
+		if !ok {
+			return nil, errors.New("PublicKey 类型错误")
+		}
+		return pub, nil
+	}
+	if pub, err := x509.ParsePKCS1PublicKey(der); err == nil {
+		return pub, nil
+	}
+	return nil, errors.New("Public key parse error")
+}
+
+func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
+	if pri, err := x509.ParsePKCS1PrivateKey(der); err == nil {
+		return pri, nil
+	}
+	if priAny, err := x509.ParsePKCS8PrivateKey(der); err == nil {
+		pri, ok := priAny.(*rsa.PrivateKey)
+		if !ok {
+			return nil, errors.New("PrivateKey 类型错误")
+		}
+		return pri, nil
+	}
+	return nil, errors.New("Private key parse error")
+}
+
+func rsaEncryptChunks(data []byte, keySize, maxPayload int, encrypt func([]byte) ([]byte, error)) ([]byte, error) {
+	if maxPayload <= 0 {
+		return nil, errors.New("加密失败：最大分块长度小于等于 0")
+	}
+	if len(data) == 0 {
+		return []byte{}, nil
+	}
+	chunks := (len(data) + maxPayload - 1) / maxPayload
+	out := make([]byte, 0, chunks*keySize)
+	for start := 0; start < len(data); start += maxPayload {
+		end := start + maxPayload
+		if end > len(data) {
+			end = len(data)
+		}
+		encrypted, err := encrypt(data[start:end])
+		if err != nil {
+			return nil, errors.Wrap(err)
+		}
+		out = append(out, encrypted...)
+	}
+	return out, nil
+}
+
+func rsaDecryptChunks(ciphertext []byte, keySize int, decrypt func([]byte) ([]byte, error)) ([]byte, error) {
+	if keySize <= 0 {
+		return nil, errors.New("解密失败：密钥长度异常")
+	}
+	if len(ciphertext) == 0 {
+		return []byte{}, nil
+	}
+	if len(ciphertext)%keySize != 0 {
+		return nil, errors.New("密文长度必须是 RSA 密钥字节长度的整数倍")
+	}
+	out := make([]byte, 0, len(ciphertext))
+	for start := 0; start < len(ciphertext); start += keySize {
+		decrypted, err := decrypt(ciphertext[start : start+keySize])
+		if err != nil {
+			return nil, errors.Wrap(err)
+		}
+		out = append(out, decrypted...)
+	}
+	return out, nil
+}
+
+func hashBytes(data []byte, hash crypto.Hash) ([]byte, error) {
+	if !hash.Available() {
+		return nil, errors.New("hash 不可用")
+	}
+	h := hash.New()
+	_, _ = h.Write(data)
+	return h.Sum(nil), nil
+}
+
+func marshalPrivateKey(privateKey *rsa.PrivateKey, isPKCS1 bool) ([]byte, error) {
+	if isPKCS1 {
+		return x509.MarshalPKCS1PrivateKey(privateKey), nil
+	}
+	return x509.MarshalPKCS8PrivateKey(privateKey)
+}
+
+func marshalPublicKey(publicKey *rsa.PublicKey, isPKCS8 bool) ([]byte, error) {
+	if isPKCS8 {
+		return x509.MarshalPKIXPublicKey(publicKey)
+	}
+	return x509.MarshalPKCS1PublicKey(publicKey), nil
+}
+
+func writePEMFile(name string, block *pem.Block, perm os.FileMode) error {
+	file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+	defer file.Close()
+	if err = pem.Encode(file, block); err != nil {
+		return errors.Wrap(err)
+	}
+	return nil
 }

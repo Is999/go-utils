@@ -104,10 +104,22 @@ func RandStr2(n int, r ...*rand.Rand) string {
 	if n <= 0 {
 		return ""
 	}
-	if len(r) == 0 {
-		r = append(r, RandSource)
+	s := make([]byte, n)
+	if len(r) == 0 || r[0] == nil {
+		s[0] = ALPHA[int(rand.Int64())%len(ALPHA)]
+		for i := 1; i < n; i++ {
+			s[i] = ALNUM[int(rand.Int64())%len(ALNUM)]
+		}
+		return *(*string)(unsafe.Pointer(&s))
 	}
-	return string(ALPHA[int(r[0].Int64())%len(ALPHA)]) + RandStr3(n-1, ALNUM, r...)
+
+	randSourceMu.Lock()
+	s[0] = ALPHA[int(r[0].Int64())%len(ALPHA)]
+	for i := 1; i < n; i++ {
+		s[i] = ALNUM[int(r[0].Int64())%len(ALNUM)]
+	}
+	randSourceMu.Unlock()
+	return *(*string)(unsafe.Pointer(&s))
 }
 
 // RandStr3 随机生成字符串
@@ -119,14 +131,20 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string {
 	if n <= 0 || len(alpha) == 0 {
 		return ""
 	}
-	if len(r) == 0 {
-		r = append(r, RandSource)
-	}
 	l := len(alpha)
 	s := make([]byte, n)
+	if len(r) == 0 || r[0] == nil {
+		for i := 0; i < n; i++ {
+			s[i] = alpha[int(rand.Int64())%l]
+		}
+		return *(*string)(unsafe.Pointer(&s))
+	}
+
+	randSourceMu.Lock()
 	for i := 0; i < n; i++ {
 		s[i] = alpha[int(r[0].Int64())%l]
 	}
+	randSourceMu.Unlock()
 	return *(*string)(unsafe.Pointer(&s))
 }
 

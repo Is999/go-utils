@@ -12,7 +12,7 @@ import (
 func AES(key string, opts ...CipherOption) (*Cipher, error) {
 	switch len(key) {
 	default:
-		return nil, errors.Errorf("AES秘钥的长度只能是16、24或32字节。当前预设置的秘钥[%s]长度: %d", key, len(key))
+		return nil, errors.Errorf("AES 密钥长度必须是 16、24 或 32 字节，当前长度: %d", len(key))
 	case 16, 24, 32:
 	}
 
