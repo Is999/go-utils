@@ -25,9 +25,14 @@ type Cipher struct {
 // CipherOption 加密器配置项。
 type CipherOption func(*cipherOptions)
 
+// cipherOptions 是加密器构造阶段的内部配置。
+//
+// 字段说明：
+//   - randIV：是否启用随机 IV。
+//   - iv：固定 IV，优先级高于随机 IV。
 type cipherOptions struct {
-	randIV bool
-	iv     *string
+	randIV bool    // 是否启用随机 IV。
+	iv     *string // 固定 IV 配置。
 }
 
 // WithRandIV 设置是否随机生成 IV。
@@ -52,6 +57,7 @@ func WithIV(iv string) CipherOption {
 //
 // key 为原始密钥字符串；block 通常传 aes.NewCipher、des.NewCipher 或 des.NewTripleDESCipher。
 func NewCipher(key string, block CipherBlock, opts ...CipherOption) (*Cipher, error) {
+	// 聚合可选配置，保证构造入口统一。
 	cfg := cipherOptions{}
 	for _, opt := range opts {
 		if opt != nil {
@@ -59,11 +65,13 @@ func NewCipher(key string, block CipherBlock, opts ...CipherOption) (*Cipher, er
 		}
 	}
 
+	// 先初始化密钥和底层分组算法，再处理 IV 配置。
 	c := &Cipher{isRandIV: cfg.randIV}
 	if err := c.setKey(key, block); err != nil {
 		return nil, errors.Wrap(err)
 	}
 	if cfg.iv != nil {
+		// 显式设置固定 IV 时，固定 IV 优先于随机 IV。
 		c.isRandIV = false
 		if err := c.setIV(*cfg.iv); err != nil {
 			return nil, errors.Wrap(err)
@@ -73,16 +81,24 @@ func NewCipher(key string, block CipherBlock, opts ...CipherOption) (*Cipher, er
 }
 
 // setKey 设置密钥并创建底层分组密码。
+//
+// 参数说明：
+//   - key：原始密钥字符串。
+//   - block：底层分组算法构造函数。
+//
+// 返回值：错误信息。
 func (c *Cipher) setKey(key string, block CipherBlock) error {
 	if block == nil {
 		return errors.New("CipherBlock 不能为空")
 	}
+	// 当前工具库统一限制为 DES/AES/3DES 可接受的密钥长度。
 	switch len(key) {
 	default:
 		return errors.Errorf("密钥长度必须是 8、16、24 或 32 字节，当前长度: %d", len(key))
 	case 8, 16, 24, 32:
 	}
 
+	// 先构造底层 block，成功后再写入实例字段，避免部分状态污染对象。
 	k := []byte(key)
 	b, err := block(k)
 	if err != nil {
@@ -94,11 +110,15 @@ func (c *Cipher) setKey(key string, block CipherBlock) error {
 }
 
 // isSetKey 判断密钥和分组密码是否已经设置。
+//
+// 返回值：true 表示加密器已经完成密钥初始化。
 func (c *Cipher) isSetKey() bool {
 	return c != nil && len(c.key) > 0 && c.block != nil
 }
 
 // check 校验加密器是否可用。
+//
+// 返回值：错误信息。
 func (c *Cipher) check() error {
 	if !c.isSetKey() {
 		return errors.New("请先设置密钥")
@@ -107,6 +127,11 @@ func (c *Cipher) check() error {
 }
 
 // setIV 设置固定 IV。
+//
+// 参数说明：
+//   - iv：固定 IV 字符串。
+//
+// 返回值：错误信息。
 func (c *Cipher) setIV(iv string) error {
 	if err := c.check(); err != nil {
 		return errors.Wrap(err)
@@ -119,21 +144,35 @@ func (c *Cipher) setIV(iv string) error {
 }
 
 // EncryptECB 使用 ECB 模式加密。
+//
+// 参数说明：
+//   - data：待加密的原始数据。
+//   - padding：填充函数。
+//
+// 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptECB(data []byte, padding Padding) ([]byte, error) {
 	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
 	}
+	// ECB 需要保证输入长度是分组大小的整数倍，因此先执行填充。
 	paddingData, err := c.pad(data, padding)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
+	// 逐块独立加密，保持 ECB 原始语义。
 	encrypted := make([]byte, len(paddingData))
 	c.cryptBlockLoop(encrypted, paddingData, c.block.Encrypt)
 	return encrypted, nil
 }
 
 // DecryptECB 使用 ECB 模式解密。
+//
+// 参数说明：
+//   - data：待解密密文。
+//   - unPadding：去填充函数。
+//
+// 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 	if err := c.check(); err != nil {
 		return nil, errors.Wrap(err)
@@ -151,6 +190,12 @@ func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 }
 
 // EncryptCBC 使用 CBC 模式加密。
+//
+// 参数说明：
+//   - data：待加密原始数据。
+//   - padding：填充函数。
+//
+// 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 	paddingData, out, dst, iv, err := c.prepareBlockEncrypt(data, padding)
 	if err != nil {
@@ -161,6 +206,12 @@ func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 }
 
 // DecryptCBC 使用 CBC 模式解密。
+//
+// 参数说明：
+//   - data：待解密密文。
+//   - unPadding：去填充函数。
+//
+// 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 	body, iv, err := c.prepareBlockDecrypt(data)
 	if err != nil {
@@ -176,31 +227,67 @@ func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 }
 
 // EncryptCTR 使用 CTR 模式加密。
+//
+// 参数说明：
+//   - data：待加密原始数据。
+//   - padding：填充函数。
+//
+// 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 	return c.encryptStream(data, padding, cipher.NewCTR)
 }
 
 // DecryptCTR 使用 CTR 模式解密。
+//
+// 参数说明：
+//   - data：待解密密文。
+//   - unPadding：去填充函数。
+//
+// 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
 	return c.decryptStream(data, unPadding, cipher.NewCTR)
 }
 
 // EncryptCFB 使用 CFB 模式加密。
+//
+// 参数说明：
+//   - data：待加密原始数据。
+//   - padding：填充函数。
+//
+// 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 	return c.encryptStream(data, padding, cipher.NewCFBEncrypter)
 }
 
 // DecryptCFB 使用 CFB 模式解密。
+//
+// 参数说明：
+//   - data：待解密密文。
+//   - unPadding：去填充函数。
+//
+// 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	return c.decryptStream(data, unPadding, cipher.NewCFBDecrypter)
 }
 
 // EncryptOFB 使用 OFB 模式加密。
+//
+// 参数说明：
+//   - data：待加密原始数据。
+//   - padding：填充函数。
+//
+// 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 	return c.encryptStream(data, padding, cipher.NewOFB)
 }
 
 // DecryptOFB 使用 OFB 模式解密。
+//
+// 参数说明：
+//   - data：待解密密文。
+//   - unPadding：去填充函数。
+//
+// 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	return c.decryptStream(data, unPadding, cipher.NewOFB)
 }
@@ -208,6 +295,13 @@ func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
 // EncryptBytes 加密字节数据并返回原始密文字节。
 //
 // 该方法适合业务层自行选择编码方式，可避免 string 与 []byte 的额外转换。
+//
+// 参数说明：
+//   - data：待加密原始数据。
+//   - mode：加密模式。
+//   - padding：填充函数。
+//
+// 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptBytes(data []byte, mode McryptMode, padding Padding) ([]byte, error) {
 	switch mode {
 	case ECB:
@@ -226,6 +320,13 @@ func (c *Cipher) EncryptBytes(data []byte, mode McryptMode, padding Padding) ([]
 }
 
 // DecryptBytes 解密原始密文字节。
+//
+// 参数说明：
+//   - data：待解密密文。
+//   - mode：解密模式。
+//   - unPadding：去填充函数。
+//
+// 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptBytes(data []byte, mode McryptMode, unPadding UnPadding) ([]byte, error) {
 	switch mode {
 	case ECB:
@@ -275,10 +376,18 @@ func (c *Cipher) Decrypt(encrypt string, mode McryptMode, decode DecodeString, u
 	return string(decrypted), nil
 }
 
+// pad 对原始数据执行填充。
+//
+// 参数说明：
+//   - data：原始数据。
+//   - padding：填充函数。
+//
+// 返回值：填充后的数据，错误信息。
 func (c *Cipher) pad(data []byte, padding Padding) ([]byte, error) {
 	if padding == nil {
 		return nil, errors.New("padding 不能为空")
 	}
+	// 填充后的数据必须满足分组大小要求，否则后续块加密一定失败。
 	paddingData := padding(data, c.block.BlockSize())
 	if len(paddingData) == 0 || len(paddingData)%c.block.BlockSize() != 0 {
 		return nil, errors.New("padding 后数据长度必须是分组大小的倍数")
@@ -286,6 +395,18 @@ func (c *Cipher) pad(data []byte, padding Padding) ([]byte, error) {
 	return paddingData, nil
 }
 
+// prepareBlockEncrypt 为 CBC/CTR/CFB/OFB 等模式准备加密数据。
+//
+// 参数说明：
+//   - data：原始数据。
+//   - padding：填充函数。
+//
+// 返回值：
+//   - paddingData：填充后的原始数据。
+//   - out：最终输出缓冲区。
+//   - dst：真正写入密文的位置。
+//   - iv：本次加密使用的 IV。
+//   - err：错误信息。
 func (c *Cipher) prepareBlockEncrypt(data []byte, padding Padding) (paddingData, out, dst, iv []byte, err error) {
 	if err = c.check(); err != nil {
 		return nil, nil, nil, nil, errors.Wrap(err)
@@ -297,6 +418,7 @@ func (c *Cipher) prepareBlockEncrypt(data []byte, padding Padding) (paddingData,
 
 	blockSize := c.block.BlockSize()
 	if c.isRandIV {
+		// 随机 IV 模式下，将 IV 放在密文头部，便于解密端直接解析。
 		out = make([]byte, blockSize+len(paddingData))
 		if _, err = io.ReadFull(rand.Reader, out[:blockSize]); err != nil {
 			return nil, nil, nil, nil, errors.Wrap(err)
@@ -312,6 +434,15 @@ func (c *Cipher) prepareBlockEncrypt(data []byte, padding Padding) (paddingData,
 	return paddingData, out, out, iv, nil
 }
 
+// prepareBlockDecrypt 为 CBC/CTR/CFB/OFB 等模式准备解密数据。
+//
+// 参数说明：
+//   - data：待解密密文。
+//
+// 返回值：
+//   - body：实际密文主体。
+//   - iv：解密时使用的 IV。
+//   - err：错误信息。
 func (c *Cipher) prepareBlockDecrypt(data []byte) (body, iv []byte, err error) {
 	if err = c.check(); err != nil {
 		return nil, nil, errors.Wrap(err)
@@ -326,6 +457,14 @@ func (c *Cipher) prepareBlockDecrypt(data []byte) (body, iv []byte, err error) {
 	return body, iv, nil
 }
 
+// encryptStream 使用流模式执行加密。
+//
+// 参数说明：
+//   - data：待加密原始数据。
+//   - padding：填充函数。
+//   - newStream：流模式构造函数。
+//
+// 返回值：密文字节，错误信息。
 func (c *Cipher) encryptStream(data []byte, padding Padding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
 	paddingData, out, dst, iv, err := c.prepareBlockEncrypt(data, padding)
 	if err != nil {
@@ -335,6 +474,14 @@ func (c *Cipher) encryptStream(data []byte, padding Padding, newStream func(ciph
 	return out, nil
 }
 
+// decryptStream 使用流模式执行解密。
+//
+// 参数说明：
+//   - data：待解密密文。
+//   - unPadding：去填充函数。
+//   - newStream：流模式构造函数。
+//
+// 返回值：明文字节，错误信息。
 func (c *Cipher) decryptStream(data []byte, unPadding UnPadding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
 	body, iv, err := c.prepareBlockDecrypt(data)
 	if err != nil {
@@ -349,6 +496,10 @@ func (c *Cipher) decryptStream(data []byte, unPadding UnPadding, newStream func(
 	return unPadding(decrypted)
 }
 
+// fixedIV 获取固定 IV。
+// 未显式设置 IV 时，默认使用密钥前 blockSize 字节作为 IV。
+//
+// 返回值：固定 IV，错误信息。
 func (c *Cipher) fixedIV() ([]byte, error) {
 	blockSize := c.block.BlockSize()
 	if len(c.iv) > 0 {
@@ -363,6 +514,13 @@ func (c *Cipher) fixedIV() ([]byte, error) {
 	return c.key[:blockSize], nil
 }
 
+// splitCiphertextIV 从密文中拆分真实密文和 IV。
+// 随机 IV 模式下，密文前 blockSize 字节为 IV。
+//
+// 参数说明：
+//   - data：原始密文字节。
+//
+// 返回值：真实密文、IV、错误信息。
 func (c *Cipher) splitCiphertextIV(data []byte) ([]byte, []byte, error) {
 	blockSize := c.block.BlockSize()
 	if c.isRandIV {
@@ -378,6 +536,12 @@ func (c *Cipher) splitCiphertextIV(data []byte) ([]byte, []byte, error) {
 	return data, iv, nil
 }
 
+// validateBlockCiphertext 校验分组密文是否合法。
+//
+// 参数说明：
+//   - data：待校验密文。
+//
+// 返回值：错误信息。
 func (c *Cipher) validateBlockCiphertext(data []byte) error {
 	blockSize := c.block.BlockSize()
 	if len(data) == 0 {
@@ -389,6 +553,12 @@ func (c *Cipher) validateBlockCiphertext(data []byte) error {
 	return nil
 }
 
+// cryptBlockLoop 逐个分组执行加解密。
+//
+// 参数说明：
+//   - dst：目标缓冲区。
+//   - src：源缓冲区。
+//   - crypt：单个分组的加解密函数。
 func (c *Cipher) cryptBlockLoop(dst, src []byte, crypt func(dst, src []byte)) {
 	blockSize := c.block.BlockSize()
 	for start := 0; start < len(src); start += blockSize {
