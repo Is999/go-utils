@@ -50,8 +50,8 @@ func AddFileToZip(zipWriter *zip.Writer, fileToCompress string, baseDir string) 
 	if err != nil {
 		return errors.Wrap(err)
 	}
-	if fileInfo.Mode()&os.ModeSymlink != 0 {
-		return errors.Errorf("zip 打包不支持符号链接: %s", fileToCompress)
+	if err = rejectArchiveSymlink(fileToCompress, fileInfo.Mode(), "zip"); err != nil {
+		return errors.Wrap(err)
 	}
 
 	if fileInfo.IsDir() {
@@ -115,6 +115,10 @@ func addDirectoryToZip(zipWriter *zip.Writer, directoryToCompress string, fileIn
 	}
 
 	for _, file := range files {
+		if err = rejectArchiveSymlink(filepath.Join(directoryToCompress, file.Name()), file.Type(), "zip"); err != nil {
+			return errors.Wrap(err)
+		}
+
 		// 获取文件信息
 		info, err := file.Info()
 		if err != nil {
@@ -170,6 +174,7 @@ func UnZip(zipFile, destDir string) error {
 	}
 
 	// 遍历ZIP文件中的文件和目录
+	counter := archiveCounter{}
 	for _, file := range r.File {
 		err = func(f *zip.File) error {
 			// 解析并校验解压路径，防止 ../、绝对路径和跨平台分隔符绕过。
@@ -185,11 +190,18 @@ func UnZip(zipFile, destDir string) error {
 
 			// 如果文件是一个目录，则创建对应的目录
 			if f.FileInfo().IsDir() {
+				if err = counter.add(f.Name, 0); err != nil {
+					return errors.Wrap(err)
+				}
 				err := os.MkdirAll(destPath, unzipDirPerm(mode))
 				if err != nil {
 					return errors.Wrap(err)
 				}
 				return nil
+			}
+
+			if err = counter.add(f.Name, int64(f.UncompressedSize64)); err != nil {
+				return errors.Wrap(err)
 			}
 
 			// 判断目录是否存在, 不存在则创建

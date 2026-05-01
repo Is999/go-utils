@@ -125,3 +125,21 @@ func TestUnZipRestoresFileMode(t *testing.T) {
 		t.Fatalf("unzip file mode = %v, want %v", info.Mode().Perm(), os.FileMode(0o755))
 	}
 }
+
+func TestZipRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	targetFile := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(targetFile, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(root, "target-link.txt")
+	if err := os.Symlink(targetFile, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	zipPath := filepath.Join(t.TempDir(), "symlink.zip")
+	if err := utils.Zip(zipPath, []string{linkPath}); err == nil {
+		t.Fatal("Zip() expected symlink error")
+	}
+}

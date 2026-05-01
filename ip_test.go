@@ -1,6 +1,7 @@
 package utils_test
 
 import (
+	"net"
 	"net/http"
 	"testing"
 
@@ -108,5 +109,85 @@ func TestClientIPIgnoresInvalidProxyHeader(t *testing.T) {
 	}
 	if got := utils.ClientIP(req); got != "127.0.0.1" {
 		t.Fatalf("ClientIP() = %v, want %v", got, "127.0.0.1")
+	}
+}
+
+func TestNewTrustedProxies(t *testing.T) {
+	proxies, err := utils.NewTrustedProxies("10.0.0.10", "10.0.0.0/8", "fd00::/8")
+	if err != nil {
+		t.Fatalf("NewTrustedProxies() error = %v", err)
+	}
+
+	for _, tt := range []struct {
+		ip   string
+		want bool
+	}{
+		{ip: "10.0.0.10", want: true},
+		{ip: "10.1.1.1", want: true},
+		{ip: "fd00::1", want: true},
+		{ip: "192.168.1.1", want: false},
+	} {
+		if got := proxies.Contains(net.ParseIP(tt.ip)); got != tt.want {
+			t.Fatalf("TrustedProxies.Contains(%q) = %v, want %v", tt.ip, got, tt.want)
+		}
+	}
+}
+
+func TestNewTrustedProxiesRejectsInvalidValue(t *testing.T) {
+	if _, err := utils.NewTrustedProxies("bad-value"); err == nil {
+		t.Fatal("NewTrustedProxies() expected error")
+	}
+}
+
+func TestClientIPWithTrustedProxies(t *testing.T) {
+	proxies, err := utils.NewTrustedProxies("10.0.0.0/8", "192.168.0.0/16")
+	if err != nil {
+		t.Fatalf("NewTrustedProxies() error = %v", err)
+	}
+
+	req := &http.Request{
+		Header: http.Header{
+			"X-Forwarded-For": []string{"203.0.113.10, 10.1.1.1, 192.168.1.1"},
+		},
+		RemoteAddr: "10.0.0.10:443",
+	}
+	if got := utils.ClientIPWithTrustedProxies(req, proxies); got != "203.0.113.10" {
+		t.Fatalf("ClientIPWithTrustedProxies() = %v, want %v", got, "203.0.113.10")
+	}
+}
+
+func TestClientIPWithTrustedProxiesIgnoresHeaderWhenRemoteUntrusted(t *testing.T) {
+	proxies, err := utils.NewTrustedProxies("10.0.0.0/8")
+	if err != nil {
+		t.Fatalf("NewTrustedProxies() error = %v", err)
+	}
+
+	req := &http.Request{
+		Header: http.Header{
+			"X-Forwarded-For": []string{"203.0.113.10"},
+			"X-Real-Ip":       []string{"198.51.100.8"},
+		},
+		RemoteAddr: "8.8.8.8:443",
+	}
+	if got := utils.ClientIPWithTrustedProxies(req, proxies); got != "8.8.8.8" {
+		t.Fatalf("ClientIPWithTrustedProxies() = %v, want %v", got, "8.8.8.8")
+	}
+}
+
+func TestClientIPWithTrustedProxiesFallsBackToXRealIP(t *testing.T) {
+	proxies, err := utils.NewTrustedProxies("10.0.0.0/8")
+	if err != nil {
+		t.Fatalf("NewTrustedProxies() error = %v", err)
+	}
+
+	req := &http.Request{
+		Header: http.Header{
+			"X-Forwarded-For": []string{"invalid-ip"},
+			"X-Real-Ip":       []string{"203.0.113.11"},
+		},
+		RemoteAddr: "10.0.0.10:443",
+	}
+	if got := utils.ClientIPWithTrustedProxies(req, proxies); got != "203.0.113.11" {
+		t.Fatalf("ClientIPWithTrustedProxies() = %v, want %v", got, "203.0.113.11")
 	}
 }

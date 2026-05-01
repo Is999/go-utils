@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	apperrors "github.com/Is999/go-utils/errors"
@@ -227,8 +228,8 @@ func (f *Form) createFormFile(writer *multipart.Writer, fieldName, filePath stri
 	}
 	defer file.Close()
 
-	// 创建表单文件头
-	part, err := writer.CreateFormFile(fieldName, filePath)
+	// 创建表单文件头，仅暴露文件名，避免把本地目录结构写入 multipart。
+	part, err := writer.CreateFormFile(fieldName, filepath.Base(filePath))
 	if err != nil {
 		return apperrors.Wrap(err)
 	}

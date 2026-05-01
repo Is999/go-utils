@@ -436,17 +436,31 @@ func (c *Curl) SetCertKey(cert, key string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetStatusCode(statusCode ...int) *Curl {
-	if len(statusCode) > 0 {
-		c.statusCode = append(c.statusCode, statusCode...)
+	if len(statusCode) == 0 {
+		c.statusCode = c.statusCode[:0]
+		return c
 	}
+	c.statusCode = append(c.statusCode[:0], statusCode...)
 	return c
 }
 
-// SetMaxRetry 设置失败重试次数。
-// 最大重试次数不能超过 5 次。
+// GetStatusCode 获取当前允许通过校验的状态码列表副本。
+//
+// 返回值：状态码切片副本，调用方修改不会影响 Curl 内部状态。
+func (c *Curl) GetStatusCode() []int {
+	if len(c.statusCode) == 0 {
+		return nil
+	}
+	statusCode := make([]int, len(c.statusCode))
+	copy(statusCode, c.statusCode)
+	return statusCode
+}
+
+// SetMaxRetry 设置最大请求尝试次数。
+// max 包含首次请求；max=0 或 max=1 表示不额外重试，最大不超过 5。
 //
 // 参数说明：
-//   - max：重试次数
+//   - max：最大请求尝试次数
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetMaxRetry(max uint8) *Curl {

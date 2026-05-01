@@ -11,6 +11,7 @@ import (
 	"hash"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -336,6 +337,11 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	if bits < minRSABits {
 		return nil, errors.Errorf("RSA 密钥位数不能低于 %d，当前位数: %d", minRSABits, bits)
 	}
+	if strings.TrimSpace(path) != "" {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return nil, errors.Wrap(err)
+		}
+	}
 
 	isPubPKCS8 := true
 	isPriPKCS1 := true
@@ -360,7 +366,8 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 		return nil, errors.Wrap(err)
 	}
 
-	ts := time.Now().Format(SecondTime)
+	now := time.Now()
+	ts := now.Format(SecondTime) + "_" + strconv.FormatInt(now.UnixNano(), 36)
 	fileName := make([]string, 2)
 	fileName[0] = filepath.Join(path, Ternary(isPubPKCS8, "public_pkcs8_", "public_pkcs1_")+ts+".pem")
 	fileName[1] = filepath.Join(path, Ternary(isPriPKCS1, "private_pkcs1_", "private_pkcs8_")+ts+".pem")
@@ -460,9 +467,15 @@ func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
 		if !ok {
 			return nil, errors.New("PublicKey 类型错误")
 		}
+		if err = validateRSAPublicKey(pub); err != nil {
+			return nil, errors.Wrap(err)
+		}
 		return pub, nil
 	}
 	if pub, err := x509.ParsePKCS1PublicKey(der); err == nil {
+		if err = validateRSAPublicKey(pub); err != nil {
+			return nil, errors.Wrap(err)
+		}
 		return pub, nil
 	}
 	return nil, errors.New("Public key parse error")
@@ -470,6 +483,9 @@ func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
 
 func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	if pri, err := x509.ParsePKCS1PrivateKey(der); err == nil {
+		if err = validateRSAPrivateKey(pri); err != nil {
+			return nil, errors.Wrap(err)
+		}
 		return pri, nil
 	}
 	if priAny, err := x509.ParsePKCS8PrivateKey(der); err == nil {
@@ -477,9 +493,47 @@ func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
 		if !ok {
 			return nil, errors.New("PrivateKey 类型错误")
 		}
+		if err = validateRSAPrivateKey(pri); err != nil {
+			return nil, errors.Wrap(err)
+		}
 		return pri, nil
 	}
 	return nil, errors.New("Private key parse error")
+}
+
+// validateRSAPublicKey 校验 RSA 公钥是否满足生产安全下限。
+//
+// 参数说明：
+//   - pub：待校验公钥。
+//
+// 返回值：错误信息。
+func validateRSAPublicKey(pub *rsa.PublicKey) error {
+	if pub == nil || pub.N == nil {
+		return errors.New("RSA 公钥不能为空")
+	}
+	if bits := pub.N.BitLen(); bits < minRSABits {
+		return errors.Errorf("RSA 公钥位数不能低于 %d，当前位数: %d", minRSABits, bits)
+	}
+	return nil
+}
+
+// validateRSAPrivateKey 校验 RSA 私钥结构和安全位数。
+//
+// 参数说明：
+//   - pri：待校验私钥。
+//
+// 返回值：错误信息。
+func validateRSAPrivateKey(pri *rsa.PrivateKey) error {
+	if pri == nil || pri.N == nil {
+		return errors.New("RSA 私钥不能为空")
+	}
+	if bits := pri.N.BitLen(); bits < minRSABits {
+		return errors.Errorf("RSA 私钥位数不能低于 %d，当前位数: %d", minRSABits, bits)
+	}
+	if err := pri.Validate(); err != nil {
+		return errors.Wrap(err)
+	}
+	return nil
 }
 
 func rsaEncryptChunks(data []byte, keySize, maxPayload int, encrypt func([]byte) ([]byte, error)) ([]byte, error) {

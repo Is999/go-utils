@@ -84,8 +84,11 @@ func TarGz(tarGzFile string, files []string) error {
 //	fileToCompress 需要压缩的文件
 //	baseDir 打包文件根目录
 func AddFileToTar(tarWriter *tar.Writer, fileToCompress string, baseDir string) error {
-	fileInfo, err := os.Stat(fileToCompress)
+	fileInfo, err := os.Lstat(fileToCompress)
 	if err != nil {
+		return errors.Wrap(err)
+	}
+	if err = rejectArchiveSymlink(fileToCompress, fileInfo.Mode(), "tar"); err != nil {
 		return errors.Wrap(err)
 	}
 
@@ -148,6 +151,10 @@ func addDirectoryToTar(tarWriter *tar.Writer, directoryToCompress string, fileIn
 	}
 
 	for _, file := range files {
+		if err = rejectArchiveSymlink(filepath.Join(directoryToCompress, file.Name()), file.Type(), "tar"); err != nil {
+			return errors.Wrap(err)
+		}
+
 		// 获取文件信息
 		info, err := file.Info()
 		if err != nil {
@@ -221,6 +228,7 @@ func UnTar(tarFile, destDir string) error {
 	}
 
 	// 遍历tar归档文件中的每个文件条目
+	counter := archiveCounter{}
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
@@ -240,12 +248,18 @@ func UnTar(tarFile, destDir string) error {
 		// 判断文件条目是一个目录还是一个普通文件
 		switch header.Typeflag {
 		case tar.TypeDir:
+			if err = counter.add(header.Name, 0); err != nil {
+				return errors.Wrap(err)
+			}
 			// 如果是目录，创建目录
 			err := os.MkdirAll(destPath, untarDirPerm(header.Mode))
 			if err != nil {
 				return errors.Wrap(err)
 			}
 		case tar.TypeReg:
+			if err = counter.add(header.Name, header.Size); err != nil {
+				return errors.Wrap(err)
+			}
 			// 判断目录是否存在, 不存在则创建
 			if !IsExist(filepath.Dir(destPath)) {
 				err := os.MkdirAll(filepath.Dir(destPath), 0755)
@@ -292,11 +306,16 @@ func safeUntarPath(destRoot, entryName string) (string, error) {
 	if entryName == "" {
 		return "", errors.New("tar 条目名称不能为空")
 	}
-	if filepath.IsAbs(entryName) {
+	if strings.Contains(entryName, "\x00") {
+		return "", errors.New("tar 条目名称不能包含空字符")
+	}
+
+	normalizedName := strings.ReplaceAll(entryName, "\\", "/")
+	if strings.HasPrefix(normalizedName, "/") || filepath.IsAbs(normalizedName) {
 		return "", errors.Errorf("tar 条目不允许使用绝对路径: %s", entryName)
 	}
 
-	cleanName := filepath.Clean(entryName)
+	cleanName := filepath.Clean(filepath.FromSlash(normalizedName))
 	if cleanName == "." {
 		return destRoot, nil
 	}

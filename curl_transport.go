@@ -32,8 +32,11 @@ func (c *Curl) initTransport() error {
 		c.Logger.Debug("Init Transport")
 	}
 
-	// 创建 Transport 实例
-	tr := &http.Transport{}
+	// 基于标准库默认 Transport 克隆，保留连接池、HTTP/2、代理和超时等生产默认值。
+	tr, err := defaultHTTPTransport()
+	if err != nil {
+		return apperrors.Wrap(err)
+	}
 
 	// 配置代理
 	if len(c.proxyURL) > 0 {
@@ -51,7 +54,7 @@ func (c *Curl) initTransport() error {
 			c.Logger.Debug("InsecureSkipVerify")
 		}
 		if tr.TLSClientConfig == nil {
-			tr.TLSClientConfig = &tls.Config{}
+			tr.TLSClientConfig = defaultTLSConfig()
 		}
 		tr.TLSClientConfig.InsecureSkipVerify = true
 	}
@@ -62,7 +65,7 @@ func (c *Curl) initTransport() error {
 			c.Logger.Debug("RootCAs()")
 		}
 		if tr.TLSClientConfig == nil {
-			tr.TLSClientConfig = &tls.Config{}
+			tr.TLSClientConfig = defaultTLSConfig()
 		}
 		if err := RootCAs(tr.TLSClientConfig, c.rootCAs); err != nil {
 			return apperrors.Wrap(err)
@@ -75,7 +78,7 @@ func (c *Curl) initTransport() error {
 			c.Logger.Debug("Certificate()")
 		}
 		if tr.TLSClientConfig == nil {
-			tr.TLSClientConfig = &tls.Config{}
+			tr.TLSClientConfig = defaultTLSConfig()
 		}
 		if err := Certificate(tr.TLSClientConfig, c.cert, c.key); err != nil {
 			return apperrors.Wrap(err)
@@ -85,6 +88,28 @@ func (c *Curl) initTransport() error {
 	// 设置 Transport
 	c.cli.Transport = tr
 	return nil
+}
+
+// defaultHTTPTransport 返回标准库默认 Transport 的可修改副本。
+//
+// 返回值：HTTP Transport、错误信息。
+func defaultHTTPTransport() (*http.Transport, error) {
+	tr, ok := http.DefaultTransport.(*http.Transport)
+	if !ok || tr == nil {
+		return nil, apperrors.New("http.DefaultTransport 类型异常")
+	}
+	cloned := tr.Clone()
+	if cloned.TLSClientConfig != nil {
+		cloned.TLSClientConfig = cloned.TLSClientConfig.Clone()
+	}
+	return cloned, nil
+}
+
+// defaultTLSConfig 返回生产默认 TLS 配置。
+//
+// 返回值：TLS 配置指针。
+func defaultTLSConfig() *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS12}
 }
 
 // ============================ 证书配置函数 ============================
@@ -121,7 +146,9 @@ func RootCAs(config *tls.Config, rootCAs string) error {
 
 	// 创建证书池
 	certPool := x509.NewCertPool()
-	certPool.AppendCertsFromPEM(cert)
+	if ok := certPool.AppendCertsFromPEM(cert); !ok {
+		return apperrors.Errorf("RootCAs() 未解析到有效 PEM 证书: %s", rootCAs)
+	}
 
 	config.RootCAs = certPool
 	return nil

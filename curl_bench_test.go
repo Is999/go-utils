@@ -1,4 +1,6 @@
-package utils
+package utils_test
+
+import "github.com/Is999/go-utils"
 
 import (
 	"net/url"
@@ -6,7 +8,7 @@ import (
 )
 
 var (
-	benchCurl *Curl
+	benchCurl *utils.Curl
 	benchURL  string
 	benchID   string
 	benchBody int
@@ -14,13 +16,13 @@ var (
 
 func BenchmarkNew(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		benchCurl = NewCurl(WithCurlLogger(testLogger{}))
+		benchCurl = utils.NewCurl(utils.WithCurlLogger(curlTestLogger{}))
 	}
 }
 
 func BenchmarkGenerateUniqID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		benchID = generateUniqId(16)
+		benchID = utils.GenerateUniqId(16)
 	}
 }
 
@@ -30,12 +32,12 @@ func BenchmarkBuildURL(b *testing.B) {
 		"q":    []string{"codex"},
 	}
 	for i := 0; i < b.N; i++ {
-		benchURL, _ = buildUrl("https://example.com/search?lang=go", params)
+		benchURL, _ = utils.BuildUrl("https://example.com/search?lang=go", params)
 	}
 }
 
 func BenchmarkFormReaderURLEncoded(b *testing.B) {
-	form := NewForm().
+	form := utils.NewForm().
 		SetParam("page", "2").
 		SetParam("q", "codex")
 	var buf [64]byte

@@ -17,12 +17,12 @@ import (
 
 const (
 	defaultTimeout    = 30 * time.Second // 默认超时时间
-	defaultMaxRetry   = 2                // 默认重试次数
-	defaultMaxRetries = 5                // 最大重试次数
+	defaultMaxRetry   = 2                // 默认最大请求尝试次数，包含首次请求
+	defaultMaxRetries = 5                // 允许的最大请求尝试次数上限
 	defaultDumpLimit  = 4096             // dump 预览默认长度上限
 )
 
-var requestIDCounter atomic.Uint64
+var requestIDCounter atomic.Uint64 // 请求 ID 自增计数器，保证同纳秒内生成值仍可区分。
 
 // ============================ CurlOption 配置项 ============================
 
@@ -70,7 +70,7 @@ type Curl struct {
 	afterBody          func(body []byte) error                                                   // 请求发送后对 Response.Body 的处理回调
 	afterDone          func(client *http.Client, request *http.Request, response *http.Response) // 请求完成后的回调
 	requestId          string                                                                    // 请求唯一标识
-	maxRetry           uint8                                                                     // 失败重试次数（默认 2 次，最大 5 次）
+	maxRetry           uint8                                                                     // 最大请求尝试次数（默认 2 次，最大 5 次，包含首次请求）
 	dump               bool                                                                      // 是否开启 dump 模式：输出完整的请求和响应详情
 	dumpBodyLimit      int64                                                                     // dump 预览内容长度上限
 	defLogOutput       bool                                                                      // 是否启用默认日志输出（INFO 及以下级别）
@@ -262,12 +262,14 @@ func WithCurlCertKey(cert, key string) CurlOption {
 func WithCurlStatusCode(statusCode ...int) CurlOption {
 	return func(c *Curl) {
 		if len(statusCode) > 0 {
-			c.statusCode = append(c.statusCode, statusCode...)
+			c.statusCode = append(c.statusCode[:0], statusCode...)
 		}
 	}
 }
 
-// WithMaxRetry 设置失败重试次数。
+// WithMaxRetry 设置最大请求尝试次数。
+//
+// max 包含首次请求；max=0 或 max=1 表示不额外重试，最大不超过 5。
 func WithCurlMaxRetry(max uint8) CurlOption {
 	return func(c *Curl) {
 		c.maxRetry = max

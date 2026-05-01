@@ -121,6 +121,9 @@ func (r *Response) Fail(code int, message string, data ...any) {
 	if len(data) > 0 {
 		r.Data = data[0]
 	}
+	if !r.statusSet {
+		r.statusCode = http.StatusBadRequest
+	}
 	r.writeJSON("Fail Encode", "data", data)
 }
 

@@ -2,15 +2,16 @@ package utils
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"strconv"
 	"time"
 )
 
 const (
-	// retryBaseDelay 定义首次重试等待时间。
-	retryBaseDelay = 100 * time.Millisecond
-	// retryMaxDelay 限制退避等待上限，避免失败场景阻塞过久。
-	retryMaxDelay = time.Second
+	// retryBaseDelay 定义第一次失败后的基础退避时间。
+	retryBaseDelay = 200 * time.Millisecond
+	// retryMaxDelay 定义退避时间上限，避免长时间阻塞调用方。
+	retryMaxDelay = 3 * time.Second
 )
 
 // Ternary 类似于三目运算
@@ -90,10 +91,13 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 	return s
 }
 
-// Retry 尝试执行 fn，如果 fn 返回错误则按退避策略重试。
-// 最大重试次数为 maxRetries。
-// 重试间隔为 100ms、200ms、400ms、800ms，之后封顶为 1s。
+// Retry 尝试执行 fn，如果 fn 返回错误则按指数退避策略重试。
+// maxRetries 表示最大尝试次数，包含首次执行。
+// 重试间隔从 100ms~200ms 区间起步，按 2 倍递增，并在每次退避上附加随机抖动，最大不超过 3s。
 func Retry(maxRetries uint8, fn func(tries int) error) error {
+	if fn == nil {
+		return fmt.Errorf("Retry() fn 不能为空")
+	}
 	var (
 		err   error
 		tries = 0
@@ -118,26 +122,31 @@ func Retry(maxRetries uint8, fn func(tries int) error) error {
 
 	if err != nil {
 		// 重试失败，返回错误信息
-		return fmt.Errorf("method %s failed after %d retries: %w", GetFunctionName(fn), tries, err)
+		return fmt.Errorf("method %s failed after %d attempts: %w", GetFunctionName(fn), tries, err)
 	}
 	return nil
 }
 
 // retryDelay 计算第 attempt 次失败后的重试等待时间。
+// 为降低并发失败时的重试雪崩风险，会在指数退避的基础上附加小幅随机抖动。
 func retryDelay(attempt int) time.Duration {
 	if attempt <= 0 {
-		return retryBaseDelay
+		return retryBaseDelay / 2
 	}
 
+	// 指数退避从 retryBaseDelay 开始，attempt=1 表示第一次失败后的等待。
 	delay := retryBaseDelay
-	for i := 1; i < attempt; i++ {
-		if delay >= retryMaxDelay/2 {
-			return retryMaxDelay
-		}
+	for i := 1; i < attempt && delay < retryMaxDelay; i++ {
 		delay *= 2
 	}
 	if delay > retryMaxDelay {
-		return retryMaxDelay
+		delay = retryMaxDelay
 	}
-	return delay
+
+	// 使用 equal jitter：保留一半确定性延迟，另一半随机化。
+	half := delay / 2
+	if half <= 0 {
+		return delay
+	}
+	return half + time.Duration(rand.Int64N(int64(half)))
 }

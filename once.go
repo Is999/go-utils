@@ -16,17 +16,18 @@ type Once struct {
 	err     error
 }
 
-// Do 执行带有重试机制的函数调用
-// 参数:
+// Do 执行带重试能力的一次性调用。
 //
-//	f: 要执行的目标函数，无参数且返回error类型
-//	maxRetries: 最大重试次数
+// 参数说明：
 //
-// 返回值:
+//   - f：待执行函数，无参数并返回 error
+//   - maxRetries：最大尝试次数，包含首次执行；小于等于 0 时按 1 次处理
 //
-//	error: 执行成功时返回nil，失败时返回包含重试次数的错误信息
+// 返回值：
 //
-// 特性:
+//   - error：执行成功返回 nil，最终失败返回带重试次数的错误
+//
+// 特性：
 //   - 线程安全：同一时刻仅一个 goroutine 执行目标函数，其余 goroutine 等待结果
 //   - 使用有上限的指数退避策略，避免重试间隔无限增大
 //   - 成功或最终失败后都会缓存结果，后续调用直接复用；需重新执行时调用 Reset
@@ -71,7 +72,7 @@ func (r *Once) Do(f func() error, maxRetries int) error {
 	return err
 }
 
-// Reset 重置 Once 实例状态，使其可以再次执行重试操作
+// Reset 重置 Once 状态，使控制器进入下一轮可执行状态。
 func (r *Once) Reset() {
 	r.mu.Lock()
 	r.initCondLocked()
@@ -92,6 +93,7 @@ func (r *Once) initCondLocked() {
 }
 
 // doWithRetry 执行带重试的目标函数。
+// 若目标函数发生 panic，会被转换为 error 返回，避免等待方永久阻塞。
 func (r *Once) doWithRetry(f func() error, maxRetries int) (finalErr error) {
 	defer func() {
 		if recoverErr := recover(); recoverErr != nil {
@@ -112,5 +114,5 @@ func (r *Once) doWithRetry(f func() error, maxRetries int) (finalErr error) {
 		// 使用有上限的指数退避，避免失败风暴下重试间隔失控。
 		time.Sleep(retryDelay(attempt))
 	}
-	return fmt.Errorf("failed after %d retries: %v", maxRetries, err)
+	return fmt.Errorf("failed after %d attempts: %v", maxRetries, err)
 }

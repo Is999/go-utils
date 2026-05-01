@@ -151,6 +151,24 @@ func TestUnTarRestoresFileMode(t *testing.T) {
 	}
 }
 
+func TestTarRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	targetFile := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(targetFile, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(root, "target-link.txt")
+	if err := os.Symlink(targetFile, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	tarPath := filepath.Join(t.TempDir(), "symlink.tar")
+	if err := utils.Tar(tarPath, []string{linkPath}); err == nil {
+		t.Fatal("Tar() expected symlink error")
+	}
+}
+
 func createArchiveFixture(t *testing.T) string {
 	t.Helper()
 

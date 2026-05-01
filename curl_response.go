@@ -70,18 +70,24 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		}
 	}()
 
+	// 如果请求体支持 Seek，先回到起点，确保同一个 Curl 实例重复发送时请求体完整。
+	if body, err = rewindRequestBody(body); err != nil {
+		return apperrors.Wrap(err)
+	}
+
 	// 构建 Request
 	req, err = http.NewRequest(method, url, body)
 	if err != nil {
 		return apperrors.Wrap(err)
 	}
+	setRequestGetBody(req, body)
 
 	// 设置请求头
 	if c.header != nil && len(c.header) > 0 {
 		if c.defLogOutput {
 			c.Logger.Debug("set header")
 		}
-		req.Header = c.header
+		req.Header = c.header.Clone()
 	}
 
 	// 设置 Cookie
@@ -157,7 +163,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 计算重试次数
 	maxRetry := int(c.maxRetry)
 	if maxRetry <= 0 {
-		maxRetry = defaultMaxRetry
+		maxRetry = 1
 	}
 	if maxRetry > defaultMaxRetries {
 		maxRetry = defaultMaxRetries
@@ -171,6 +177,9 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 执行请求（含重试逻辑）
 	for i := 1; i <= maxRetry; i++ {
+		if i > 1 && req.GetBody == nil && req.Body != nil && req.Body != http.NoBody {
+			return apperrors.New("client.Do() retry body is not rewindable")
+		}
 		if i > 1 && req.GetBody != nil {
 			req.Body, err = req.GetBody()
 			if err != nil {
@@ -185,8 +194,8 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		// 非最后一次重试，记录警告并等待
 		if i < maxRetry {
 			c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error())
-			// 指数退避：8, 32, 128, 512 毫秒
-			time.Sleep(time.Millisecond * time.Duration(2<<(2*i)))
+			// 使用统一的指数退避和抖动策略，避免瞬时重试放大故障。
+			time.Sleep(retryDelay(i))
 		}
 	}
 
@@ -249,6 +258,55 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	return nil
+}
+
+// rewindRequestBody 在请求发送前重置可回放请求体。
+//
+// 参数说明：
+//   - body：原始请求体。
+//
+// 返回值：重置后的请求体、错误信息。
+func rewindRequestBody(body io.Reader) (io.Reader, error) {
+	if body == nil {
+		return nil, nil
+	}
+	if seeker, ok := body.(io.Seeker); ok {
+		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+			return nil, apperrors.Wrap(err)
+		}
+	}
+	if readSeeker, ok := body.(io.ReadSeeker); ok {
+		if _, closes := body.(io.Closer); closes {
+			return reusableReadSeeker{ReadSeeker: readSeeker}, nil
+		}
+	}
+	return body, nil
+}
+
+// reusableReadSeeker 隐藏底层 Close 方法，让 net/http 在重试前不会关闭调用方持有的可回放请求体。
+type reusableReadSeeker struct {
+	io.ReadSeeker // 可重复定位的请求体。
+}
+
+// setRequestGetBody 为可 Seek 的请求体补充 GetBody，保证传输错误后可以安全重试。
+//
+// 参数说明：
+//   - req：HTTP 请求对象。
+//   - body：请求体。
+func setRequestGetBody(req *http.Request, body io.Reader) {
+	if req == nil || req.GetBody != nil || body == nil {
+		return
+	}
+	readSeeker, ok := body.(io.ReadSeeker)
+	if !ok {
+		return
+	}
+	req.GetBody = func() (io.ReadCloser, error) {
+		if _, err := readSeeker.Seek(0, io.SeekStart); err != nil {
+			return nil, apperrors.Wrap(err)
+		}
+		return io.NopCloser(readSeeker), nil
+	}
 }
 
 // logRequest 记录请求日志（非 dump 模式）。
@@ -433,6 +491,11 @@ func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 	if err != nil {
 		return "", apperrors.Wrap(err)
 	}
+	restored, err := req.GetBody()
+	if err != nil {
+		return "", apperrors.Wrap(err)
+	}
+	req.Body = restored
 
 	return formatDumpWithBody(string(dump), "Request Body", preview, truncated), nil
 }
