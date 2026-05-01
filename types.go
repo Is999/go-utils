@@ -40,9 +40,14 @@ type Ordered interface {
 //	实现了排序接口, 可用sort.Sort(Slice) 排序
 type Slice[T Ordered] []T
 
-func (s Slice[T]) Len() int           { return len(s) }
+// Len 返回 Slice 的元素数量。
+func (s Slice[T]) Len() int { return len(s) }
+
+// Less 判断索引 i 的元素是否小于索引 j 的元素。
 func (s Slice[T]) Less(i, j int) bool { return s[i] < s[j] }
-func (s Slice[T]) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
+// Swap 交换索引 i 和 j 的元素。
+func (s Slice[T]) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 // 密码
 type (
@@ -113,6 +118,7 @@ type (
 // LogLevel 日志级别类型，兼容各种第三方日志库
 type LogLevel int
 
+// 日志级别常量与 slog 默认级别保持一致。
 const (
 	// LevelDebug 调试级别 (-4 对应 slog.LevelDebug)
 	LevelDebug LogLevel = -4

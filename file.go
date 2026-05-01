@@ -312,9 +312,10 @@ func Read(r io.Reader, handle ReadBlock) error {
 // WriteOption 写入文件配置项
 type WriteOption func(*writeOptions)
 
+// writeOptions 保存文件写入行为配置。
 type writeOptions struct {
-	isAppend bool
-	perm     os.FileMode
+	isAppend bool        // 是否以追加模式写入。
+	perm     os.FileMode // 文件权限，默认 0644。
 }
 
 // WithWriteAppend 设置是否追加写入

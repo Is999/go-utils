@@ -29,8 +29,8 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	t := time.Now()
 
 	// 设置请求 ID（未设置时自动生成）
-	if c.requestId == "" {
-		c.SetRequestId()
+	if c.requestID == "" {
+		c.SetRequestID()
 	}
 
 	// 输出调试日志
@@ -571,9 +571,10 @@ func readBodyPreviewAndRestore(body io.ReadCloser, limit int64) ([]byte, bool, i
 	return preview, truncated, restored, nil
 }
 
+// readCloser 将恢复后的 Reader 和原始 Closer 组合成 io.ReadCloser。
 type readCloser struct {
-	io.Reader
-	io.Closer
+	io.Reader // 恢复后的读取流。
+	io.Closer // 原始响应体关闭器。
 }
 
 // formatDumpWithBody 组装日志内容。

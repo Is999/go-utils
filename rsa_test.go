@@ -348,6 +348,7 @@ func BenchmarkRSAEncryptOAEP(b *testing.B) {
 	data := strings.Repeat("rsa-benchmark-payload-", 4)
 
 	b.ReportAllocs()
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		benchRSAString, benchmarkRSAErr = r.EncryptOAEP(data, base64.StdEncoding.EncodeToString, sha256.New())
 		if benchmarkRSAErr != nil {
@@ -364,6 +365,7 @@ func BenchmarkRSADecryptOAEP(b *testing.B) {
 	}
 
 	b.ReportAllocs()
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		benchRSAString, benchmarkRSAErr = r.DecryptOAEP(encrypted, base64.StdEncoding.DecodeString, sha256.New())
 		if benchmarkRSAErr != nil {
@@ -377,6 +379,7 @@ func BenchmarkRSASignPSS(b *testing.B) {
 	data := strings.Repeat("rsa-sign-payload-", 8)
 
 	b.ReportAllocs()
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		benchRSAString, benchmarkRSAErr = r.SignPSS(data, crypto.SHA256, base64.StdEncoding.EncodeToString, nil)
 		if benchmarkRSAErr != nil {
@@ -394,6 +397,7 @@ func BenchmarkRSAVerifyPSS(b *testing.B) {
 	}
 
 	b.ReportAllocs()
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		benchmarkRSAErr = r.VerifyPSS(data, sign, crypto.SHA256, base64.StdEncoding.DecodeString, nil)
 		if benchmarkRSAErr != nil {

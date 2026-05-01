@@ -487,6 +487,12 @@ func Type[T error](err error) (T, bool) {
 	return target, false
 }
 
+// typeFromChildren 在多分支错误树中查找指定错误类型。
+//
+// 参数说明：
+//   - children：多分支错误子节点。
+//
+// 返回值：匹配到的错误值及是否命中。
 func typeFromChildren[T error](children []error) (T, bool) {
 	var target T
 	var stackBuf [8]error

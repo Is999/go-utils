@@ -393,7 +393,7 @@ func (c *Curl) SetProxyURL(proxyURL string) *Curl {
 }
 
 // InsecureSkipVerify 设置是否跳过 HTTPS 不安全验证。
-// ⚠️ 生产环境禁止使用，存在安全风险！
+// 注意：生产环境禁止使用，存在安全风险。
 //
 // 参数说明：
 //   - isSkip：true 跳过验证，false 进行验证

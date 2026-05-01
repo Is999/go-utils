@@ -1,10 +1,10 @@
 package utils_test
 
-import "github.com/Is999/go-utils"
-
 import (
 	"net/url"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 var (
@@ -22,7 +22,7 @@ func BenchmarkNew(b *testing.B) {
 
 func BenchmarkGenerateUniqID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		benchID = utils.GenerateUniqId(16)
+		benchID = utils.GenerateUniqID(16)
 	}
 }
 
@@ -32,7 +32,7 @@ func BenchmarkBuildURL(b *testing.B) {
 		"q":    []string{"codex"},
 	}
 	for i := 0; i < b.N; i++ {
-		benchURL, _ = utils.BuildUrl("https://example.com/search?lang=go", params)
+		benchURL, _ = utils.BuildURL("https://example.com/search?lang=go", params)
 	}
 }
 

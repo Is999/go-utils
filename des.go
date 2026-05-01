@@ -6,7 +6,10 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// DES des加密解密
+// DES 创建 DES/3DES 分组密码封装。
+//
+// 安全说明：DES 密钥空间过小，3DES 也属于历史兼容算法；新系统应优先使用 AES-GCM。
+// 当 key 长度为 24 字节时自动使用 3DES，长度为 8 字节时使用 DES。
 //
 //	key 秘钥
 func DES(key string, opts ...CipherOption) (*Cipher, error) {
@@ -21,7 +24,9 @@ func DES(key string, opts ...CipherOption) (*Cipher, error) {
 	return NewCipher(key, des.NewCipher, opts...)
 }
 
-// DES3 des3加密解密
+// DES3 创建 3DES 分组密码封装。
+//
+// 安全说明：3DES 仅用于旧协议兼容，新系统应优先使用 AES-GCM。
 //
 //	key 秘钥
 func DES3(key string, opts ...CipherOption) (*Cipher, error) {

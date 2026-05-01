@@ -280,6 +280,11 @@ func sourceMulti(err error, children []error) error {
 	return last
 }
 
+// unwrapNode 解析单分支或多分支错误节点。
+//
+// 返回值：
+//   - error：单分支下一个错误节点。
+//   - []error：errors.Join 等多分支错误节点。
 func unwrapNode(err error) (error, []error) {
 	switch e := err.(type) {
 	case *stackError:

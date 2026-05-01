@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// 字符集常量用于随机字符串与校验码生成。
 const (
 	// ALPHA 英文字母：A-Za-z
 	ALPHA = `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz`
@@ -157,12 +158,12 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string {
 	return string(s)
 }
 
-// UniqId 生成一个长度范围16-32位的唯一ID字符串(可排序的字符串)，UniqId只生成字符串并不保证唯一性。
-// UniqId将int64时间戳转换成36位字符串（长度12位）剩余长度使用rand随机生成int64数字并转换成36位字符串。
+// UniqID 生成一个长度范围 16-32 位的唯一 ID 字符串（可排序字符串）。
+// UniqID 只生成字符串标识，不承诺全局强唯一；强唯一场景建议使用业务唯一键或 UUID/ULID。
 //
-//	l 生成UniqId长度: 取值范围[16-32], 小于16按16位处理, 大于32按32位处理
+//	l 生成 UniqID 长度: 取值范围[16-32], 小于16按16位处理, 大于32按32位处理
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func UniqId(l uint8, r ...*rand.Rand) string {
+func UniqID(l uint8, r ...*rand.Rand) string {
 	// 16-32 位
 	if l > 32 {
 		l = 32
@@ -174,7 +175,7 @@ func UniqId(l uint8, r ...*rand.Rand) string {
 	nano := time.Now().UnixNano()
 	ts := strconv.FormatInt(nano, 36) // int64时间戳转36位字符串
 
-	// UniqId拼接
+	// 使用 strings.Builder 减少多段拼接产生的临时对象。
 	var b strings.Builder
 	b.Grow(int(l))
 	b.WriteString(ts)
@@ -207,6 +208,13 @@ func UniqId(l uint8, r ...*rand.Rand) string {
 	}
 
 	return b.String()
+}
+
+// UniqId 生成一个长度范围 16-32 位的唯一 ID 字符串。
+//
+// Deprecated: 请使用 UniqID。
+func UniqId(l uint8, r ...*rand.Rand) string {
+	return UniqID(l, r...)
 }
 
 // RandSource rand

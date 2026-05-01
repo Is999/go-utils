@@ -8,13 +8,15 @@ import (
 // slogLogger 基于 log/slog 的默认 Logger 实现。
 // 当 l 为 nil 时，委托给 slog.Default()，从而跟随 slog.SetDefault() 的变更。
 type slogLogger struct {
-	l *slog.Logger
+	l *slog.Logger // 底层 slog Logger，nil 时使用 slog.Default()。
 }
 
+// newSlogLogger 创建默认 slog Logger 适配器。
 func newSlogLogger() *slogLogger {
 	return &slogLogger{}
 }
 
+// logger 返回当前可用的 slog Logger。
 func (s *slogLogger) logger() *slog.Logger {
 	if s.l != nil {
 		return s.l
@@ -22,11 +24,19 @@ func (s *slogLogger) logger() *slog.Logger {
 	return slog.Default()
 }
 
+// Debug 输出调试级别日志。
 func (s *slogLogger) Debug(msg string, args ...any) { s.logger().Debug(msg, args...) }
-func (s *slogLogger) Info(msg string, args ...any)  { s.logger().Info(msg, args...) }
-func (s *slogLogger) Warn(msg string, args ...any)  { s.logger().Warn(msg, args...) }
+
+// Info 输出信息级别日志。
+func (s *slogLogger) Info(msg string, args ...any) { s.logger().Info(msg, args...) }
+
+// Warn 输出警告级别日志。
+func (s *slogLogger) Warn(msg string, args ...any) { s.logger().Warn(msg, args...) }
+
+// Error 输出错误级别日志。
 func (s *slogLogger) Error(msg string, args ...any) { s.logger().Error(msg, args...) }
 
+// With 创建带固定字段的子 Logger。
 func (s *slogLogger) With(args ...any) Logger {
 	return &slogLogger{l: s.logger().With(args...)}
 }
@@ -49,7 +59,6 @@ func toSlogLevel(level LogLevel) slog.Level {
 		return slog.LevelError
 	default:
 		// 对于自定义级别，直接转换（假设用户知道 slog 的级别语义）
-		// For custom levels, directly convert (assumes user understands slog level semantics)
 		return slog.Level(level)
 	}
 }

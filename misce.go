@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// 重试退避常量用于限制失败后的等待时间。
 const (
 	// retryBaseDelay 定义第一次失败后的基础退避时间。
 	retryBaseDelay = 200 * time.Millisecond

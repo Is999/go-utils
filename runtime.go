@@ -5,10 +5,11 @@ import (
 	"runtime"
 )
 
+// Frame 保存调用栈中的函数、文件和行号信息。
 type Frame struct {
-	Func string //方法名
-	File string //文件名
-	Line int    //行号
+	Func string // 方法名。
+	File string // 文件名。
+	Line int    // 行号。
 }
 
 // RuntimeInfo 获取运行时行号、方法名、文件地址

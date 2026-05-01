@@ -32,10 +32,12 @@ type RSA struct {
 // RSAOption RSA 配置项。
 type RSAOption func(*rsaOptions)
 
+// rsaOptions 保存 RSA 初始化选项。
 type rsaOptions struct {
-	isFilePath bool
+	isFilePath bool // 密钥字符串是否按文件路径读取。
 }
 
+// RSA 安全边界常量。
 const (
 	// minRSABits 定义生产环境建议的最小 RSA 密钥位数。
 	minRSABits = 2048
@@ -81,6 +83,7 @@ func NewPriRSA(pri string, opts ...RSAOption) (*RSA, error) {
 	return r, nil
 }
 
+// parseRSAOptions 解析 RSA 选项，nil 选项会被忽略。
 func parseRSAOptions(opts ...RSAOption) rsaOptions {
 	cfg := rsaOptions{}
 	for _, opt := range opts {
@@ -432,6 +435,7 @@ func AddPEMHeaders(key, keyType string) (string, error) {
 	return b.String(), nil
 }
 
+// readKeyData 根据配置读取密钥数据。
 func readKeyData(key string, isFilePath bool) ([]byte, error) {
 	if isFilePath {
 		return os.ReadFile(key)
@@ -439,6 +443,7 @@ func readKeyData(key string, isFilePath bool) ([]byte, error) {
 	return []byte(key), nil
 }
 
+// decodeKeyDER 将 PEM、base64 DER 或原始 DER 密钥统一转换为 DER 字节。
 func decodeKeyDER(key []byte, wantType string) ([]byte, error) {
 	key = bytes.TrimSpace(key)
 	if len(key) == 0 {
@@ -446,7 +451,7 @@ func decodeKeyDER(key []byte, wantType string) ([]byte, error) {
 	}
 	if block, _ := pem.Decode(key); block != nil {
 		if wantType != "" && !strings.Contains(strings.ToUpper(block.Type), wantType) {
-			return nil, errors.Errorf("%s key type error", strings.Title(strings.ToLower(wantType)))
+			return nil, errors.Errorf("%s key type error", rsaKeyTypeName(wantType))
 		}
 		return block.Bytes, nil
 	}
@@ -461,6 +466,16 @@ func decodeKeyDER(key []byte, wantType string) ([]byte, error) {
 	return key, nil
 }
 
+// rsaKeyTypeName 返回适合错误信息展示的密钥类型名称。
+func rsaKeyTypeName(wantType string) string {
+	keyType := strings.ToLower(wantType)
+	if keyType == "" {
+		return ""
+	}
+	return strings.ToUpper(keyType[:1]) + keyType[1:]
+}
+
+// parseRSAPublicKey 解析 PKIX 或 PKCS#1 公钥并校验安全位数。
 func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
 	if pubAny, err := x509.ParsePKIXPublicKey(der); err == nil {
 		pub, ok := pubAny.(*rsa.PublicKey)
@@ -481,6 +496,7 @@ func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
 	return nil, errors.New("Public key parse error")
 }
 
+// parseRSAPrivateKey 解析 PKCS#1 或 PKCS#8 私钥并校验安全位数。
 func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	if pri, err := x509.ParsePKCS1PrivateKey(der); err == nil {
 		if err = validateRSAPrivateKey(pri); err != nil {
@@ -536,6 +552,7 @@ func validateRSAPrivateKey(pri *rsa.PrivateKey) error {
 	return nil
 }
 
+// rsaEncryptChunks 按 RSA 最大载荷分块加密数据。
 func rsaEncryptChunks(data []byte, keySize, maxPayload int, encrypt func([]byte) ([]byte, error)) ([]byte, error) {
 	if maxPayload <= 0 {
 		return nil, errors.New("加密失败：最大分块长度小于等于 0")
@@ -559,6 +576,7 @@ func rsaEncryptChunks(data []byte, keySize, maxPayload int, encrypt func([]byte)
 	return out, nil
 }
 
+// rsaDecryptChunks 按 RSA 密钥长度分块解密数据。
 func rsaDecryptChunks(ciphertext []byte, keySize int, decrypt func([]byte) ([]byte, error)) ([]byte, error) {
 	if keySize <= 0 {
 		return nil, errors.New("解密失败：密钥长度异常")
@@ -580,6 +598,7 @@ func rsaDecryptChunks(ciphertext []byte, keySize int, decrypt func([]byte) ([]by
 	return out, nil
 }
 
+// hashBytes 使用指定摘要算法计算数据摘要。
 func hashBytes(data []byte, hash crypto.Hash) ([]byte, error) {
 	if !hash.Available() {
 		return nil, errors.New("hash 不可用")
@@ -601,6 +620,7 @@ func validateRSASignHash(hash crypto.Hash) error {
 	return nil
 }
 
+// marshalPrivateKey 按 PKCS#1 或 PKCS#8 格式序列化私钥。
 func marshalPrivateKey(privateKey *rsa.PrivateKey, isPKCS1 bool) ([]byte, error) {
 	if isPKCS1 {
 		return x509.MarshalPKCS1PrivateKey(privateKey), nil
@@ -608,6 +628,7 @@ func marshalPrivateKey(privateKey *rsa.PrivateKey, isPKCS1 bool) ([]byte, error)
 	return x509.MarshalPKCS8PrivateKey(privateKey)
 }
 
+// marshalPublicKey 按 PKCS#1 或 PKIX 格式序列化公钥。
 func marshalPublicKey(publicKey *rsa.PublicKey, isPKCS8 bool) ([]byte, error) {
 	if isPKCS8 {
 		return x509.MarshalPKIXPublicKey(publicKey)
@@ -615,6 +636,7 @@ func marshalPublicKey(publicKey *rsa.PublicKey, isPKCS8 bool) ([]byte, error) {
 	return x509.MarshalPKCS1PublicKey(publicKey), nil
 }
 
+// writePEMFile 以指定权限写入 PEM 文件。
 func writePEMFile(name string, block *pem.Block, perm os.FileMode) error {
 	file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {

@@ -2,6 +2,7 @@ package utils
 
 import "reflect"
 
+// 填充函数指针用于快速识别无需填充的策略。
 var (
 	// noPaddingFuncPtr 记录 NoPadding 函数指针，用于快速识别“流模式不填充”策略。
 	noPaddingFuncPtr = reflect.ValueOf(NoPadding).Pointer()

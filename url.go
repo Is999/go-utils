@@ -9,7 +9,7 @@ import (
 // - 对URL字符转义 - url.QueryEscape(str)
 // - 对URL转义字符反转义 - url.QueryUnescape(str)
 
-// UrlPath 组装带参数的完整 URL。
+// URLPath 组装带参数的完整 URL。
 // 将 params 中的查询参数合并到 urlPath 中，保留原有查询参数。
 //
 // 参数说明：
@@ -17,7 +17,7 @@ import (
 //   - params：查询参数键值对
 //
 // 返回值：完整 URL 字符串，错误信息
-func UrlPath(urlPath string, params url.Values) (string, error) {
+func URLPath(urlPath string, params url.Values) (string, error) {
 	if params != nil && len(params) > 0 {
 		u, err := url.Parse(urlPath)
 		if err != nil {
@@ -31,4 +31,11 @@ func UrlPath(urlPath string, params url.Values) (string, error) {
 		return u.String(), nil
 	}
 	return urlPath, nil
+}
+
+// UrlPath 组装带参数的完整 URL。
+//
+// Deprecated: 请使用 URLPath。
+func UrlPath(urlPath string, params url.Values) (string, error) {
+	return URLPath(urlPath, params)
 }

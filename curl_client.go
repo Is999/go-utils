@@ -22,7 +22,8 @@ const (
 	defaultDumpLimit  = 4096             // dump 预览默认长度上限
 )
 
-var requestIDCounter atomic.Uint64 // 请求 ID 自增计数器，保证同纳秒内生成值仍可区分。
+// requestIDCounter 是请求 ID 自增计数器，保证同纳秒内生成值仍可区分。
+var requestIDCounter atomic.Uint64
 
 // ============================ CurlOption 配置项 ============================
 
@@ -69,7 +70,7 @@ type Curl struct {
 	afterResponse      func(response *http.Response) (isDone bool, err error)                    // 请求发送后的回调
 	afterBody          func(body []byte) error                                                   // 请求发送后对 Response.Body 的处理回调
 	afterDone          func(client *http.Client, request *http.Request, response *http.Response) // 请求完成后的回调
-	requestId          string                                                                    // 请求唯一标识
+	requestID          string                                                                    // 请求唯一标识
 	maxRetry           uint8                                                                     // 最大请求尝试次数（默认 2 次，最大 5 次，包含首次请求）
 	dump               bool                                                                      // 是否开启 dump 模式：输出完整的请求和响应详情
 	dumpBodyLimit      int64                                                                     // dump 预览内容长度上限
@@ -112,7 +113,7 @@ func NewCurl(opts ...CurlOption) *Curl {
 		beforeClient:       nil,
 		afterResponse:      nil,
 		afterBody:          nil,
-		requestId:          "",
+		requestID:          "",
 		maxRetry:           defaultMaxRetry,
 		dump:               false,
 		dumpBodyLimit:      defaultDumpLimit,
@@ -131,8 +132,8 @@ func NewCurl(opts ...CurlOption) *Curl {
 		}
 	}
 
-	// 统一绑定请求 ID，确保 WithLogger/WithRequestId 任意顺序都能生效。
-	c.SetRequestId(c.requestId)
+	// 统一绑定请求 ID，确保 WithLogger/WithRequestID 任意顺序都能生效。
+	c.SetRequestID(c.requestID)
 
 	return c
 }
@@ -165,11 +166,18 @@ func WithCurlDefLogOutput(enable bool) CurlOption {
 	}
 }
 
-// WithRequestId 设置请求 ID。
-func WithCurlRequestId(requestId string) CurlOption {
+// WithCurlRequestID 设置请求 ID。
+func WithCurlRequestID(requestID string) CurlOption {
 	return func(c *Curl) {
-		c.requestId = strings.TrimSpace(requestId)
+		c.requestID = strings.TrimSpace(requestID)
 	}
+}
+
+// WithCurlRequestId 设置请求 ID。
+//
+// Deprecated: 请使用 WithCurlRequestID。
+func WithCurlRequestId(requestId string) CurlOption {
+	return WithCurlRequestID(requestId)
 }
 
 // WithContentType 设置请求头 Content-Type。
@@ -309,14 +317,14 @@ func (c *Curl) CloseIdleConnections() {
 	}
 }
 
-// SetRequestId 设置请求唯一标识。
+// SetRequestID 设置请求唯一标识。
 // 如果未指定或为空字符串，自动生成 16 位唯一 ID。
 // 设置后会自动更新 Logger 和 Header 中的 X-Request-Id。
-func (c *Curl) SetRequestId(requestId ...string) *Curl {
-	if len(requestId) == 0 || strings.TrimSpace(requestId[0]) == "" {
-		c.requestId = generateUniqId(16)
+func (c *Curl) SetRequestID(requestID ...string) *Curl {
+	if len(requestID) == 0 || strings.TrimSpace(requestID[0]) == "" {
+		c.requestID = generateUniqID(16)
 	} else {
-		c.requestId = strings.TrimSpace(requestId[0])
+		c.requestID = strings.TrimSpace(requestID[0])
 	}
 
 	logger := c.baseLogger
@@ -328,23 +336,37 @@ func (c *Curl) SetRequestId(requestId ...string) *Curl {
 	}
 
 	// 更新日志实例的请求 ID 字段
-	c.Logger = logger.With("X-Request-Id", c.requestId)
+	c.Logger = logger.With("X-Request-Id", c.requestID)
 
 	// 更新请求头
-	c.header.Set("X-Request-Id", c.requestId)
+	c.header.Set("X-Request-Id", c.requestID)
 	return c
 }
 
+// SetRequestId 设置请求唯一标识。
+//
+// Deprecated: 请使用 SetRequestID。
+func (c *Curl) SetRequestId(requestId ...string) *Curl {
+	return c.SetRequestID(requestId...)
+}
+
+// GetRequestID 获取当前请求 ID。
+func (c *Curl) GetRequestID() string {
+	return c.requestID
+}
+
 // GetRequestId 获取当前请求 ID。
+//
+// Deprecated: 请使用 GetRequestID。
 func (c *Curl) GetRequestId() string {
-	return c.requestId
+	return c.GetRequestID()
 }
 
 // ============================ HTTP 请求方法 ============================
 
 // Get 发起 GET 请求。
 func (c *Curl) Get(url string) (err error) {
-	url, err = buildUrl(url, c.params)
+	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -353,7 +375,7 @@ func (c *Curl) Get(url string) (err error) {
 
 // Post 发起 POST 请求。
 func (c *Curl) Post(url string) (err error) {
-	url, err = buildUrl(url, c.params)
+	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -368,7 +390,7 @@ func (c *Curl) PostForm(url string) error {
 
 // Put 发起 PUT 请求。
 func (c *Curl) Put(url string) (err error) {
-	url, err = buildUrl(url, c.params)
+	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -377,7 +399,7 @@ func (c *Curl) Put(url string) (err error) {
 
 // Patch 发起 PATCH 请求。
 func (c *Curl) Patch(url string) (err error) {
-	url, err = buildUrl(url, c.params)
+	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -391,7 +413,7 @@ func (c *Curl) Head(url string) error {
 
 // Delete 发起 DELETE 请求。
 func (c *Curl) Delete(url string) (err error) {
-	url, err = buildUrl(url, c.params)
+	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -400,7 +422,7 @@ func (c *Curl) Delete(url string) (err error) {
 
 // Options 发起 OPTIONS 请求。
 func (c *Curl) Options(url string) (err error) {
-	url, err = buildUrl(url, c.params)
+	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -409,8 +431,8 @@ func (c *Curl) Options(url string) (err error) {
 
 // ============================ 内部辅助函数 ============================
 
-// generateUniqId 生成唯一 ID。
-func generateUniqId(length int) string {
+// generateUniqID 生成指定长度的请求唯一 ID。
+func generateUniqID(length int) string {
 	if length <= 0 {
 		return ""
 	}
@@ -424,12 +446,19 @@ func generateUniqId(length int) string {
 	return string(out[:length])
 }
 
-// buildUrl 构建完整的 URL，将 params 追加为查询参数。
-func buildUrl(baseUrl string, params url.Values) (string, error) {
+// generateUniqId 生成指定长度的请求唯一 ID。
+//
+// Deprecated: 请使用 generateUniqID。
+func generateUniqId(length int) string {
+	return generateUniqID(length)
+}
+
+// buildURL 构建完整的 URL，将 params 追加为查询参数。
+func buildURL(baseURL string, params url.Values) (string, error) {
 	if params == nil || len(params) == 0 {
-		return baseUrl, nil
+		return baseURL, nil
 	}
-	u, err := url.Parse(baseUrl)
+	u, err := url.Parse(baseURL)
 	if err != nil {
 		return "", errors.Wrap(err)
 	}
@@ -441,4 +470,11 @@ func buildUrl(baseUrl string, params url.Values) (string, error) {
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+// buildUrl 构建完整的 URL，将 params 追加为查询参数。
+//
+// Deprecated: 请使用 buildURL。
+func buildUrl(baseUrl string, params url.Values) (string, error) {
+	return buildURL(baseUrl, params)
 }

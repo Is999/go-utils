@@ -6,6 +6,7 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
+// 归档安全限制常量用于控制解压资源消耗。
 const (
 	// archiveMaxEntries 限制单个压缩包内的最大条目数，避免异常归档占用过多 inode 与 CPU。
 	archiveMaxEntries = 10000

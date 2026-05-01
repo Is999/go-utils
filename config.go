@@ -6,9 +6,12 @@ import (
 	"sync/atomic"
 )
 
+// 全局配置状态，使用 once 与原子指针保证并发安全。
 var (
+	// setOptionsOnce 确保 Configure 全局配置只在程序生命周期内生效一次。
 	setOptionsOnce sync.Once
-	configValue    atomic.Pointer[options]
+	// configValue 使用原子指针保存配置快照，保证并发读取无锁且安全。
+	configValue atomic.Pointer[options]
 )
 
 // Option 用于配置全局设置入口的选项
@@ -21,6 +24,9 @@ type _json struct {
 	// 对数据进行 JSON 解码
 	decode Decode
 }
+
+// options 保存全局配置快照。
+// 结构体内部字段只在 Configure 阶段写入，运行期通过原子指针只读访问。
 type options struct {
 	// 设置 json 编解码方法(三方开源库)，若未设置则默认使用 encoding/json(标准库)。
 	json _json
@@ -28,6 +34,7 @@ type options struct {
 	logger Logger
 }
 
+// init 初始化默认配置，确保未显式 Configure 时也能安全使用。
 func init() {
 	configValue.Store(defaultOptions())
 }

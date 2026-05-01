@@ -11,6 +11,7 @@ import (
 	"strings"
 )
 
+// Response 默认值与响应头常量。
 const (
 	defaultResponseStatus      = http.StatusOK
 	defaultJSONContentType     = "application/json; charset=utf-8"
@@ -31,11 +32,11 @@ const (
 //   - 稳定：统一管理状态码和响应头，避免重复 WriteHeader。
 //   - 安全：文件响应禁止目录输出，下载文件名会清洗 CR/LF 等危险字符。
 type Response struct {
-	Body
-	statusCode  int
-	statusSet   bool
-	writer      http.ResponseWriter
-	wroteHeader bool
+	Body                            // JSON 响应体。
+	statusCode  int                 // HTTP 状态码。
+	statusSet   bool                // 是否显式设置过状态码。
+	writer      http.ResponseWriter // HTTP 响应写入器。
+	wroteHeader bool                // 是否已经写出响应头。
 }
 
 // ResponseOption 响应配置项。
@@ -180,6 +181,7 @@ func (r *Response) DownloadRequest(req *http.Request, filePath string, rename ..
 	r.download(req, filePath, rename...)
 }
 
+// download 统一处理下载文件逻辑。
 func (r *Response) download(req *http.Request, filePath string, rename ...string) {
 	file, info, ok := r.openFile(filePath, "Download")
 	if !ok {
@@ -253,6 +255,7 @@ func (r *Response) ContentType(contentType string) *Response {
 	return r
 }
 
+// ensureContentType 在未设置 Content-Type 时写入默认类型。
 func (r *Response) ensureContentType(contentType string) *Response {
 	if r == nil || r.writer == nil {
 		return r
@@ -303,6 +306,7 @@ func Redirect(w http.ResponseWriter, url string, opts ...ResponseOption) {
 	resp.writeHeader()
 }
 
+// newResponse 创建响应构造器并应用选项。
 func newResponse(w http.ResponseWriter, statusCode int, opts ...ResponseOption) *Response {
 	resp := &Response{
 		writer:     w,
@@ -320,6 +324,7 @@ func newResponse(w http.ResponseWriter, statusCode int, opts ...ResponseOption) 
 	return resp
 }
 
+// setStatusCode 校验并记录 HTTP 状态码。
 func (r *Response) setStatusCode(statusCode int) {
 	if validHTTPStatus(statusCode) {
 		r.statusCode = statusCode
@@ -327,10 +332,12 @@ func (r *Response) setStatusCode(statusCode int) {
 	}
 }
 
+// validHTTPStatus 判断状态码是否在 net/http 支持范围内。
 func validHTTPStatus(statusCode int) bool {
 	return statusCode >= 100 && statusCode <= 599
 }
 
+// writeJSON 将当前 Body 编码为 JSON 并写出。
 func (r *Response) writeJSON(desc string, args ...any) {
 	body, err := r.Encode()
 	if err != nil {
@@ -340,6 +347,7 @@ func (r *Response) writeJSON(desc string, args ...any) {
 	r.writeBytes(body)
 }
 
+// writeHeader 写出响应头，确保状态码只写一次。
 func (r *Response) writeHeader() bool {
 	if r == nil || r.writer == nil {
 		return false
@@ -355,6 +363,7 @@ func (r *Response) writeHeader() bool {
 	return true
 }
 
+// writeBytes 写出字节响应体。
 func (r *Response) writeBytes(body []byte) {
 	if !r.writeHeader() {
 		return
@@ -367,6 +376,7 @@ func (r *Response) writeBytes(body []byte) {
 	}
 }
 
+// writeString 写出字符串响应体，避免额外 []byte 分配。
 func (r *Response) writeString(body string) {
 	if !r.writeHeader() {
 		return
@@ -379,6 +389,7 @@ func (r *Response) writeString(body string) {
 	}
 }
 
+// openFile 打开文件并拒绝目录响应。
 func (r *Response) openFile(filePath, desc string) (*os.File, os.FileInfo, bool) {
 	if r == nil {
 		return nil, nil, false
@@ -403,6 +414,7 @@ func (r *Response) openFile(filePath, desc string) (*os.File, os.FileInfo, bool)
 	return file, info, true
 }
 
+// serveFile 根据状态码选择 ServeContent 或手动复制路径。
 func (r *Response) serveFile(req *http.Request, file *os.File, info os.FileInfo) {
 	if r == nil || r.writer == nil || file == nil || info == nil {
 		return
@@ -422,6 +434,7 @@ func (r *Response) serveFile(req *http.Request, file *os.File, info os.FileInfo)
 	r.wroteHeader = true
 }
 
+// serveFileWithStatus 使用显式状态码输出文件内容。
 func (r *Response) serveFileWithStatus(file *os.File, info os.FileInfo) {
 	if r.writer.Header().Get(headerContentType) == "" {
 		ctype, err := FileType(file)
@@ -438,6 +451,7 @@ func (r *Response) serveFileWithStatus(file *os.File, info os.FileInfo) {
 	}
 }
 
+// fileError 将文件访问错误转换为安全 HTTP 错误响应。
 func (r *Response) fileError(desc, filePath string, err error) {
 	statusCode := http.StatusInternalServerError
 	switch {
@@ -450,11 +464,13 @@ func (r *Response) fileError(desc, filePath string, err error) {
 	r.writeHTTPError(statusCode, http.StatusText(statusCode)+", code-"+id)
 }
 
+// serverError 输出内部错误响应并记录日志。
 func (r *Response) serverError(desc string, err error, args ...any) {
 	id := r.logError(desc, err, args...)
 	r.writeHTTPError(http.StatusInternalServerError, "Response error, code-"+id)
 }
 
+// writeHTTPError 写出 HTTP 错误响应，已写头时不再重复写入。
 func (r *Response) writeHTTPError(statusCode int, message string) {
 	if r == nil || r.writer == nil || r.wroteHeader {
 		return
@@ -465,8 +481,9 @@ func (r *Response) writeHTTPError(statusCode int, message string) {
 	r.wroteHeader = true
 }
 
+// logError 记录错误并返回可暴露给调用方的追踪 ID。
 func (r *Response) logError(desc string, err error, args ...any) string {
-	id := UniqId(16)
+	id := UniqID(16)
 	if err == nil {
 		return id
 	}
@@ -480,6 +497,7 @@ func (r *Response) logError(desc string, err error, args ...any) string {
 	return id
 }
 
+// normalizeContentType 规范化 Content-Type，并为文本类型补充 UTF-8。
 func normalizeContentType(contentType string) string {
 	ct := strings.TrimSpace(contentType)
 	if ct == "" {
@@ -505,6 +523,7 @@ func normalizeContentType(contentType string) string {
 	}
 }
 
+// safeAttachmentName 清洗下载文件名，避免响应头注入和路径语义。
 func safeAttachmentName(name string) string {
 	name = filepath.Base(cleanHeaderValue(strings.TrimSpace(name)))
 	name = strings.Map(func(r rune) rune {
@@ -523,6 +542,7 @@ func safeAttachmentName(name string) string {
 	return name
 }
 
+// cleanHeaderValue 移除响应头值中的换行符，避免 CRLF 注入。
 func cleanHeaderValue(value string) string {
 	return strings.NewReplacer("\r", "", "\n", "").Replace(value)
 }
