@@ -9,21 +9,6 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// ValidationTarget 表示校验目标类型。
-// 用于区分当前错误来自账号、普通密码或强密码等不同场景。
-type ValidationTarget string
-
-const (
-	// ValidationTargetAccount 表示账号校验。
-	ValidationTargetAccount ValidationTarget = "account"
-	// ValidationTargetPassword 表示普通密码校验。
-	ValidationTargetPassword ValidationTarget = "password"
-	// ValidationTargetStrongPassword 表示仅允许字母和数字的强密码校验。
-	ValidationTargetStrongPassword ValidationTarget = "strong_password"
-	// ValidationTargetStrongPasswordWithChars 表示允许特殊字符的强密码校验。
-	ValidationTargetStrongPasswordWithChars ValidationTarget = "strong_password_with_symbols"
-)
-
 // ValidationReason 表示校验失败原因。
 // 业务侧可根据该字段决定最终提示文案、错误码或国际化文案键。
 type ValidationReason string
@@ -48,7 +33,6 @@ const (
 // ValidationError 表示结构化校验失败结果。
 // 业务侧应通过 errors.As 提取后，根据 Target/Reason 自行决定提示文案。
 type ValidationError struct {
-	Target ValidationTarget // 校验目标类型
 	Reason ValidationReason // 校验失败原因
 	Min    uint8            // 最小长度约束
 	Max    uint8            // 最大长度约束
@@ -79,14 +63,13 @@ func (e *ValidationError) MessageKey() string {
 	if e == nil {
 		return ""
 	}
-	return "validation." + string(e.Target) + "." + string(e.Reason)
+	return "validation." + string(e.Reason)
 }
 
 // newValidationError 创建一个结构化校验错误。
 // 内部统一收敛校验失败的 target、reason 和长度约束信息。
-func newValidationError(target ValidationTarget, reason ValidationReason, min, max uint8) error {
+func newValidationError(reason ValidationReason, min, max uint8) error {
 	return &ValidationError{
-		Target: target,
 		Reason: reason,
 		Min:    min,
 		Max:    max,
@@ -285,21 +268,21 @@ func Account(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
-		return newValidationError(ValidationTargetAccount, ValidationReasonLengthOutOfRange, min, max)
+		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
 	// 不能连续出现下滑线'_'两次或两次以上"
 	reg := regexp.MustCompile(`(_{2,})`)
 	s := reg.FindString(value)
 	if s != "" {
-		return newValidationError(ValidationTargetAccount, ValidationReasonConsecutiveUnderscore, min, max)
+		return newValidationError(ValidationReasonConsecutiveUnderscore, min, max)
 	}
 	matched, err := regexp.MatchString(fmt.Sprintf(`^[a-zA-Z][a-zA-Z0-9_]{%d,%d}$`, min, max), value)
 	if err != nil {
 		return errors.Tag(err)
 	}
 	if !matched {
-		return newValidationError(ValidationTargetAccount, ValidationReasonInvalidFormat, min, max)
+		return newValidationError(ValidationReasonInvalidFormat, min, max)
 	}
 	return nil
 }
@@ -309,7 +292,7 @@ func PassWord(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
-		return newValidationError(ValidationTargetPassword, ValidationReasonLengthOutOfRange, min, max)
+		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
 	matched, err := regexp.MatchString(fmt.Sprintf(`^\w{%d,%d}$`, min, max), value)
@@ -317,7 +300,7 @@ func PassWord(value string, min, max uint8) error {
 		return errors.Tag(err)
 	}
 	if !matched {
-		return newValidationError(ValidationTargetPassword, ValidationReasonInvalidCharset, min, max)
+		return newValidationError(ValidationReasonInvalidCharset, min, max)
 	}
 	return nil
 }
@@ -327,28 +310,28 @@ func PassWord2(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
-		return newValidationError(ValidationTargetStrongPassword, ValidationReasonLengthOutOfRange, min, max)
+		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
 	// 是否包含小写字母
 	reg := regexp.MustCompile(`([a-z])`)
 	s := reg.FindString(value)
 	if s == "" {
-		return newValidationError(ValidationTargetStrongPassword, ValidationReasonMissingLowercase, min, max)
+		return newValidationError(ValidationReasonMissingLowercase, min, max)
 	}
 
 	// 是否包含大写字母
 	reg = regexp.MustCompile(`([A-Z])`)
 	s = reg.FindString(value)
 	if s == "" {
-		return newValidationError(ValidationTargetStrongPassword, ValidationReasonMissingUppercase, min, max)
+		return newValidationError(ValidationReasonMissingUppercase, min, max)
 	}
 
 	// 是否包含数字
 	reg = regexp.MustCompile(`([0-9])`)
 	s = reg.FindString(value)
 	if s == "" {
-		return newValidationError(ValidationTargetStrongPassword, ValidationReasonMissingDigit, min, max)
+		return newValidationError(ValidationReasonMissingDigit, min, max)
 	}
 
 	// 匹配表达式
@@ -357,7 +340,7 @@ func PassWord2(value string, min, max uint8) error {
 		return errors.Tag(err)
 	}
 	if !matched {
-		return newValidationError(ValidationTargetStrongPassword, ValidationReasonInvalidCharset, min, max)
+		return newValidationError(ValidationReasonInvalidCharset, min, max)
 	}
 	return nil
 }
@@ -367,28 +350,28 @@ func PassWord3(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
-		return newValidationError(ValidationTargetStrongPasswordWithChars, ValidationReasonLengthOutOfRange, min, max)
+		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
 	// 是否包含小写字母
 	reg := regexp.MustCompile(`([a-z])`)
 	s := reg.FindString(value)
 	if s == "" {
-		return newValidationError(ValidationTargetStrongPasswordWithChars, ValidationReasonMissingLowercase, min, max)
+		return newValidationError(ValidationReasonMissingLowercase, min, max)
 	}
 
 	// 是否包含大写字母
 	reg = regexp.MustCompile(`([A-Z])`)
 	s = reg.FindString(value)
 	if s == "" {
-		return newValidationError(ValidationTargetStrongPasswordWithChars, ValidationReasonMissingUppercase, min, max)
+		return newValidationError(ValidationReasonMissingUppercase, min, max)
 	}
 
 	// 是否包含数字
 	reg = regexp.MustCompile(`([0-9])`)
 	s = reg.FindString(value)
 	if s == "" {
-		return newValidationError(ValidationTargetStrongPasswordWithChars, ValidationReasonMissingDigit, min, max)
+		return newValidationError(ValidationReasonMissingDigit, min, max)
 	}
 
 	// 匹配表达式
@@ -397,7 +380,7 @@ func PassWord3(value string, min, max uint8) error {
 		return errors.Tag(err)
 	}
 	if !matched {
-		return newValidationError(ValidationTargetStrongPasswordWithChars, ValidationReasonInvalidFormat, min, max)
+		return newValidationError(ValidationReasonInvalidFormat, min, max)
 	}
 	return nil
 }

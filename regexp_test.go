@@ -714,7 +714,6 @@ func TestValidationErrorClassification(t *testing.T) {
 	tests := []struct {
 		name       string
 		run        func() error
-		wantTarget utils.ValidationTarget
 		wantReason utils.ValidationReason
 		wantMin    uint8
 		wantMax    uint8
@@ -722,7 +721,6 @@ func TestValidationErrorClassification(t *testing.T) {
 		{
 			name:       "account_length",
 			run:        func() error { return utils.Account("abc", 8, 12) },
-			wantTarget: utils.ValidationTargetAccount,
 			wantReason: utils.ValidationReasonLengthOutOfRange,
 			wantMin:    8,
 			wantMax:    12,
@@ -730,7 +728,6 @@ func TestValidationErrorClassification(t *testing.T) {
 		{
 			name:       "account_consecutive_underscore",
 			run:        func() error { return utils.Account("abc__123", 8, 12) },
-			wantTarget: utils.ValidationTargetAccount,
 			wantReason: utils.ValidationReasonConsecutiveUnderscore,
 			wantMin:    8,
 			wantMax:    12,
@@ -738,7 +735,6 @@ func TestValidationErrorClassification(t *testing.T) {
 		{
 			name:       "password_charset",
 			run:        func() error { return utils.PassWord("ABC123#1cb", 8, 12) },
-			wantTarget: utils.ValidationTargetPassword,
 			wantReason: utils.ValidationReasonInvalidCharset,
 			wantMin:    8,
 			wantMax:    12,
@@ -746,7 +742,6 @@ func TestValidationErrorClassification(t *testing.T) {
 		{
 			name:       "password2_missing_lowercase",
 			run:        func() error { return utils.PassWord2("ABCE56789", 8, 12) },
-			wantTarget: utils.ValidationTargetStrongPassword,
 			wantReason: utils.ValidationReasonMissingLowercase,
 			wantMin:    8,
 			wantMax:    12,
@@ -754,7 +749,6 @@ func TestValidationErrorClassification(t *testing.T) {
 		{
 			name:       "password3_missing_digit",
 			run:        func() error { return utils.PassWord3("ABC*-f&#xy", 8, 12) },
-			wantTarget: utils.ValidationTargetStrongPasswordWithChars,
 			wantReason: utils.ValidationReasonMissingDigit,
 			wantMin:    8,
 			wantMax:    12,
@@ -771,9 +765,6 @@ func TestValidationErrorClassification(t *testing.T) {
 			var validationErr *utils.ValidationError
 			if !errors.As(err, &validationErr) {
 				t.Fatalf("expected ValidationError, got %T", err)
-			}
-			if validationErr.Target != tt.wantTarget {
-				t.Fatalf("ValidationError.Target = %q, want %q", validationErr.Target, tt.wantTarget)
 			}
 			if validationErr.Reason != tt.wantReason {
 				t.Fatalf("ValidationError.Reason = %q, want %q", validationErr.Reason, tt.wantReason)
@@ -847,22 +838,22 @@ func TestValidationErrorMessageKey(t *testing.T) {
 		{
 			name: "account_length",
 			err:  utils.Account("abc", 8, 12),
-			want: "validation.account.length_out_of_range",
+			want: "validation.length_out_of_range",
 		},
 		{
 			name: "password_charset",
 			err:  utils.PassWord("ABC123#1cb", 8, 12),
-			want: "validation.password.invalid_charset",
+			want: "validation.invalid_charset",
 		},
 		{
 			name: "password2_missing_lowercase",
 			err:  utils.PassWord2("ABCE56789", 8, 12),
-			want: "validation.strong_password.missing_lowercase",
+			want: "validation.missing_lowercase",
 		},
 		{
 			name: "password3_missing_digit",
 			err:  utils.PassWord3("ABC*-f&#xy", 8, 12),
-			want: "validation.strong_password_with_symbols.missing_digit",
+			want: "validation.missing_digit",
 		},
 	}
 
