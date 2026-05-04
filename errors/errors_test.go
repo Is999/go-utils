@@ -125,6 +125,72 @@ func TestWrapf(t *testing.T) {
 	}
 }
 
+func TestTag(t *testing.T) {
+	// 标准库错误（无追踪栈）
+	stdlibErr := fmt.Errorf("stdlib error")
+
+	// 本包错误（有追踪栈）
+	trackedErr := errors.New("tracked error")
+
+	// 第三方错误（无追踪栈）
+	thirdPartyErr := &typedError{msg: "third party error"}
+
+	tests := []struct {
+		name            string
+		err             error
+		wantNil         bool
+		shouldHaveStack bool
+	}{
+		{name: "001", err: nil, wantNil: true, shouldHaveStack: false},
+		{name: "002", err: stdlibErr, wantNil: false, shouldHaveStack: true},
+		{name: "003", err: trackedErr, wantNil: false, shouldHaveStack: true},
+		{name: "004", err: thirdPartyErr, wantNil: false, shouldHaveStack: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wrapped := errors.Tag(tt.err)
+
+			if tt.wantNil && wrapped != nil {
+				t.Errorf("Tag() = %v, want nil", wrapped)
+			}
+			if !tt.wantNil && wrapped == nil {
+				t.Error("Tag() returned nil, want non-nil")
+			}
+
+			if !tt.wantNil && wrapped != nil {
+				// 验证错误消息是否正确保留
+				if wrapped.Error() != tt.err.Error() {
+					t.Errorf("Tag() error message = %v, want %v", wrapped.Error(), tt.err.Error())
+				}
+
+				// 验证是否包含追踪栈
+				hasStack := errors.HasStack(wrapped)
+				if hasStack != tt.shouldHaveStack {
+					t.Errorf("Tag() hasStack = %v, want %v", hasStack, tt.shouldHaveStack)
+				}
+
+				// 验证追踪输出不为空
+				trace := errors.TraceString(wrapped)
+				if trace == "" {
+					t.Error("Tag() should produce non-empty trace")
+				}
+			}
+		})
+	}
+
+	// 测试重复包装已有追踪的错误不会重复创建
+	t.Run("005_no_double_stack", func(t *testing.T) {
+		first := errors.Tag(stdlibErr)
+		second := errors.Tag(first)
+
+		// 应该返回同一个对象，避免重复包装
+		if first != second {
+			t.Error("Tag() should return same object for already tracked errors")
+		}
+	})
+}
+
 func TestAs(t *testing.T) {
 	err := errors.New("test error")
 	wrapErr := errors.Wrap(err, "wrapped")

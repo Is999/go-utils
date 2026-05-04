@@ -431,6 +431,47 @@ func (e *contextError) MarshalText() ([]byte, error) {
 	return []byte(TraceString(e)), nil
 }
 
+// Tag 统一包装任意类型的错误，智能判断是否需要添加追踪链路。
+// 这是 Wrap 的增强版本，专门用于处理来自标准库或第三方包的错误。
+//
+// 功能说明：
+//  1. 当 err 为 nil 时，直接返回 nil
+//  2. 当错误已经有追踪栈时（HasStack 返回 true），直接返回原错误
+//  3. 当错误没有追踪栈时，创建带追踪栈的新错误
+//
+// 使用场景：
+//   - 统一处理来自不同来源的错误（标准库、第三方包、本包错误）
+//   - 确保所有错误都有完整的追踪链路，便于调试
+//   - 避免对已有追踪的错误重复包装，提高性能
+//
+// 参数说明：
+//   - err：要包装的错误对象
+//
+// 返回值：确保有追踪链路的错误对象
+//
+// 示例：
+//
+//	// 包装标准库错误
+//	err := os.Open("file.txt")  // 标准库错误，无追踪
+//	wrappedErr := errors.Tag(err)  // 现在有追踪链路了
+//
+//	// 包装已有追踪的错误
+//	trackedErr := errors.New("already tracked")  // 已有追踪
+//	result := errors.Tag(trackedErr)     // 直接返回原错误
+func Tag(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// 如果错误已经有追踪栈，直接返回，避免重复包装
+	if HasStack(err) {
+		return err
+	}
+
+	// 创建带追踪栈的新错误
+	return newStackError(err.Error(), err)
+}
+
 // ============================ 标准库兼容函数 ============================
 
 // Is 语义与标准库 errors.Is 完全一致。
