@@ -100,13 +100,13 @@ func defaultValidationMessage(e *ValidationError) string {
 	case ValidationReasonLengthOutOfRange:
 		return fmt.Sprintf("长度在%d-%d之间", e.Min, e.Max)
 	case ValidationReasonConsecutiveUnderscore:
-		return "不能连续出现下滑线'_'"
+		return "不能连续出现下划线"
 	case ValidationReasonMissingLowercase:
-		return "必须至少包含一个小写字母"
+		return "必须包含至少一个小写字母"
 	case ValidationReasonMissingUppercase:
-		return "必须至少包含一个大写字母"
+		return "必须包含至少一个大写字母"
 	case ValidationReasonMissingDigit:
-		return "必须至少包含一个数字"
+		return "必须包含至少一个数字"
 	case ValidationReasonInvalidCharset:
 		return fmt.Sprintf("必须包含大小写字母和数字的组合，不能使用特殊字符，长度在%d-%d之间", e.Min, e.Max)
 	case ValidationReasonInvalidFormat:

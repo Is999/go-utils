@@ -794,27 +794,27 @@ func TestValidationErrorDefaultMessage(t *testing.T) {
 		{
 			name: "account_length",
 			err:  utils.Account("abc", 8, 12),
-			want: "账号长度必须在 8 到 12 个字符之间",
+			want: "长度在8-12之间",
 		},
 		{
 			name: "account_consecutive_underscore",
 			err:  utils.Account("abc__123", 8, 12),
-			want: "账号不能包含连续下划线",
+			want: "不能连续出现下划线",
 		},
 		{
 			name: "password_charset",
 			err:  utils.PassWord("ABC123#1cb", 8, 12),
-			want: "密码只能包含字母、数字和下划线，且长度必须在 8 到 12 个字符之间",
+			want: "必须包含大小写字母和数字的组合，不能使用特殊字符，长度在8-12之间",
 		},
 		{
 			name: "password2_missing_uppercase",
 			err:  utils.PassWord2("abce56789", 8, 12),
-			want: "密码必须至少包含一个大写字母",
+			want: "必须包含至少一个大写字母",
 		},
 		{
 			name: "password3_missing_digit",
 			err:  utils.PassWord3("ABC*-f&#xy", 8, 12),
-			want: "密码必须至少包含一个数字",
+			want: "必须包含至少一个数字",
 		},
 	}
 
