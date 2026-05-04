@@ -328,7 +328,7 @@ func WithContextErrs(ctx context.Context, kvs ...string) context.Context {
 func WithContextErrsE(ctx context.Context, kvs ...string) (context.Context, error) {
 	parent := normalizeContext(ctx)
 	if len(kvs)%2 != 0 {
-		return parent, Errorf("WithContextErrsE parameters must be provided in pairs, got %d", len(kvs))
+		return parent, Errorf("WithContextErrsE 参数必须成对出现，当前参数个数=%d", len(kvs))
 	}
 	kv := make([]string, 0, len(kvs))
 	for i := 0; i < len(kvs); i += 2 {
