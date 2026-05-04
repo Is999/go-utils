@@ -70,6 +70,19 @@ func Copy(src, dst string) error {
 		return errors.Tag(err)
 	}
 
+	// 目标文件已存在时，先判断是否与源文件指向同一 inode，避免打开目标时把源文件截断。
+	dstStat, err := os.Stat(dst)
+	switch {
+	case err == nil:
+		if os.SameFile(stat, dstStat) {
+			return errors.Tag(errors.Errorf("Copy 不允许源文件和目标文件相同: src=%s dst=%s", src, dst))
+		}
+	case os.IsNotExist(err):
+		// 目标文件不存在时允许继续创建。
+	default:
+		return errors.Tag(err)
+	}
+
 	// 创建或打开拷贝文件
 	f2, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, stat.Mode())
 	if err != nil {
@@ -384,13 +397,27 @@ type WriteFile struct {
 	File *os.File
 }
 
+// currentFileLocked 获取当前文件句柄。
+// 调用方必须先持有写锁或读锁。
+func (f *WriteFile) currentFileLocked() (*os.File, error) {
+	if f == nil || f.File == nil {
+		return nil, errors.New("文件已关闭")
+	}
+	return f.File, nil
+}
+
 // WriteString 写入数据
 func (f *WriteFile) WriteString(data string) (int, error) {
 	f.Lock.Lock()
 	defer f.Lock.Unlock()
 
+	file, err := f.currentFileLocked()
+	if err != nil {
+		return 0, errors.Tag(err)
+	}
+
 	//写入数据
-	n, err := f.File.WriteString(data)
+	n, err := file.WriteString(data)
 	return n, errors.Tag(err)
 }
 
@@ -399,8 +426,13 @@ func (f *WriteFile) Write(data []byte) (int, error) {
 	f.Lock.Lock()
 	defer f.Lock.Unlock()
 
+	file, err := f.currentFileLocked()
+	if err != nil {
+		return 0, errors.Tag(err)
+	}
+
 	//写入数据
-	n, err := f.File.Write(data)
+	n, err := file.Write(data)
 	return n, errors.Tag(err)
 }
 
@@ -413,7 +445,11 @@ func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (in
 		return 0, errors.New("handler 不能为空")
 	}
 
-	w := bufio.NewWriter(f.File)
+	file, err := f.currentFileLocked()
+	if err != nil {
+		return 0, errors.Tag(err)
+	}
+	w := bufio.NewWriter(file)
 	size, err := handler(w)
 	if err != nil {
 		return size, errors.Tag(err)
@@ -426,10 +462,18 @@ func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (in
 
 // Close 关闭文件
 func (f *WriteFile) Close() error {
-	if f.File != nil {
-		return errors.Tag(f.File.Close())
+	if f == nil {
+		return nil
 	}
-	return nil
+	f.Lock.Lock()
+	defer f.Lock.Unlock()
+
+	file := f.File
+	if file == nil {
+		return nil
+	}
+	f.File = nil
+	return errors.Tag(file.Close())
 }
 
 // SizeFormat 文件大小格式化已可读式显示文件大小

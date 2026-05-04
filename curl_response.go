@@ -25,6 +25,14 @@ import (
 //
 // 返回值：错误信息
 func (c *Curl) Send(method, url string, body io.Reader) (err error) {
+	return c.SendContext(context.Background(), method, url, body)
+}
+
+// SendContext 发起带 context 的 HTTP 请求。
+// 当 ctx 被取消时，会立即中断请求以及重试等待。
+func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Reader) (err error) {
+	ctx = ensureContext(ctx)
+
 	// 记录请求开始时间
 	t := time.Now()
 
@@ -66,7 +74,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			if c.defLogOutput {
 				c.Logger.Debug("done()")
 			}
-			c.afterDone(c.cli, req, resp)
+			c.afterDone(ctx, c.cli, req, resp)
 		}
 	}()
 
@@ -76,7 +84,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	// 构建 Request
-	req, err = http.NewRequest(method, url, body)
+	req, err = http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return errors.Tag(err)
 	}
@@ -113,13 +121,13 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		if c.defLogOutput {
 			c.Logger.Debug("request()")
 		}
-		if err = c.beforeRequest(req); err != nil {
+		if err = c.beforeRequest(ctx, req); err != nil {
 			return errors.Tag(err)
 		}
 	}
 
 	// 记录请求日志
-	if c.defLogOutput && c.Logger.Enabled(context.Background(), LevelInfo) {
+	if c.defLogOutput && c.Logger.Enabled(ctx, LevelInfo) {
 		if c.dump {
 			dump, err := dumpRequestSafe(req, c.dumpBodyLimit)
 			if err != nil {
@@ -155,7 +163,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		if c.defLogOutput {
 			c.Logger.Debug("client()")
 		}
-		if err = c.beforeClient(c.cli); err != nil {
+		if err = c.beforeClient(ctx, c.cli); err != nil {
 			return errors.Tag(err)
 		}
 	}
@@ -178,7 +186,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 执行请求（含重试逻辑）
 	for i := 1; i <= maxRetry; i++ {
 		if i > 1 && req.GetBody == nil && req.Body != nil && req.Body != http.NoBody {
-			return errors.New("client.Do() retry body is not rewindable")
+			return errors.Tag(errors.New("client.Do() retry body is not rewindable"))
 		}
 		if i > 1 && req.GetBody != nil {
 			req.Body, err = req.GetBody()
@@ -195,7 +203,9 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		if i < maxRetry {
 			c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error())
 			// 使用统一的指数退避和抖动策略，避免瞬时重试放大故障。
-			time.Sleep(retryDelay(i))
+			if err = waitRetry(ctx, i); err != nil {
+				return errors.Tag(err)
+			}
 		}
 	}
 
@@ -204,13 +214,13 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	if err != nil {
-		return errors.Errorf("client.Do() Retry %d times err: %v", maxRetry, err.Error())
+		return errors.Tag(errors.Errorf("client.Do() Retry %d times err: %v", maxRetry, err.Error()))
 	}
 
 	var respBody []byte
 
 	// 记录响应日志
-	if c.defLogOutput && c.Logger.Enabled(context.Background(), LevelInfo) {
+	if c.defLogOutput && c.Logger.Enabled(ctx, LevelInfo) {
 		if respBody, err = c.logResponse(resp); err != nil {
 			return errors.Tag(err)
 		}
@@ -218,7 +228,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 检查状态码
 	if resp.StatusCode != http.StatusOK && !containsStatusCode(resp.StatusCode, c.statusCode) {
-		return errors.Errorf("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
+		return errors.Tag(errors.Errorf("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status))
 	}
 
 	// 执行 afterResponse 回调
@@ -226,7 +236,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		if c.defLogOutput {
 			c.Logger.Debug("response()")
 		}
-		isDone, err := c.afterResponse(resp)
+		isDone, err := c.afterResponse(ctx, resp)
 		if err != nil {
 			return errors.Tag(err)
 		}
@@ -248,7 +258,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			}
 			respBody = buf.Bytes()
 		}
-		if err = c.afterBody(respBody); err != nil {
+		if err = c.afterBody(ctx, respBody); err != nil {
 			return errors.Tag(err)
 		}
 	}
@@ -371,6 +381,18 @@ func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) BeforeRequest(f func(request *http.Request) error) *Curl {
+	if f == nil {
+		c.beforeRequest = nil
+		return c
+	}
+	c.beforeRequest = func(_ context.Context, request *http.Request) error {
+		return f(request)
+	}
+	return c
+}
+
+// BeforeRequestContext 请求发送前的上下文回调。
+func (c *Curl) BeforeRequestContext(f func(ctx context.Context, request *http.Request) error) *Curl {
 	c.beforeRequest = f
 	return c
 }
@@ -382,6 +404,18 @@ func (c *Curl) BeforeRequest(f func(request *http.Request) error) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) BeforeClient(f func(client *http.Client) error) *Curl {
+	if f == nil {
+		c.beforeClient = nil
+		return c
+	}
+	c.beforeClient = func(_ context.Context, client *http.Client) error {
+		return f(client)
+	}
+	return c
+}
+
+// BeforeClientContext 请求发送前的 Client 上下文回调。
+func (c *Curl) BeforeClientContext(f func(ctx context.Context, client *http.Client) error) *Curl {
 	c.beforeClient = f
 	return c
 }
@@ -393,6 +427,18 @@ func (c *Curl) BeforeClient(f func(client *http.Client) error) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) AfterResponse(f func(response *http.Response) (isDone bool, err error)) *Curl {
+	if f == nil {
+		c.afterResponse = nil
+		return c
+	}
+	c.afterResponse = func(_ context.Context, response *http.Response) (isDone bool, err error) {
+		return f(response)
+	}
+	return c
+}
+
+// AfterResponseContext 请求发送后的上下文回调。
+func (c *Curl) AfterResponseContext(f func(ctx context.Context, response *http.Response) (isDone bool, err error)) *Curl {
 	c.afterResponse = f
 	return c
 }
@@ -404,6 +450,18 @@ func (c *Curl) AfterResponse(f func(response *http.Response) (isDone bool, err e
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) AfterBody(f func(body []byte) error) *Curl {
+	if f == nil {
+		c.afterBody = nil
+		return c
+	}
+	c.afterBody = func(_ context.Context, body []byte) error {
+		return f(body)
+	}
+	return c
+}
+
+// AfterBodyContext 请求发送后对 Response.Body 的上下文处理回调。
+func (c *Curl) AfterBodyContext(f func(ctx context.Context, body []byte) error) *Curl {
 	c.afterBody = f
 	return c
 }
@@ -417,6 +475,18 @@ func (c *Curl) AfterBody(f func(body []byte) error) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) AfterDone(f func(client *http.Client, request *http.Request, response *http.Response)) *Curl {
+	if f == nil {
+		c.afterDone = nil
+		return c
+	}
+	c.afterDone = func(_ context.Context, client *http.Client, request *http.Request, response *http.Response) {
+		f(client, request, response)
+	}
+	return c
+}
+
+// AfterDoneContext 请求完成后的上下文回调。
+func (c *Curl) AfterDoneContext(f func(ctx context.Context, client *http.Client, request *http.Request, response *http.Response)) *Curl {
 	c.afterDone = f
 	return c
 }

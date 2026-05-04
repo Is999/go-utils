@@ -389,6 +389,7 @@ func (c *Curl) SetBasicAuth(username, password string) *Curl {
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetProxyURL(proxyURL string) *Curl {
 	c.proxyURL = proxyURL
+	c.markTransportDirty()
 	return c
 }
 
@@ -401,6 +402,7 @@ func (c *Curl) SetProxyURL(proxyURL string) *Curl {
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) InsecureSkipVerify(isSkip bool) *Curl {
 	c.insecureSkipVerify = isSkip
+	c.markTransportDirty()
 	return c
 }
 
@@ -412,6 +414,7 @@ func (c *Curl) InsecureSkipVerify(isSkip bool) *Curl {
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetRootCAs(rootCAs string) *Curl {
 	c.rootCAs = rootCAs
+	c.markTransportDirty()
 	return c
 }
 
@@ -425,6 +428,7 @@ func (c *Curl) SetRootCAs(rootCAs string) *Curl {
 func (c *Curl) SetCertKey(cert, key string) *Curl {
 	c.cert = cert
 	c.key = key
+	c.markTransportDirty()
 	return c
 }
 

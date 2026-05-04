@@ -1,10 +1,12 @@
 package utils_test
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Is999/go-utils"
 )
@@ -155,5 +157,62 @@ func TestOnce_Do_MaxRetriesZeroShouldRunOnce(t *testing.T) {
 	}
 	if callCount != 1 {
 		t.Fatalf("Once.Do() callCount = %d, want 1", callCount)
+	}
+}
+
+func TestOnce_DoContext_CancelWaitingCaller(t *testing.T) {
+	var o utils.Once
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		done <- o.DoContext(context.Background(), func(ctx context.Context) error {
+			close(started)
+			<-release
+			return nil
+		}, 1)
+	}()
+
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	err := o.DoContext(ctx, func(ctx context.Context) error {
+		t.Fatal("waiting caller should not execute function")
+		return nil
+	}, 1)
+	if err == nil {
+		t.Fatal("Once.DoContext() error = nil, want error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Once.DoContext() error = %v, want context.DeadlineExceeded", err)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("executing Once.DoContext() error = %v, want nil", err)
+	}
+}
+
+func TestOnce_DoContext_CancelStopsRetryBackoff(t *testing.T) {
+	var o utils.Once
+	ctx, cancel := context.WithCancel(context.Background())
+	callCount := 0
+
+	err := o.DoContext(ctx, func(ctx context.Context) error {
+		callCount++
+		cancel()
+		return errors.New("temporary error")
+	}, 5)
+	if err == nil {
+		t.Fatal("Once.DoContext() error = nil, want error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Once.DoContext() error = %v, want context.Canceled", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("Once.DoContext() callCount = %d, want 1", callCount)
 	}
 }

@@ -141,6 +141,53 @@ func TestCopy(t *testing.T) {
 	}
 }
 
+func TestCopyRejectsSameSourceAndDestination(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "same.txt")
+	original := []byte("copy same file should keep content")
+	if err := os.WriteFile(fileName, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := utils.Copy(fileName, fileName)
+	if err == nil {
+		t.Fatal("Copy() expected error when source equals destination")
+	}
+
+	got, readErr := os.ReadFile(fileName)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("file content changed after rejected Copy(): got %q want %q", got, original)
+	}
+}
+
+func TestCopyRejectsSameUnderlyingFile(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source.txt")
+	dst := filepath.Join(dir, "target.txt")
+	original := []byte("copy hardlink should keep content")
+	if err := os.WriteFile(src, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(src, dst); err != nil {
+		t.Skipf("os.Link() unsupported: %v", err)
+	}
+
+	err := utils.Copy(src, dst)
+	if err == nil {
+		t.Fatal("Copy() expected error when destination is same underlying file")
+	}
+
+	got, readErr := os.ReadFile(src)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("source content changed after rejected Copy(): got %q want %q", got, original)
+	}
+}
+
 func TestScan(t *testing.T) {
 	type args struct {
 		name string
@@ -658,6 +705,52 @@ func TestWriteBufReturnsFlushError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("WriteBuf() expected flush error after file closed")
+	}
+}
+
+func TestWriteFileCloseWaitsForInFlightWriteBuf(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "close-waits.log")
+	w, err := utils.NewWrite(fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	allowReturn := make(chan struct{})
+	writeDone := make(chan error, 1)
+	closeDone := make(chan error, 1)
+
+	go func() {
+		_, err := w.WriteBuf(func(write *bufio.Writer) (int, error) {
+			if _, err := write.WriteString("in-flight write"); err != nil {
+				return 0, err
+			}
+			close(started)
+			<-allowReturn
+			return len("in-flight write"), nil
+		})
+		writeDone <- err
+	}()
+
+	<-started
+
+	go func() {
+		closeDone <- w.Close()
+	}()
+
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Close() returned before WriteBuf() finished: %v", err)
+	default:
+	}
+
+	close(allowReturn)
+
+	if err := <-writeDone; err != nil {
+		t.Fatalf("WriteBuf() error = %v", err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 }
 

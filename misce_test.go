@@ -1,9 +1,11 @@
 package utils_test
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/Is999/go-utils"
 )
@@ -140,5 +142,49 @@ func TestRetry_ZeroMaxRetriesRunsOnce(t *testing.T) {
 	}
 	if callCount != 1 {
 		t.Fatalf("Retry() callCount = %d, want 1", callCount)
+	}
+}
+
+func TestRetryContext_CancelStopsBackoff(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	callCount := 0
+
+	err := utils.RetryContext(ctx, 5, func(ctx context.Context, tries int) error {
+		callCount++
+		cancel()
+		return errors.New("temporary error")
+	})
+	if err == nil {
+		t.Fatal("RetryContext() error = nil, want error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RetryContext() error = %v, want context.Canceled", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("RetryContext() callCount = %d, want 1", callCount)
+	}
+}
+
+func TestRetryContext_TimeoutStopsEarly(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	callCount := 0
+	err := utils.RetryContext(ctx, 5, func(ctx context.Context, tries int) error {
+		callCount++
+		return errors.New("temporary error")
+	})
+	if err == nil {
+		t.Fatal("RetryContext() error = nil, want error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RetryContext() error = %v, want context.DeadlineExceeded", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("RetryContext() callCount = %d, want 1", callCount)
+	}
+	if elapsed := time.Since(start); elapsed >= 200*time.Millisecond {
+		t.Fatalf("RetryContext() elapsed = %v, want < 200ms", elapsed)
 	}
 }

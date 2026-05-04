@@ -22,9 +22,14 @@ func (c *Curl) initTransport() error {
 		c.cli = &http.Client{}
 	}
 
-	// 已有 Transport 则跳过
-	if c.cli.Transport != nil {
+	// 传输层配置未发生变化时，直接复用现有 Transport 与连接池。
+	if c.cli.Transport != nil && !c.transportDirty {
 		return nil
+	}
+
+	// 仅在代理/TLS 配置变化时重建 Transport，避免每次请求都丢失连接复用收益。
+	if c.cli.Transport != nil && c.transportDirty {
+		c.cli.CloseIdleConnections()
 	}
 
 	// Debug 日志
@@ -87,7 +92,16 @@ func (c *Curl) initTransport() error {
 
 	// 设置 Transport
 	c.cli.Transport = tr
+	c.transportDirty = false
 	return nil
+}
+
+// markTransportDirty 标记传输层配置已变更。
+// 下一次发请求时会按最新配置重建 Transport，其余请求继续复用现有连接池。
+func (c *Curl) markTransportDirty() {
+	if c != nil {
+		c.transportDirty = true
+	}
 }
 
 // defaultHTTPTransport 返回标准库默认 Transport 的可修改副本。

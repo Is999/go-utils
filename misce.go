@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"math/rand/v2"
 	"strconv"
@@ -101,6 +102,23 @@ func Retry(maxRetries uint8, fn func(tries int) error) error {
 	if fn == nil {
 		return errors.New("无效的执行方法")
 	}
+	return retryContext(context.Background(), maxRetries, GetFunctionName(fn), func(_ context.Context, tries int) error {
+		return fn(tries)
+	})
+}
+
+// RetryContext 尝试执行 fn，如果 fn 返回错误则按指数退避策略重试。
+// 当 ctx 被取消时，会立即中断后续重试与等待。
+func RetryContext(ctx context.Context, maxRetries uint8, fn func(ctx context.Context, tries int) error) error {
+	if fn == nil {
+		return errors.New("无效的执行方法")
+	}
+	return retryContext(ctx, maxRetries, GetFunctionName(fn), fn)
+}
+
+// retryContext 是 Retry/RetryContext 的统一实现。
+func retryContext(ctx context.Context, maxRetries uint8, fnName string, fn func(ctx context.Context, tries int) error) error {
+	ctx = ensureContext(ctx)
 	var (
 		err   error
 		tries = 0
@@ -110,7 +128,7 @@ func Retry(maxRetries uint8, fn func(tries int) error) error {
 	}
 	for {
 		tries++
-		if err = fn(tries); err == nil {
+		if err = fn(ctx, tries); err == nil {
 			break
 		}
 
@@ -120,14 +138,39 @@ func Retry(maxRetries uint8, fn func(tries int) error) error {
 		}
 
 		// 延迟重试
-		time.Sleep(retryDelay(tries))
+		if err = waitRetry(ctx, tries); err != nil {
+			return errors.Tag(err)
+		}
 	}
 
 	if err != nil {
 		// 重试失败，返回错误信息
-		return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", GetFunctionName(fn), maxRetries)
+		return errors.Tag(errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries))
 	}
 	return nil
+}
+
+// ensureContext 归一化 context，避免调用方传入 nil 导致 panic。
+func ensureContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+// waitRetry 等待下一次重试窗口，同时响应 context 取消。
+func waitRetry(ctx context.Context, attempt int) error {
+	ctx = ensureContext(ctx)
+	delay := retryDelay(attempt)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return errors.Tag(ctx.Err())
+	}
 }
 
 // retryDelay 计算第 attempt 次失败后的重试等待时间。

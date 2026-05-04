@@ -1,8 +1,8 @@
 package utils
 
 import (
+	"context"
 	"sync"
-	"time"
 
 	"github.com/Is999/go-utils/errors"
 )
@@ -11,7 +11,7 @@ import (
 // 同一轮生命周期内只会有一个 goroutine 真正执行目标函数，其余调用方等待最终结果。
 type Once struct {
 	mu      sync.Mutex
-	cond    *sync.Cond
+	waitCh  chan struct{}
 	running bool
 	done    bool
 	err     error
@@ -36,14 +36,29 @@ func (r *Once) Do(f func() error, maxRetries int) error {
 	if f == nil {
 		return errors.New("无效的执行方法")
 	}
+	return r.doContext(context.Background(), GetFunctionName(f), func(_ context.Context) error {
+		return f()
+	}, maxRetries)
+}
+
+// DoContext 执行带重试能力的一次性调用。
+// 当 ctx 被取消时，等待中的调用方会立即返回；真正执行中的 goroutine 也会在重试等待阶段响应取消。
+func (r *Once) DoContext(ctx context.Context, f func(ctx context.Context) error, maxRetries int) error {
+	return r.doContext(ctx, GetFunctionName(f), f, maxRetries)
+}
+
+// doContext 是 Do/DoContext 的统一实现。
+func (r *Once) doContext(ctx context.Context, fnName string, f func(ctx context.Context) error, maxRetries int) error {
+	if f == nil {
+		return errors.New("无效的执行方法")
+	}
 	if maxRetries <= 0 {
 		maxRetries = 1
 	}
-
-	r.mu.Lock()
-	r.initCondLocked()
+	ctx = ensureContext(ctx)
 
 	for {
+		r.mu.Lock()
 		// 已有最终结果时直接复用，避免重复执行。
 		if r.done {
 			err := r.err
@@ -54,57 +69,67 @@ func (r *Once) Do(f func() error, maxRetries int) error {
 		// 当前无执行中的任务时，由当前 goroutine 负责执行。
 		if !r.running {
 			r.running = true
+			r.waitCh = make(chan struct{})
+			r.mu.Unlock()
 			break
 		}
 
 		// 其余 goroutine 等待执行结果落定。
-		r.cond.Wait()
-	}
-	r.mu.Unlock()
+		waitCh := r.waitCh
+		r.mu.Unlock()
 
-	err := r.doWithRetry(f, maxRetries)
+		select {
+		case <-waitCh:
+		case <-ctx.Done():
+			return errors.Tag(ctx.Err())
+		}
+	}
+
+	err := r.doWithRetryContext(ctx, fnName, f, maxRetries)
 
 	r.mu.Lock()
 	r.err = err
 	r.done = true
 	r.running = false
-	r.cond.Broadcast()
+	if r.waitCh != nil {
+		close(r.waitCh)
+		r.waitCh = nil
+	}
 	r.mu.Unlock()
 	return err
 }
 
 // Reset 重置 Once 状态，使控制器进入下一轮可执行状态。
 func (r *Once) Reset() {
-	r.mu.Lock()
-	r.initCondLocked()
-	for r.running {
-		r.cond.Wait()
+	for {
+		r.mu.Lock()
+		if !r.running {
+			r.done = false
+			r.err = nil
+			r.waitCh = nil
+			r.mu.Unlock()
+			return
+		}
+		waitCh := r.waitCh
+		r.mu.Unlock()
+		if waitCh != nil {
+			<-waitCh
+		}
 	}
-	r.done = false
-	r.err = nil
-	r.mu.Unlock()
 }
 
-// initCondLocked 初始化条件变量。
-// 调用方必须先持有互斥锁。
-func (r *Once) initCondLocked() {
-	if r.cond == nil {
-		r.cond = sync.NewCond(&r.mu)
-	}
-}
-
-// doWithRetry 执行带重试的目标函数。
+// doWithRetryContext 执行带重试的目标函数。
 // 若目标函数发生 panic，会被转换为 error 返回，避免等待方永久阻塞。
-func (r *Once) doWithRetry(f func() error, maxRetries int) (finalErr error) {
+func (r *Once) doWithRetryContext(ctx context.Context, fnName string, f func(ctx context.Context) error, maxRetries int) (finalErr error) {
 	defer func() {
 		if recoverErr := recover(); recoverErr != nil {
-			finalErr = errors.Errorf("%s panic: %v", GetFunctionName(f), recoverErr)
+			finalErr = errors.Tag(errors.Errorf("%s panic: %v", fnName, recoverErr))
 		}
 	}()
 
 	var err error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err = f()
+		err = f(ctx)
 		if err == nil {
 			return nil
 		}
@@ -113,7 +138,9 @@ func (r *Once) doWithRetry(f func() error, maxRetries int) (finalErr error) {
 		}
 
 		// 使用有上限的指数退避，避免失败风暴下重试间隔失控。
-		time.Sleep(retryDelay(attempt))
+		if err = waitRetry(ctx, attempt); err != nil {
+			return errors.Tag(err)
+		}
 	}
-	return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", GetFunctionName(f), maxRetries)
+	return errors.Tag(errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries))
 }

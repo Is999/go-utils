@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Is999/go-utils"
 	"github.com/Is999/go-utils/errors"
@@ -910,6 +911,133 @@ func TestSetStatusCodeOverridesPreviousValues(t *testing.T) {
 	}
 	if got := c.GetStatusCode()[0]; got != http.StatusAccepted {
 		t.Fatalf("status code = %d, want %d", got, http.StatusAccepted)
+	}
+}
+
+func TestCurlRebuildsTransportOnlyWhenTransportConfigChanges(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	curl := utils.NewCurl().SetTimeout(1)
+
+	if err := curl.Get(server.URL); err != nil {
+		t.Fatalf("first Get() error = %v", err)
+	}
+
+	// 代理/TLS 配置变更后，下一次请求应基于新配置重建 Transport。
+	curl.SetProxyURL("http://127.0.0.1:1")
+	err := curl.Get(server.URL)
+	if err == nil {
+		t.Fatal("Get() expected proxy error after transport config changed")
+	}
+}
+
+func TestCurlGetContext_CancelStopsRetryBackoff(t *testing.T) {
+	curl := utils.NewCurl().
+		SetTimeout(1).
+		SetMaxRetry(5).
+		SetProxyURL("http://127.0.0.1:1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := curl.GetContext(ctx, "http://example.com")
+	if err == nil {
+		t.Fatal("GetContext() error = nil, want error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("GetContext() error = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed >= 200*time.Millisecond {
+		t.Fatalf("GetContext() elapsed = %v, want < 200ms", elapsed)
+	}
+}
+
+func TestCurlContextCallbacksReceiveRequestContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	type ctxKey string
+	const key ctxKey = "trace-id"
+	ctx := context.WithValue(context.Background(), key, "ctx-123")
+
+	curl := utils.NewCurl()
+
+	var (
+		beforeRequestCalled bool
+		beforeClientCalled  bool
+		afterResponseCalled bool
+		afterBodyCalled     bool
+		afterDoneCalled     bool
+	)
+
+	curl.
+		BeforeRequestContext(func(ctx context.Context, request *http.Request) error {
+			beforeRequestCalled = true
+			if got := ctx.Value(key); got != "ctx-123" {
+				t.Fatalf("BeforeRequestContext ctx value = %v, want ctx-123", got)
+			}
+			if got := request.Context().Value(key); got != "ctx-123" {
+				t.Fatalf("request.Context() value = %v, want ctx-123", got)
+			}
+			return nil
+		}).
+		BeforeClientContext(func(ctx context.Context, client *http.Client) error {
+			beforeClientCalled = true
+			if got := ctx.Value(key); got != "ctx-123" {
+				t.Fatalf("BeforeClientContext ctx value = %v, want ctx-123", got)
+			}
+			if client == nil {
+				t.Fatal("BeforeClientContext client = nil")
+			}
+			return nil
+		}).
+		AfterResponseContext(func(ctx context.Context, response *http.Response) (bool, error) {
+			afterResponseCalled = true
+			if got := ctx.Value(key); got != "ctx-123" {
+				t.Fatalf("AfterResponseContext ctx value = %v, want ctx-123", got)
+			}
+			if response == nil {
+				t.Fatal("AfterResponseContext response = nil")
+			}
+			return false, nil
+		}).
+		AfterBodyContext(func(ctx context.Context, body []byte) error {
+			afterBodyCalled = true
+			if got := ctx.Value(key); got != "ctx-123" {
+				t.Fatalf("AfterBodyContext ctx value = %v, want ctx-123", got)
+			}
+			if string(body) != "ok" {
+				t.Fatalf("AfterBodyContext body = %q, want ok", body)
+			}
+			return nil
+		}).
+		AfterDoneContext(func(ctx context.Context, client *http.Client, request *http.Request, response *http.Response) {
+			afterDoneCalled = true
+			if got := ctx.Value(key); got != "ctx-123" {
+				t.Fatalf("AfterDoneContext ctx value = %v, want ctx-123", got)
+			}
+			if client == nil || request == nil || response == nil {
+				t.Fatalf("AfterDoneContext received nil argument: client=%v request=%v response=%v", client, request, response)
+			}
+			if got := request.Context().Value(key); got != "ctx-123" {
+				t.Fatalf("AfterDoneContext request ctx value = %v, want ctx-123", got)
+			}
+		})
+
+	if err := curl.GetContext(ctx, server.URL); err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+	if !beforeRequestCalled || !beforeClientCalled || !afterResponseCalled || !afterBodyCalled || !afterDoneCalled {
+		t.Fatalf("callback called flags = beforeRequest:%v beforeClient:%v afterResponse:%v afterBody:%v afterDone:%v",
+			beforeRequestCalled, beforeClientCalled, afterResponseCalled, afterBodyCalled, afterDoneCalled)
 	}
 }
 

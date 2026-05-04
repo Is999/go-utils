@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/url"
@@ -53,30 +54,31 @@ type CurlOption func(*Curl)
 //	    }).
 //	    Post("https://api.example.com/user")
 type Curl struct {
-	cli                *http.Client                                                              // HTTP 客户端实例，懒加载
-	header             http.Header                                                               // 请求头配置
-	timeout            time.Duration                                                             // 请求超时时间
-	username, password string                                                                    // Basic 认证账号密码
-	proxyURL           string                                                                    // 代理地址
-	insecureSkipVerify bool                                                                      // 是否跳过 HTTPS 不安全验证（生产环境禁止使用）
-	rootCAs            string                                                                    // TLS 根证书路径
-	cert, key          string                                                                    // TLS 客户端证书和私钥路径
-	cookies            map[string]*http.Cookie                                                   // Cookie 配置
-	params             url.Values                                                                // URL 查询参数或 POST Form 参数
-	body               io.Reader                                                                 // 请求体
-	statusCode         []int                                                                     // 可接受的状态码列表（除 200 以外需要特殊处理的状态码）
-	beforeRequest      func(request *http.Request) error                                         // 请求发送前的回调，可对 Request 进行自定义处理
-	beforeClient       func(client *http.Client) error                                           // 请求发送前的回调，可对 Client 进行自定义处理
-	afterResponse      func(response *http.Response) (isDone bool, err error)                    // 请求发送后的回调
-	afterBody          func(body []byte) error                                                   // 请求发送后对 Response.Body 的处理回调
-	afterDone          func(client *http.Client, request *http.Request, response *http.Response) // 请求完成后的回调
-	requestID          string                                                                    // 请求唯一标识
-	maxRetry           uint8                                                                     // 最大请求尝试次数（默认 2 次，最大 5 次，包含首次请求）
-	dump               bool                                                                      // 是否开启 dump 模式：输出完整的请求和响应详情
-	dumpBodyLimit      int64                                                                     // dump 预览内容长度上限
-	defLogOutput       bool                                                                      // 是否启用默认日志输出（INFO 及以下级别）
-	baseLogger         Logger                                                                    // 原始日志实例，用于重新绑定请求 ID 时避免字段叠加
-	Logger             Logger                                                                    // 日志实例
+	cli                *http.Client                                                                                   // HTTP 客户端实例，懒加载
+	header             http.Header                                                                                    // 请求头配置
+	timeout            time.Duration                                                                                  // 请求超时时间
+	username, password string                                                                                         // Basic 认证账号密码
+	proxyURL           string                                                                                         // 代理地址
+	insecureSkipVerify bool                                                                                           // 是否跳过 HTTPS 不安全验证（生产环境禁止使用）
+	rootCAs            string                                                                                         // TLS 根证书路径
+	cert, key          string                                                                                         // TLS 客户端证书和私钥路径
+	transportDirty     bool                                                                                           // 传输层配置是否已变更；仅在代理/TLS 配置变化时重建 Transport
+	cookies            map[string]*http.Cookie                                                                        // Cookie 配置
+	params             url.Values                                                                                     // URL 查询参数或 POST Form 参数
+	body               io.Reader                                                                                      // 请求体
+	statusCode         []int                                                                                          // 可接受的状态码列表（除 200 以外需要特殊处理的状态码）
+	beforeRequest      func(ctx context.Context, request *http.Request) error                                         // 请求发送前的回调，可对 Request 进行自定义处理
+	beforeClient       func(ctx context.Context, client *http.Client) error                                           // 请求发送前的回调，可对 Client 进行自定义处理
+	afterResponse      func(ctx context.Context, response *http.Response) (isDone bool, err error)                    // 请求发送后的回调
+	afterBody          func(ctx context.Context, body []byte) error                                                   // 请求发送后对 Response.Body 的处理回调
+	afterDone          func(ctx context.Context, client *http.Client, request *http.Request, response *http.Response) // 请求完成后的回调
+	requestID          string                                                                                         // 请求唯一标识
+	maxRetry           uint8                                                                                          // 最大请求尝试次数（默认 2 次，最大 5 次，包含首次请求）
+	dump               bool                                                                                           // 是否开启 dump 模式：输出完整的请求和响应详情
+	dumpBodyLimit      int64                                                                                          // dump 预览内容长度上限
+	defLogOutput       bool                                                                                           // 是否启用默认日志输出（INFO 及以下级别）
+	baseLogger         Logger                                                                                         // 原始日志实例，用于重新绑定请求 ID 时避免字段叠加
+	Logger             Logger                                                                                         // 日志实例
 }
 
 // ============================ 构造函数 ============================
@@ -105,6 +107,7 @@ func NewCurl(opts ...CurlOption) *Curl {
 		rootCAs:            "",
 		cert:               "",
 		key:                "",
+		transportDirty:     true,
 		cookies:            make(map[string]*http.Cookie),
 		params:             make(url.Values),
 		body:               nil,
@@ -241,6 +244,7 @@ func WithCurlBasicAuth(username, password string) CurlOption {
 func WithCurlProxyURL(proxyURL string) CurlOption {
 	return func(c *Curl) {
 		c.proxyURL = proxyURL
+		c.markTransportDirty()
 	}
 }
 
@@ -248,6 +252,7 @@ func WithCurlProxyURL(proxyURL string) CurlOption {
 func WithCurlInsecureSkipVerify(isSkip bool) CurlOption {
 	return func(c *Curl) {
 		c.insecureSkipVerify = isSkip
+		c.markTransportDirty()
 	}
 }
 
@@ -255,6 +260,7 @@ func WithCurlInsecureSkipVerify(isSkip bool) CurlOption {
 func WithCurlRootCAs(rootCAs string) CurlOption {
 	return func(c *Curl) {
 		c.rootCAs = rootCAs
+		c.markTransportDirty()
 	}
 }
 
@@ -263,6 +269,7 @@ func WithCurlCertKey(cert, key string) CurlOption {
 	return func(c *Curl) {
 		c.cert = cert
 		c.key = key
+		c.markTransportDirty()
 	}
 }
 
@@ -315,6 +322,7 @@ func (c *Curl) CloseIdleConnections() {
 		c.cli.CloseIdleConnections()
 		c.cli.Transport = nil
 	}
+	c.markTransportDirty()
 }
 
 // SetRequestID 设置请求唯一标识。
@@ -366,67 +374,107 @@ func (c *Curl) GetRequestId() string {
 
 // Get 发起 GET 请求。
 func (c *Curl) Get(url string) (err error) {
+	return c.GetContext(context.Background(), url)
+}
+
+// GetContext 发起带 context 的 GET 请求。
+func (c *Curl) GetContext(ctx context.Context, url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Tag(err)
 	}
-	return c.Send(http.MethodGet, url, c.body)
+	return c.SendContext(ctx, http.MethodGet, url, c.body)
 }
 
 // Post 发起 POST 请求。
 func (c *Curl) Post(url string) (err error) {
+	return c.PostContext(context.Background(), url)
+}
+
+// PostContext 发起带 context 的 POST 请求。
+func (c *Curl) PostContext(ctx context.Context, url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Tag(err)
 	}
-	return c.Send(http.MethodPost, url, c.body)
+	return c.SendContext(ctx, http.MethodPost, url, c.body)
 }
 
 // PostForm 发起 POST Form 请求。
 func (c *Curl) PostForm(url string) error {
+	return c.PostFormContext(context.Background(), url)
+}
+
+// PostFormContext 发起带 context 的 POST Form 请求。
+func (c *Curl) PostFormContext(ctx context.Context, url string) error {
 	return c.SetContentType("application/x-www-form-urlencoded").
-		Send(http.MethodPost, url, strings.NewReader(c.params.Encode()))
+		SendContext(ctx, http.MethodPost, url, strings.NewReader(c.params.Encode()))
 }
 
 // Put 发起 PUT 请求。
 func (c *Curl) Put(url string) (err error) {
+	return c.PutContext(context.Background(), url)
+}
+
+// PutContext 发起带 context 的 PUT 请求。
+func (c *Curl) PutContext(ctx context.Context, url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Tag(err)
 	}
-	return c.Send(http.MethodPut, url, c.body)
+	return c.SendContext(ctx, http.MethodPut, url, c.body)
 }
 
 // Patch 发起 PATCH 请求。
 func (c *Curl) Patch(url string) (err error) {
+	return c.PatchContext(context.Background(), url)
+}
+
+// PatchContext 发起带 context 的 PATCH 请求。
+func (c *Curl) PatchContext(ctx context.Context, url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Tag(err)
 	}
-	return c.Send(http.MethodPatch, url, c.body)
+	return c.SendContext(ctx, http.MethodPatch, url, c.body)
 }
 
 // Head 发起 HEAD 请求。
 func (c *Curl) Head(url string) error {
-	return c.Send(http.MethodHead, url, nil)
+	return c.HeadContext(context.Background(), url)
+}
+
+// HeadContext 发起带 context 的 HEAD 请求。
+func (c *Curl) HeadContext(ctx context.Context, url string) error {
+	return c.SendContext(ctx, http.MethodHead, url, nil)
 }
 
 // Delete 发起 DELETE 请求。
 func (c *Curl) Delete(url string) (err error) {
+	return c.DeleteContext(context.Background(), url)
+}
+
+// DeleteContext 发起带 context 的 DELETE 请求。
+func (c *Curl) DeleteContext(ctx context.Context, url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Tag(err)
 	}
-	return c.Send(http.MethodDelete, url, c.body)
+	return c.SendContext(ctx, http.MethodDelete, url, c.body)
 }
 
 // Options 发起 OPTIONS 请求。
 func (c *Curl) Options(url string) (err error) {
+	return c.OptionsContext(context.Background(), url)
+}
+
+// OptionsContext 发起带 context 的 OPTIONS 请求。
+func (c *Curl) OptionsContext(ctx context.Context, url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
 		return errors.Tag(err)
 	}
-	return c.Send(http.MethodOptions, url, c.body)
+	return c.SendContext(ctx, http.MethodOptions, url, c.body)
 }
 
 // ============================ 内部辅助函数 ============================
