@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	apperrors "github.com/Is999/go-utils/errors"
+	"github.com/Is999/go-utils/errors"
 )
 
 // ============================ Send 请求发送 ============================
@@ -72,13 +72,13 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 如果请求体支持 Seek，先回到起点，确保同一个 Curl 实例重复发送时请求体完整。
 	if body, err = rewindRequestBody(body); err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 构建 Request
 	req, err = http.NewRequest(method, url, body)
 	if err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 	setRequestGetBody(req, body)
 
@@ -114,7 +114,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			c.Logger.Debug("request()")
 		}
 		if err = c.beforeRequest(req); err != nil {
-			return apperrors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -123,7 +123,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		if c.dump {
 			dump, err := dumpRequestSafe(req, c.dumpBodyLimit)
 			if err != nil {
-				return apperrors.Wrap(err)
+				return errors.Tag(err)
 			}
 			c.Logger.Info("httputil.DumpRequestOut()", "request", dump)
 		} else {
@@ -147,7 +147,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 
 	// 初始化 Transport
 	if err = c.initTransport(); err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 执行 beforeClient 回调
@@ -156,7 +156,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			c.Logger.Debug("client()")
 		}
 		if err = c.beforeClient(c.cli); err != nil {
-			return apperrors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -178,12 +178,12 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 执行请求（含重试逻辑）
 	for i := 1; i <= maxRetry; i++ {
 		if i > 1 && req.GetBody == nil && req.Body != nil && req.Body != http.NoBody {
-			return apperrors.New("client.Do() retry body is not rewindable")
+			return errors.New("client.Do() retry body is not rewindable")
 		}
 		if i > 1 && req.GetBody != nil {
 			req.Body, err = req.GetBody()
 			if err != nil {
-				return apperrors.Wrap(err)
+				return errors.Tag(err)
 			}
 		}
 		resp, err = c.cli.Do(req)
@@ -204,7 +204,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	}
 
 	if err != nil {
-		return apperrors.Errorf("client.Do() Retry %d times err: %v", maxRetry, err.Error())
+		return errors.Errorf("client.Do() Retry %d times err: %v", maxRetry, err.Error())
 	}
 
 	var respBody []byte
@@ -212,13 +212,13 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	// 记录响应日志
 	if c.defLogOutput && c.Logger.Enabled(context.Background(), LevelInfo) {
 		if respBody, err = c.logResponse(resp); err != nil {
-			return apperrors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
 	// 检查状态码
 	if resp.StatusCode != http.StatusOK && !containsStatusCode(resp.StatusCode, c.statusCode) {
-		return apperrors.Errorf("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
+		return errors.Errorf("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
 	}
 
 	// 执行 afterResponse 回调
@@ -228,7 +228,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 		}
 		isDone, err := c.afterResponse(resp)
 		if err != nil {
-			return apperrors.Wrap(err)
+			return errors.Tag(err)
 		}
 		if isDone {
 			return nil
@@ -244,12 +244,12 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 			var buf bytes.Buffer
 			_, err = buf.ReadFrom(resp.Body)
 			if err != nil {
-				return apperrors.Wrap(err)
+				return errors.Tag(err)
 			}
 			respBody = buf.Bytes()
 		}
 		if err = c.afterBody(respBody); err != nil {
-			return apperrors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -272,7 +272,7 @@ func rewindRequestBody(body io.Reader) (io.Reader, error) {
 	}
 	if seeker, ok := body.(io.Seeker); ok {
 		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
-			return nil, apperrors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 	}
 	if readSeeker, ok := body.(io.ReadSeeker); ok {
@@ -303,7 +303,7 @@ func setRequestGetBody(req *http.Request, body io.Reader) {
 	}
 	req.GetBody = func() (io.ReadCloser, error) {
 		if _, err := readSeeker.Seek(0, io.SeekStart); err != nil {
-			return nil, apperrors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		return io.NopCloser(readSeeker), nil
 	}
@@ -342,7 +342,7 @@ func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
 	if c.dump {
 		dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
 		if err != nil {
-			return nil, apperrors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		c.Logger.Info("httputil.DumpResponse()", "response", dump)
 	} else {
@@ -352,7 +352,7 @@ func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
 
 		respBody, restored, err := DrainBody(resp.Body)
 		if err != nil {
-			return nil, apperrors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		resp.Body = restored
 		b.Write(respBody)
@@ -435,10 +435,10 @@ func DrainBody(b io.ReadCloser) ([]byte, io.ReadCloser, error) {
 	}
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(b); err != nil {
-		return nil, b, apperrors.Wrap(err)
+		return nil, b, errors.Tag(err)
 	}
 	if err := b.Close(); err != nil {
-		return nil, b, apperrors.Wrap(err)
+		return nil, b, errors.Tag(err)
 	}
 	bodyBytes := buf.Bytes()
 	return bodyBytes, io.NopCloser(bytes.NewReader(bodyBytes)), nil
@@ -470,7 +470,7 @@ func containsStatusCode(code int, list []int) bool {
 func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 	dump, err := httputil.DumpRequestOut(req, false)
 	if err != nil {
-		return "", apperrors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 
 	if limit <= 0 || req.Body == nil || req.Body == http.NoBody {
@@ -483,17 +483,17 @@ func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 
 	body, err := req.GetBody()
 	if err != nil {
-		return "", apperrors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	defer body.Close()
 
 	preview, truncated, err := readBodyPreview(body, limit)
 	if err != nil {
-		return "", apperrors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	restored, err := req.GetBody()
 	if err != nil {
-		return "", apperrors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	req.Body = restored
 
@@ -510,7 +510,7 @@ func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 func dumpResponseSafe(resp *http.Response, limit int64) (string, error) {
 	dump, err := httputil.DumpResponse(resp, false)
 	if err != nil {
-		return "", apperrors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 
 	if limit <= 0 || resp == nil || resp.Body == nil || resp.Body == http.NoBody {
@@ -519,7 +519,7 @@ func dumpResponseSafe(resp *http.Response, limit int64) (string, error) {
 
 	preview, truncated, restored, err := readBodyPreviewAndRestore(resp.Body, limit)
 	if err != nil {
-		return "", apperrors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	resp.Body = restored
 
@@ -537,7 +537,7 @@ func readBodyPreview(r io.Reader, limit int64) ([]byte, bool, error) {
 	lr := &io.LimitedReader{R: r, N: limit + 1}
 	buf, err := io.ReadAll(lr)
 	if err != nil {
-		return nil, false, apperrors.Wrap(err)
+		return nil, false, errors.Tag(err)
 	}
 	truncated := int64(len(buf)) > limit
 	if truncated {
@@ -557,7 +557,7 @@ func readBodyPreviewAndRestore(body io.ReadCloser, limit int64) ([]byte, bool, i
 	lr := &io.LimitedReader{R: body, N: limit + 1}
 	buf, err := io.ReadAll(lr)
 	if err != nil {
-		return nil, false, body, apperrors.Wrap(err)
+		return nil, false, body, errors.Tag(err)
 	}
 	truncated := int64(len(buf)) > limit
 	preview := buf

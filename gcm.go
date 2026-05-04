@@ -21,18 +21,18 @@ import (
 // 返回值：nonce + 密文字节，错误信息。
 func (c *Cipher) EncryptGCM(data, additionalData []byte) ([]byte, error) {
 	if err := c.check(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	aead, err := c.newGCM()
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	nonceSize := aead.NonceSize()
 	out := make([]byte, nonceSize, nonceSize+len(data)+aead.Overhead())
 	if _, err = io.ReadFull(rand.Reader, out); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	return aead.Seal(out, out[:nonceSize], data, additionalData), nil
@@ -47,12 +47,12 @@ func (c *Cipher) EncryptGCM(data, additionalData []byte) ([]byte, error) {
 // 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptGCM(data, additionalData []byte) ([]byte, error) {
 	if err := c.check(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	aead, err := c.newGCM()
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	nonceSize := aead.NonceSize()
@@ -62,7 +62,7 @@ func (c *Cipher) DecryptGCM(data, additionalData []byte) ([]byte, error) {
 
 	plaintext, err := aead.Open(nil, data[:nonceSize], data[nonceSize:], additionalData)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	return plaintext, nil
 }
@@ -74,7 +74,7 @@ func (c *Cipher) EncryptGCMString(data string, encode EncodeToString, additional
 	}
 	encrypted, err := c.EncryptGCM([]byte(data), additionalData)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return encode(encrypted), nil
 }
@@ -86,11 +86,11 @@ func (c *Cipher) DecryptGCMString(encrypt string, decode DecodeString, additiona
 	}
 	ciphertext, err := decode(encrypt)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	decrypted, err := c.DecryptGCM(ciphertext, additionalData)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return string(decrypted), nil
 }
@@ -105,7 +105,7 @@ func (c *Cipher) newGCM() (cipher.AEAD, error) {
 	}
 	aead, err := cipher.NewGCM(c.block)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	return aead, nil
 }

@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"os"
 
-	apperrors "github.com/Is999/go-utils/errors"
+	"github.com/Is999/go-utils/errors"
 )
 
 // ============================ Transport 初始化 ============================
@@ -35,7 +35,7 @@ func (c *Curl) initTransport() error {
 	// 基于标准库默认 Transport 克隆，保留连接池、HTTP/2、代理和超时等生产默认值。
 	tr, err := defaultHTTPTransport()
 	if err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 配置代理
@@ -44,7 +44,7 @@ func (c *Curl) initTransport() error {
 			c.Logger.Debug("ProxyURL()")
 		}
 		if err := ProxyURL(tr, c.proxyURL); err != nil {
-			return apperrors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -68,7 +68,7 @@ func (c *Curl) initTransport() error {
 			tr.TLSClientConfig = defaultTLSConfig()
 		}
 		if err := RootCAs(tr.TLSClientConfig, c.rootCAs); err != nil {
-			return apperrors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -81,7 +81,7 @@ func (c *Curl) initTransport() error {
 			tr.TLSClientConfig = defaultTLSConfig()
 		}
 		if err := Certificate(tr.TLSClientConfig, c.cert, c.key); err != nil {
-			return apperrors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -96,7 +96,7 @@ func (c *Curl) initTransport() error {
 func defaultHTTPTransport() (*http.Transport, error) {
 	tr, ok := http.DefaultTransport.(*http.Transport)
 	if !ok || tr == nil {
-		return nil, apperrors.New("http.DefaultTransport 类型异常")
+		return nil, errors.New("http.DefaultTransport 类型异常")
 	}
 	cloned := tr.Clone()
 	if cloned.TLSClientConfig != nil {
@@ -124,7 +124,7 @@ func defaultTLSConfig() *tls.Config {
 func ProxyURL(transport *http.Transport, proxyURL string) error {
 	proxy, err := url.Parse(proxyURL)
 	if err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 	transport.Proxy = http.ProxyURL(proxy)
 	return nil
@@ -141,13 +141,13 @@ func RootCAs(config *tls.Config, rootCAs string) error {
 	// 读取根证书文件
 	cert, err := os.ReadFile(rootCAs)
 	if err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 创建证书池
 	certPool := x509.NewCertPool()
 	if ok := certPool.AppendCertsFromPEM(cert); !ok {
-		return apperrors.Errorf("RootCAs() 未解析到有效 PEM 证书: %s", rootCAs)
+		return errors.Errorf("RootCAs() 未解析到有效 PEM 证书: %s", rootCAs)
 	}
 
 	config.RootCAs = certPool
@@ -166,7 +166,7 @@ func Certificate(config *tls.Config, certFile, keyFile string) error {
 	// 加载客户端证书
 	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	config.Certificates = []tls.Certificate{certificate}

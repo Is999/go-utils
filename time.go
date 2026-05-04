@@ -152,7 +152,7 @@ func AddTime(t time.Time, addTimes ...string) (time.Time, error) {
 		v = strings.TrimSpace(v)
 		add, err := strconv.Atoi(strings.TrimSpace(v[:len(v)-1]))
 		if err != nil {
-			return t, errors.Wrap(err)
+			return t, errors.Tag(err)
 		}
 
 		switch strings.ToUpper(v[len(v)-1:]) {
@@ -337,7 +337,7 @@ func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error
 			return t, nil
 		}
 
-		err = errors.Wrap(err)
+		err = errors.Tag(err)
 	}
 	return time.Now().In(timeZone), err
 }

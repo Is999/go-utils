@@ -1,9 +1,10 @@
 package utils
 
 import (
-	"fmt"
 	"sync"
 	"time"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // Once 提供带重试能力的一次性执行控制器。
@@ -33,7 +34,7 @@ type Once struct {
 //   - 成功或最终失败后都会缓存结果，后续调用直接复用；需重新执行时调用 Reset
 func (r *Once) Do(f func() error, maxRetries int) error {
 	if f == nil {
-		return fmt.Errorf("Once.Do() f 不能为空")
+		return errors.New("无效的执行方法")
 	}
 	if maxRetries <= 0 {
 		maxRetries = 1
@@ -97,7 +98,7 @@ func (r *Once) initCondLocked() {
 func (r *Once) doWithRetry(f func() error, maxRetries int) (finalErr error) {
 	defer func() {
 		if recoverErr := recover(); recoverErr != nil {
-			finalErr = fmt.Errorf("Once.Do() panic: %v", recoverErr)
+			finalErr = errors.Errorf("%s panic: %v", GetFunctionName(f), recoverErr)
 		}
 	}()
 
@@ -114,5 +115,5 @@ func (r *Once) doWithRetry(f func() error, maxRetries int) (finalErr error) {
 		// 使用有上限的指数退避，避免失败风暴下重试间隔失控。
 		time.Sleep(retryDelay(attempt))
 	}
-	return fmt.Errorf("failed after %d attempts: %v", maxRetries, err)
+	return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", GetFunctionName(f), maxRetries)
 }

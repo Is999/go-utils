@@ -108,7 +108,7 @@ func TestGet(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -134,7 +134,7 @@ func TestGet(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -160,7 +160,7 @@ func TestGet(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -303,7 +303,7 @@ func TestPost(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -329,7 +329,7 @@ func TestPost(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -355,7 +355,7 @@ func TestPost(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -501,7 +501,7 @@ func TestPostForm(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &RespBody[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 				if !res.Success {
 					// 错误处理
@@ -663,7 +663,7 @@ func TestPostFile(t *testing.T) {
 			resolve: func(body []byte) error {
 				res := &RespBody[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 				if !res.Success {
 					// 错误处理

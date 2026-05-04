@@ -23,7 +23,7 @@ func Tar(tarFile string, files []string) error {
 	// 创建压缩文件
 	file, err := os.Create(tarFile)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	defer file.Close()
 
@@ -36,7 +36,7 @@ func Tar(tarFile string, files []string) error {
 		// 将文件添加到 zip 文件
 		err = AddFileToTar(tarWriter, filePath, "")
 		if err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -55,7 +55,7 @@ func TarGz(tarGzFile string, files []string) error {
 	// 创建压缩文件
 	file, err := os.Create(tarGzFile)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	defer file.Close()
 
@@ -72,7 +72,7 @@ func TarGz(tarGzFile string, files []string) error {
 		// 将文件添加到 zip 文件
 		err = AddFileToTar(tarWriter, filePath, "")
 		if err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -86,10 +86,10 @@ func TarGz(tarGzFile string, files []string) error {
 func AddFileToTar(tarWriter *tar.Writer, fileToCompress string, baseDir string) error {
 	fileInfo, err := os.Lstat(fileToCompress)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	if err = rejectArchiveSymlink(fileToCompress, fileInfo.Mode(), "tar"); err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	if fileInfo.IsDir() {
@@ -106,7 +106,7 @@ func addSingleFileToTar(tarWriter *tar.Writer, fileToCompress string, fileInfo o
 	// 创建一个新的tar文件头
 	header, err := tar.FileInfoHeader(fileInfo, "")
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 修改 header 中的 Name 字段，确保文件名正确
@@ -115,21 +115,21 @@ func addSingleFileToTar(tarWriter *tar.Writer, fileToCompress string, fileInfo o
 	// 将tar文件头写入tar归档文件
 	err = tarWriter.WriteHeader(header)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	if !fileInfo.IsDir() {
 		// 打开要压缩的文件
 		file, err := os.Open(fileToCompress)
 		if err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 		defer file.Close()
 
 		// 将文件数据拷贝到tar归档文件
 		_, err = io.Copy(tarWriter, file)
 		if err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 
@@ -141,24 +141,24 @@ func addDirectoryToTar(tarWriter *tar.Writer, directoryToCompress string, fileIn
 	// 压缩目录
 	err := addSingleFileToTar(tarWriter, directoryToCompress, fileInfo, strings.TrimSuffix(baseDir, fileInfo.Name()))
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 读取目录
 	files, err := os.ReadDir(directoryToCompress)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	for _, file := range files {
 		if err = rejectArchiveSymlink(filepath.Join(directoryToCompress, file.Name()), file.Type(), "tar"); err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 
 		// 获取文件信息
 		info, err := file.Info()
 		if err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 
 		// 获取完整路径
@@ -167,13 +167,13 @@ func addDirectoryToTar(tarWriter *tar.Writer, directoryToCompress string, fileIn
 			// 递归地压缩子目录
 			err = addDirectoryToTar(tarWriter, filePath, info, filepath.Join(baseDir, file.Name()))
 			if err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 		} else {
 			// 压缩单个文件
 			err = addSingleFileToTar(tarWriter, filePath, info, baseDir)
 			if err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 		}
 	}
@@ -193,7 +193,7 @@ func UnTar(tarFile, destDir string) error {
 	// 打开tar归档文件
 	file, err := os.Open(tarFile)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	defer file.Close()
 
@@ -218,13 +218,13 @@ func UnTar(tarFile, destDir string) error {
 	// 规范化目标目录，后续所有解压路径都必须限制在该目录下。
 	destRoot, err := filepath.Abs(destDir)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 创建目标目录
 	err = os.MkdirAll(destRoot, 0755)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 遍历tar归档文件中的每个文件条目
@@ -236,48 +236,48 @@ func UnTar(tarFile, destDir string) error {
 			break
 		}
 		if err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 
 		// 解析并校验解压路径，防止 ../ 或绝对路径逃逸到目标目录外。
 		destPath, err := safeUntarPath(destRoot, header.Name)
 		if err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 
 		// 判断文件条目是一个目录还是一个普通文件
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err = counter.add(header.Name, 0); err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 			// 如果是目录，创建目录
 			err := os.MkdirAll(destPath, untarDirPerm(header.Mode))
 			if err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 		case tar.TypeReg:
 			if err = counter.add(header.Name, header.Size); err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 			// 判断目录是否存在, 不存在则创建
 			if !IsExist(filepath.Dir(destPath)) {
 				err := os.MkdirAll(filepath.Dir(destPath), 0755)
 				if err != nil {
-					return errors.Wrap(err)
+					return errors.Tag(err)
 				}
 			}
 
 			// 如果是文件，创建文件并将tar数据写入文件
 			file, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, untarFilePerm(header.Mode))
 			if err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 
 			_, err = io.Copy(file, tarReader)
 			closeErr := file.Close()
 			if err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 			if closeErr != nil {
 				return errors.Wrap(closeErr)
@@ -323,7 +323,7 @@ func safeUntarPath(destRoot, entryName string) (string, error) {
 	destPath := filepath.Join(destRoot, cleanName)
 	relPath, err := filepath.Rel(destRoot, destPath)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
 		return "", errors.Errorf("tar 条目路径越界: %s", entryName)

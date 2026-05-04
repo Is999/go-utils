@@ -47,7 +47,7 @@ func IsExist(path string) bool {
 func Size(filepath string) (int64, error) {
 	f, err := os.Stat(filepath)
 	if err != nil {
-		return 0, errors.Wrap(err)
+		return 0, errors.Tag(err)
 	}
 	return f.Size(), nil
 }
@@ -60,27 +60,27 @@ func Copy(src, dst string) error {
 	// 打开source文件
 	f1, err := os.Open(src)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	defer f1.Close()
 
 	// 获取文件权限
 	stat, err := f1.Stat()
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 创建或打开拷贝文件
 	f2, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, stat.Mode())
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	defer f2.Close()
 
 	// 拷贝文件
 	_, err = io.Copy(f2, f1)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return nil
 }
@@ -143,7 +143,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 	// 处理文件匹配
 	var fc fs.WalkDirFunc = func(filePath string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 
 		if d.IsDir() {
@@ -184,13 +184,13 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 		if ok {
 			info, err := d.Info()
 			if err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 
 			// 获取绝对路径
 			absPath, err := filepath.Abs(filePath)
 			if err != nil {
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 			files = append(files, FileInfo{info, absPath})
 		}
@@ -205,7 +205,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 		// 当前模式读取当前目录
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return files, errors.Wrap(err)
+			return files, errors.Tag(err)
 		}
 
 		// 处理目录路径末尾路径分割符
@@ -247,10 +247,10 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error {
 			if errors.Is(err, DONE) {
 				return nil
 			}
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
-	return errors.Wrap(scan.Err())
+	return errors.Tag(scan.Err())
 }
 
 // Line 读取一行数据: 读取大文件大行数据性能略优于Scan
@@ -272,13 +272,13 @@ func Line(r io.Reader, handle ReadLine) error {
 				if errors.Is(err, DONE) {
 					return nil
 				}
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 		} else {
 			if err == io.EOF {
 				err = nil
 			}
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 	}
 }
@@ -293,7 +293,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 				if errors.Is(err, DONE) {
 					err = nil
 				}
-				return errors.Wrap(err)
+				return errors.Tag(err)
 			}
 		}
 
@@ -301,7 +301,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 			if err == io.EOF {
 				err = nil
 			}
-			return errors.Wrap(err)
+			return errors.Tag(err)
 		}
 		if n == 0 {
 			return nil
@@ -357,7 +357,7 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 		// 创建目录
 		err := os.MkdirAll(path, premDir)
 		if err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 	}
 
@@ -372,7 +372,7 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 	// 打开文件没有则创建
 	file, err := os.OpenFile(fileName, flag, permFile)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	return &WriteFile{File: file}, nil
@@ -390,7 +390,8 @@ func (f *WriteFile) WriteString(data string) (int, error) {
 	defer f.Lock.Unlock()
 
 	//写入数据
-	return f.File.WriteString(data)
+	n, err := f.File.WriteString(data)
+	return n, errors.Tag(err)
 }
 
 // Write 写入数据
@@ -399,7 +400,8 @@ func (f *WriteFile) Write(data []byte) (int, error) {
 	defer f.Lock.Unlock()
 
 	//写入数据
-	return f.File.Write(data)
+	n, err := f.File.Write(data)
+	return n, errors.Tag(err)
 }
 
 // WriteBuf 使用 bufio.Writer 写入数据
@@ -414,10 +416,10 @@ func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (in
 	w := bufio.NewWriter(f.File)
 	size, err := handler(w)
 	if err != nil {
-		return size, errors.Wrap(err)
+		return size, errors.Tag(err)
 	}
 	if err = w.Flush(); err != nil {
-		return size, errors.Wrap(err)
+		return size, errors.Tag(err)
 	}
 	return size, nil
 }
@@ -425,7 +427,7 @@ func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (in
 // Close 关闭文件
 func (f *WriteFile) Close() error {
 	if f.File != nil {
-		return errors.Wrap(f.File.Close())
+		return errors.Tag(f.File.Close())
 	}
 	return nil
 }
@@ -474,13 +476,13 @@ func FileType(f *os.File) (string, error) {
 		// 记录当前文件偏移，检测完成后恢复，避免影响调用方后续读取逻辑。
 		currentOffset, err := f.Seek(0, io.SeekCurrent)
 		if err != nil {
-			return "", errors.Wrap(err)
+			return "", errors.Tag(err)
 		}
 
 		var buf [512]byte
 		n, err := io.ReadFull(f, buf[:])
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return "", errors.Wrap(err)
+			return "", errors.Tag(err)
 		}
 
 		ctype = http.DetectContentType(buf[:n])
@@ -488,7 +490,7 @@ func FileType(f *os.File) (string, error) {
 		// 恢复文件指针到调用前位置，保持函数无副作用。
 		_, err = f.Seek(currentOffset, io.SeekStart)
 		if err != nil {
-			return "", errors.Wrap(err)
+			return "", errors.Tag(err)
 		}
 	}
 	return ctype, nil

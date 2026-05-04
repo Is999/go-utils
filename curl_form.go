@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	apperrors "github.com/Is999/go-utils/errors"
+	"github.com/Is999/go-utils/errors"
 )
 
 // ============================ Form 结构体 ============================
@@ -189,7 +189,7 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 		for key, values := range f.Params {
 			for _, value := range values {
 				if err := writer.WriteField(key, value); err != nil {
-					return nil, "", apperrors.Wrap(err)
+					return nil, "", errors.Tag(err)
 				}
 			}
 		}
@@ -199,14 +199,14 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 	for fieldName, files := range f.Files {
 		for _, filePath := range files {
 			if err := f.createFormFile(writer, fieldName, filePath); err != nil {
-				return nil, "", apperrors.Wrap(err)
+				return nil, "", errors.Tag(err)
 			}
 		}
 	}
 
 	// 关闭 writer
 	if err := writer.Close(); err != nil {
-		return nil, "", apperrors.Wrap(err)
+		return nil, "", errors.Tag(err)
 	}
 
 	return buf, writer.FormDataContentType(), nil
@@ -224,19 +224,19 @@ func (f *Form) createFormFile(writer *multipart.Writer, fieldName, filePath stri
 	// 打开文件
 	file, err := os.Open(filePath)
 	if err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 	defer file.Close()
 
 	// 创建表单文件头，仅暴露文件名，避免把本地目录结构写入 multipart。
 	part, err := writer.CreateFormFile(fieldName, filepath.Base(filePath))
 	if err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	// 复制文件内容
 	if _, err = io.Copy(part, file); err != nil {
-		return apperrors.Wrap(err)
+		return errors.Tag(err)
 	}
 
 	return nil

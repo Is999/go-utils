@@ -191,6 +191,54 @@ func TestTag(t *testing.T) {
 	})
 }
 
+func TestErrorMessageChainSemantics(t *testing.T) {
+	baseErr := fmt.Errorf("db连接失败")
+
+	t.Run("tag_keeps_original_message", func(t *testing.T) {
+		tagged := errors.Tag(baseErr)
+		if got, want := tagged.Error(), "db连接失败"; got != want {
+			t.Fatalf("Tag().Error() = %q, want %q", got, want)
+		}
+
+		taggedAgain := errors.Tag(tagged)
+		if got, want := taggedAgain.Error(), "db连接失败"; got != want {
+			t.Fatalf("Tag(Tag(err)).Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("wrap_builds_message_chain", func(t *testing.T) {
+		wrapped := errors.Wrap(baseErr, "查询用户失败")
+		if got, want := wrapped.Error(), "查询用户失败 -> db连接失败"; got != want {
+			t.Fatalf("Wrap().Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("layered_wrap_builds_full_chain", func(t *testing.T) {
+		wrap1 := errors.Wrap(baseErr, "查询用户失败")
+		wrap2 := errors.Wrap(wrap1, "业务处理失败")
+		if got, want := wrap2.Error(), "业务处理失败 -> 查询用户失败 -> db连接失败"; got != want {
+			t.Fatalf("layered Wrap().Error() = %q, want %q", got, want)
+		}
+
+		tagged := errors.Tag(wrap2)
+		if got, want := tagged.Error(), "业务处理失败 -> 查询用户失败 -> db连接失败"; got != want {
+			t.Fatalf("Tag(Wrap(Wrap(err))).Error() = %q, want %q", got, want)
+		}
+
+		taggedAgain := errors.Tag(tagged)
+		if got, want := taggedAgain.Error(), "业务处理失败 -> 查询用户失败 -> db连接失败"; got != want {
+			t.Fatalf("Tag(Tag(Wrap(Wrap(err)))).Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("wrapf_builds_message_chain", func(t *testing.T) {
+		wrapped := errors.Wrapf(baseErr, "查询用户%d失败", 123)
+		if got, want := wrapped.Error(), "查询用户123失败 -> db连接失败"; got != want {
+			t.Fatalf("Wrapf().Error() = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestAs(t *testing.T) {
 	err := errors.New("test error")
 	wrapErr := errors.Wrap(err, "wrapped")

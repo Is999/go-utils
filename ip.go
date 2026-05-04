@@ -96,7 +96,7 @@ func NewTrustedProxies(values ...string) (*TrustedProxies, error) {
 
 		ipNet, err := parseTrustedProxy(value)
 		if err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		proxies.nets = append(proxies.nets, ipNet)
 	}

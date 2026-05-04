@@ -76,7 +76,7 @@ func (e *stackError) Error() string {
 	if e == nil {
 		return ""
 	}
-	return e.msg
+	return composeErrorMessage(e.msg, e.err)
 }
 
 // Unwrap 返回被包装的底层错误，支持错误链展开。

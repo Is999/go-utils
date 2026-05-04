@@ -5,6 +5,8 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"time"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // 重试退避常量用于限制失败后的等待时间。
@@ -97,7 +99,7 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 // 重试间隔从 100ms~200ms 区间起步，按 2 倍递增，并在每次退避上附加随机抖动，最大不超过 3s。
 func Retry(maxRetries uint8, fn func(tries int) error) error {
 	if fn == nil {
-		return fmt.Errorf("Retry() fn 不能为空")
+		return errors.New("无效的执行方法")
 	}
 	var (
 		err   error
@@ -123,7 +125,7 @@ func Retry(maxRetries uint8, fn func(tries int) error) error {
 
 	if err != nil {
 		// 重试失败，返回错误信息
-		return fmt.Errorf("method %s failed after %d attempts: %w", GetFunctionName(fn), tries, err)
+		return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", GetFunctionName(fn), maxRetries)
 	}
 	return nil
 }

@@ -55,10 +55,10 @@ func NewRSA(pub, pri string, opts ...RSAOption) (*RSA, error) {
 	cfg := parseRSAOptions(opts...)
 	r := &RSA{}
 	if err := r.SetPublicKey(pub, cfg.isFilePath); err != nil {
-		return r, errors.Wrap(err)
+		return r, errors.Tag(err)
 	}
 	if err := r.SetPrivateKey(pri, cfg.isFilePath); err != nil {
-		return r, errors.Wrap(err)
+		return r, errors.Tag(err)
 	}
 	return r, nil
 }
@@ -68,7 +68,7 @@ func NewPubRSA(pub string, opts ...RSAOption) (*RSA, error) {
 	cfg := parseRSAOptions(opts...)
 	r := &RSA{}
 	if err := r.SetPublicKey(pub, cfg.isFilePath); err != nil {
-		return r, errors.Wrap(err)
+		return r, errors.Tag(err)
 	}
 	return r, nil
 }
@@ -78,7 +78,7 @@ func NewPriRSA(pri string, opts ...RSAOption) (*RSA, error) {
 	cfg := parseRSAOptions(opts...)
 	r := &RSA{}
 	if err := r.SetPrivateKey(pri, cfg.isFilePath); err != nil {
-		return r, errors.Wrap(err)
+		return r, errors.Tag(err)
 	}
 	return r, nil
 }
@@ -100,15 +100,15 @@ func parseRSAOptions(opts ...RSAOption) rsaOptions {
 func (r *RSA) SetPublicKey(publicKey string, isFilePath bool) error {
 	key, err := readKeyData(publicKey, isFilePath)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	der, err := decodeKeyDER(key, "PUBLIC")
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	pub, err := parseRSAPublicKey(der)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	r.pubKey = pub
 	return nil
@@ -120,15 +120,15 @@ func (r *RSA) SetPublicKey(publicKey string, isFilePath bool) error {
 func (r *RSA) SetPrivateKey(privateKey string, isFilePath bool) error {
 	key, err := readKeyData(privateKey, isFilePath)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	der, err := decodeKeyDER(key, "PRIVATE")
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	pri, err := parseRSAPrivateKey(der)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	r.priKey = pri
 	return nil
@@ -158,7 +158,7 @@ func (r *RSA) Encrypt(data string, encode EncodeToString) (string, error) {
 		return "", errors.New("encode 不能为空")
 	}
 	if err := r.IsSetPublicKey(); err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 
 	keySize := r.pubKey.Size()
@@ -167,7 +167,7 @@ func (r *RSA) Encrypt(data string, encode EncodeToString) (string, error) {
 		return rsa.EncryptPKCS1v15(rand.Reader, r.pubKey, chunk)
 	})
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return encode(encrypted), nil
 }
@@ -178,18 +178,18 @@ func (r *RSA) Decrypt(encrypt string, decode DecodeString) (string, error) {
 		return "", errors.New("decode 不能为空")
 	}
 	if err := r.IsSetPrivateKey(); err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 
 	ciphertext, err := decode(encrypt)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	decrypted, err := rsaDecryptChunks(ciphertext, r.priKey.Size(), func(chunk []byte) ([]byte, error) {
 		return rsa.DecryptPKCS1v15(rand.Reader, r.priKey, chunk)
 	})
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return string(decrypted), nil
 }
@@ -200,18 +200,18 @@ func (r *RSA) Sign(data string, hash crypto.Hash, encode EncodeToString) (string
 		return "", errors.New("encode 不能为空")
 	}
 	if err := validateRSASignHash(hash); err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	if err := r.IsSetPrivateKey(); err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	hashed, err := hashBytes([]byte(data), hash)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	sign, err := rsa.SignPKCS1v15(rand.Reader, r.priKey, hash, hashed)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return encode(sign), nil
 }
@@ -222,18 +222,18 @@ func (r *RSA) Verify(data, sign string, hash crypto.Hash, decode DecodeString) e
 		return errors.New("decode 不能为空")
 	}
 	if err := validateRSASignHash(hash); err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	if err := r.IsSetPublicKey(); err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	signByte, err := decode(sign)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	hashed, err := hashBytes([]byte(data), hash)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return rsa.VerifyPKCS1v15(r.pubKey, hash, hashed, signByte)
 }
@@ -247,7 +247,7 @@ func (r *RSA) EncryptOAEP(data string, encode EncodeToString, hash hash.Hash) (s
 		return "", errors.New("hash 不能为空")
 	}
 	if err := r.IsSetPublicKey(); err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 
 	keySize := r.pubKey.Size()
@@ -257,7 +257,7 @@ func (r *RSA) EncryptOAEP(data string, encode EncodeToString, hash hash.Hash) (s
 		return rsa.EncryptOAEP(hash, rand.Reader, r.pubKey, chunk, nil)
 	})
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return encode(encrypted), nil
 }
@@ -271,19 +271,19 @@ func (r *RSA) DecryptOAEP(encrypt string, decode DecodeString, hash hash.Hash) (
 		return "", errors.New("hash 不能为空")
 	}
 	if err := r.IsSetPrivateKey(); err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 
 	ciphertext, err := decode(encrypt)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	decrypted, err := rsaDecryptChunks(ciphertext, r.priKey.Size(), func(chunk []byte) ([]byte, error) {
 		hash.Reset()
 		return rsa.DecryptOAEP(hash, rand.Reader, r.priKey, chunk, nil)
 	})
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return string(decrypted), nil
 }
@@ -294,18 +294,18 @@ func (r *RSA) SignPSS(data string, hash crypto.Hash, encode EncodeToString, opts
 		return "", errors.New("encode 不能为空")
 	}
 	if err := validateRSASignHash(hash); err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	if err := r.IsSetPrivateKey(); err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	hashed, err := hashBytes([]byte(data), hash)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	sign, err := rsa.SignPSS(rand.Reader, r.priKey, hash, hashed, opts)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return encode(sign), nil
 }
@@ -316,18 +316,18 @@ func (r *RSA) VerifyPSS(data, sign string, hash crypto.Hash, decode DecodeString
 		return errors.New("decode 不能为空")
 	}
 	if err := validateRSASignHash(hash); err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	if err := r.IsSetPublicKey(); err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	signByte, err := decode(sign)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	hashed, err := hashBytes([]byte(data), hash)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return rsa.VerifyPSS(r.pubKey, hash, hashed, signByte, opts)
 }
@@ -342,7 +342,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	}
 	if strings.TrimSpace(path) != "" {
 		if err := os.MkdirAll(path, 0o755); err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 	}
 
@@ -357,16 +357,16 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	privateStream, err := marshalPrivateKey(privateKey, isPriPKCS1)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	publicStream, err := marshalPublicKey(&privateKey.PublicKey, isPubPKCS8)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	now := time.Now()
@@ -377,12 +377,12 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 
 	publicType := Ternary(isPubPKCS8, "PUBLIC KEY", "RSA PUBLIC KEY")
 	if err = writePEMFile(fileName[0], &pem.Block{Type: publicType, Bytes: publicStream}, 0o644); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	// 保持旧版本 PEM 头兼容：PKCS8 私钥也使用 RSA PRIVATE KEY 头，解析时按 DER 自动识别。
 	if err = writePEMFile(fileName[1], &pem.Block{Type: "RSA PRIVATE KEY", Bytes: privateStream}, 0o600); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	return fileName, nil
 }
@@ -483,13 +483,13 @@ func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
 			return nil, errors.New("PublicKey 类型错误")
 		}
 		if err = validateRSAPublicKey(pub); err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		return pub, nil
 	}
 	if pub, err := x509.ParsePKCS1PublicKey(der); err == nil {
 		if err = validateRSAPublicKey(pub); err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		return pub, nil
 	}
@@ -500,7 +500,7 @@ func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
 func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	if pri, err := x509.ParsePKCS1PrivateKey(der); err == nil {
 		if err = validateRSAPrivateKey(pri); err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		return pri, nil
 	}
@@ -510,7 +510,7 @@ func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
 			return nil, errors.New("PrivateKey 类型错误")
 		}
 		if err = validateRSAPrivateKey(pri); err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		return pri, nil
 	}
@@ -547,7 +547,7 @@ func validateRSAPrivateKey(pri *rsa.PrivateKey) error {
 		return errors.Errorf("RSA 私钥位数不能低于 %d，当前位数: %d", minRSABits, bits)
 	}
 	if err := pri.Validate(); err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return nil
 }
@@ -569,7 +569,7 @@ func rsaEncryptChunks(data []byte, keySize, maxPayload int, encrypt func([]byte)
 		}
 		encrypted, err := encrypt(data[start:end])
 		if err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		out = append(out, encrypted...)
 	}
@@ -591,7 +591,7 @@ func rsaDecryptChunks(ciphertext []byte, keySize int, decrypt func([]byte) ([]by
 	for start := 0; start < len(ciphertext); start += keySize {
 		decrypted, err := decrypt(ciphertext[start : start+keySize])
 		if err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 		out = append(out, decrypted...)
 	}
@@ -640,11 +640,11 @@ func marshalPublicKey(publicKey *rsa.PublicKey, isPKCS8 bool) ([]byte, error) {
 func writePEMFile(name string, block *pem.Block, perm os.FileMode) error {
 	file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	defer file.Close()
 	if err = pem.Encode(file, block); err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return nil
 }

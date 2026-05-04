@@ -21,7 +21,7 @@ func URLPath(urlPath string, params url.Values) (string, error) {
 	if params != nil && len(params) > 0 {
 		u, err := url.Parse(urlPath)
 		if err != nil {
-			return "", errors.Wrap(err)
+			return "", errors.Tag(err)
 		}
 		query := u.Query()
 		for key, val := range params {

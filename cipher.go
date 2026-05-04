@@ -115,13 +115,13 @@ func NewCipher(key string, block CipherBlock, opts ...CipherOption) (*Cipher, er
 		allowUnsafeStreamMode: cfg.allowUnsafeStreamMode,
 	}
 	if err := c.setKey(key, block); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	if cfg.iv != nil {
 		// 显式设置固定 IV 时，固定 IV 优先于随机 IV。
 		c.isRandIV = false
 		if err := c.setIV(*cfg.iv); err != nil {
-			return nil, errors.Wrap(err)
+			return nil, errors.Tag(err)
 		}
 	}
 	return c, nil
@@ -149,7 +149,7 @@ func (c *Cipher) setKey(key string, block CipherBlock) error {
 	k := []byte(key)
 	b, err := block(k)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	c.key = k
 	c.block = b
@@ -181,7 +181,7 @@ func (c *Cipher) check() error {
 // 返回值：错误信息。
 func (c *Cipher) setIV(iv string) error {
 	if err := c.check(); err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	if len(iv) != c.block.BlockSize() {
 		return errors.Errorf("IV 长度必须是 %d 字节，当前长度: %d", c.block.BlockSize(), len(iv))
@@ -199,15 +199,15 @@ func (c *Cipher) setIV(iv string) error {
 // 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptECB(data []byte, padding Padding) ([]byte, error) {
 	if err := c.check(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	if err := c.checkUnsafeECB(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	// ECB 需要保证输入长度是分组大小的整数倍，因此先执行填充。
 	paddingData, err := c.pad(data, padding)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 
 	// 逐块独立加密，保持 ECB 原始语义。
@@ -225,13 +225,13 @@ func (c *Cipher) EncryptECB(data []byte, padding Padding) ([]byte, error) {
 // 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 	if err := c.check(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	if err := c.checkUnsafeECB(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	if err := c.validateBlockCiphertext(data); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	if unPadding == nil {
 		return nil, errors.New("unPadding 不能为空")
@@ -252,7 +252,7 @@ func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 	paddingData, out, dst, iv, err := c.prepareBlockEncrypt(data, padding)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	cipher.NewCBCEncrypter(c.block, iv).CryptBlocks(dst, paddingData)
 	return out, nil
@@ -268,7 +268,7 @@ func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 	body, iv, err := c.prepareBlockDecrypt(data)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	if unPadding == nil {
 		return nil, errors.New("unPadding 不能为空")
@@ -310,7 +310,7 @@ func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
 // 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("CFB"); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	return c.encryptStream(data, padding, cipher.NewCFBEncrypter)
 }
@@ -324,7 +324,7 @@ func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 // 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("CFB"); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	return c.decryptStream(data, unPadding, cipher.NewCFBDecrypter)
 }
@@ -338,7 +338,7 @@ func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 // 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("OFB"); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	return c.encryptStream(data, padding, cipher.NewOFB)
 }
@@ -352,7 +352,7 @@ func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 // 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("OFB"); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	return c.decryptStream(data, unPadding, cipher.NewOFB)
 }
@@ -418,7 +418,7 @@ func (c *Cipher) Encrypt(data string, mode McryptMode, encode EncodeToString, pa
 	}
 	encrypted, err := c.EncryptBytes([]byte(data), mode, padding)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return encode(encrypted), nil
 }
@@ -432,11 +432,11 @@ func (c *Cipher) Decrypt(encrypt string, mode McryptMode, decode DecodeString, u
 	}
 	ciphertext, err := decode(encrypt)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	decrypted, err := c.DecryptBytes(ciphertext, mode, unPadding)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	return string(decrypted), nil
 }
@@ -498,11 +498,11 @@ func (c *Cipher) checkUnsafeECB() error {
 //   - err：错误信息。
 func (c *Cipher) prepareBlockEncrypt(data []byte, padding Padding) (paddingData, out, dst, iv []byte, err error) {
 	if err = c.check(); err != nil {
-		return nil, nil, nil, nil, errors.Wrap(err)
+		return nil, nil, nil, nil, errors.Tag(err)
 	}
 	paddingData, err = c.pad(data, padding)
 	if err != nil {
-		return nil, nil, nil, nil, errors.Wrap(err)
+		return nil, nil, nil, nil, errors.Tag(err)
 	}
 
 	blockSize := c.block.BlockSize()
@@ -510,14 +510,14 @@ func (c *Cipher) prepareBlockEncrypt(data []byte, padding Padding) (paddingData,
 		// 随机 IV 模式下，将 IV 放在密文头部，便于解密端直接解析。
 		out = make([]byte, blockSize+len(paddingData))
 		if _, err = io.ReadFull(rand.Reader, out[:blockSize]); err != nil {
-			return nil, nil, nil, nil, errors.Wrap(err)
+			return nil, nil, nil, nil, errors.Tag(err)
 		}
 		return paddingData, out, out[blockSize:], out[:blockSize], nil
 	}
 
 	iv, err = c.fixedIV()
 	if err != nil {
-		return nil, nil, nil, nil, errors.Wrap(err)
+		return nil, nil, nil, nil, errors.Tag(err)
 	}
 	out = make([]byte, len(paddingData))
 	return paddingData, out, out, iv, nil
@@ -534,14 +534,14 @@ func (c *Cipher) prepareBlockEncrypt(data []byte, padding Padding) (paddingData,
 //   - err：错误信息。
 func (c *Cipher) prepareBlockDecrypt(data []byte) (body, iv []byte, err error) {
 	if err = c.check(); err != nil {
-		return nil, nil, errors.Wrap(err)
+		return nil, nil, errors.Tag(err)
 	}
 	body, iv, err = c.splitCiphertextIV(data)
 	if err != nil {
-		return nil, nil, errors.Wrap(err)
+		return nil, nil, errors.Tag(err)
 	}
 	if err = c.validateBlockCiphertext(body); err != nil {
-		return nil, nil, errors.Wrap(err)
+		return nil, nil, errors.Tag(err)
 	}
 	return body, iv, nil
 }
@@ -549,11 +549,11 @@ func (c *Cipher) prepareBlockDecrypt(data []byte) (body, iv []byte, err error) {
 // prepareStreamDecrypt 为 CTR/CFB/OFB 等流模式准备解密数据。
 func (c *Cipher) prepareStreamDecrypt(data []byte) (body, iv []byte, err error) {
 	if err = c.check(); err != nil {
-		return nil, nil, errors.Wrap(err)
+		return nil, nil, errors.Tag(err)
 	}
 	body, iv, err = c.splitCiphertextIV(data)
 	if err != nil {
-		return nil, nil, errors.Wrap(err)
+		return nil, nil, errors.Tag(err)
 	}
 	if len(body) == 0 {
 		return nil, nil, errors.New("密文不能为空")
@@ -572,7 +572,7 @@ func (c *Cipher) prepareStreamDecrypt(data []byte) (body, iv []byte, err error) 
 func (c *Cipher) encryptStream(data []byte, padding Padding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
 	paddingData, out, dst, iv, err := c.prepareBlockEncrypt(data, padding)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	newStream(c.block, iv).XORKeyStream(dst, paddingData)
 	return out, nil
@@ -589,7 +589,7 @@ func (c *Cipher) encryptStream(data []byte, padding Padding, newStream func(ciph
 func (c *Cipher) decryptStream(data []byte, unPadding UnPadding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
 	body, iv, err := c.prepareStreamDecrypt(data)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errors.Tag(err)
 	}
 	if unPadding == nil {
 		return nil, errors.New("unPadding 不能为空")
@@ -641,7 +641,7 @@ func (c *Cipher) splitCiphertextIV(data []byte) ([]byte, []byte, error) {
 	}
 	iv, err := c.fixedIV()
 	if err != nil {
-		return nil, nil, errors.Wrap(err)
+		return nil, nil, errors.Tag(err)
 	}
 	return data, iv, nil
 }

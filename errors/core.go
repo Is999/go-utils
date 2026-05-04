@@ -13,6 +13,7 @@ const (
 	defaultStackDepth = 32   // 默认每层错误捕获的栈帧深度
 	maxStackDepth     = 64   // 每层错误捕获栈帧深度的上限
 	maxChainDepth     = 1024 // 错误链遍历的最大深度，防止异常链过深导致的性能问题
+	errorJoinSep      = " -> "
 )
 
 // 全局原子变量，用于并发安全的配置控制
@@ -145,21 +146,16 @@ func Wrap(err error, msg ...string) error {
 		return nil
 	}
 
-	message := ""
-	if len(msg) > 0 {
-		message = msg[0]
+	// 如果没有附加消息，则仅附加一层调用信息
+	if len(msg) == 0 {
+		return Tag(err)
 	}
 
+	message := msg[0]
 	if HasStack(err) {
-		if message == "" {
-			return err
-		}
 		return &messageError{msg: message, err: err}
 	}
 
-	if message == "" {
-		message = err.Error()
-	}
 	return newStackError(message, err)
 }
 
@@ -332,7 +328,7 @@ func WithContextErrs(ctx context.Context, kvs ...string) context.Context {
 func WithContextErrsE(ctx context.Context, kvs ...string) (context.Context, error) {
 	parent := normalizeContext(ctx)
 	if len(kvs)%2 != 0 {
-		return parent, Errorf("WithContextErrsE 参数必须成对出现，当前参数个数=%d", len(kvs))
+		return parent, Errorf("WithContextErrsE parameters must be provided in pairs, got %d", len(kvs))
 	}
 	kv := make([]string, 0, len(kvs))
 	for i := 0; i < len(kvs); i += 2 {
@@ -469,7 +465,7 @@ func Tag(err error) error {
 	}
 
 	// 创建带追踪栈的新错误
-	return newStackError(err.Error(), err)
+	return newStackError("", err)
 }
 
 // ============================ 标准库兼容函数 ============================
@@ -576,6 +572,25 @@ func HasMsg(err error, msg string) bool {
 	return err.Error() == msg
 }
 
+// composeErrorMessage 组合错误消息。
+func composeErrorMessage(msg string, err error) string {
+	switch {
+	case msg == "":
+		if err == nil {
+			return ""
+		}
+		return err.Error()
+	case err == nil:
+		return msg
+	}
+
+	cause := err.Error()
+	if cause == "" || cause == msg {
+		return msg
+	}
+	return msg + errorJoinSep + cause
+}
+
 // Unwrap 语义与标准库 errors.Unwrap 完全一致。
 // 返回错误链中的下一个错误。
 //
@@ -608,7 +623,7 @@ func (e *messageError) Error() string {
 	if e == nil {
 		return ""
 	}
-	return e.msg
+	return composeErrorMessage(e.msg, e.err)
 }
 
 // Unwrap 返回被包装的底层错误，支持错误链展开。

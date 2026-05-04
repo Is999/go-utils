@@ -368,7 +368,7 @@ func (c *Curl) GetRequestId() string {
 func (c *Curl) Get(url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return c.Send(http.MethodGet, url, c.body)
 }
@@ -377,7 +377,7 @@ func (c *Curl) Get(url string) (err error) {
 func (c *Curl) Post(url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return c.Send(http.MethodPost, url, c.body)
 }
@@ -392,7 +392,7 @@ func (c *Curl) PostForm(url string) error {
 func (c *Curl) Put(url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return c.Send(http.MethodPut, url, c.body)
 }
@@ -401,7 +401,7 @@ func (c *Curl) Put(url string) (err error) {
 func (c *Curl) Patch(url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return c.Send(http.MethodPatch, url, c.body)
 }
@@ -415,7 +415,7 @@ func (c *Curl) Head(url string) error {
 func (c *Curl) Delete(url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return c.Send(http.MethodDelete, url, c.body)
 }
@@ -424,7 +424,7 @@ func (c *Curl) Delete(url string) (err error) {
 func (c *Curl) Options(url string) (err error) {
 	url, err = buildURL(url, c.params)
 	if err != nil {
-		return errors.Wrap(err)
+		return errors.Tag(err)
 	}
 	return c.Send(http.MethodOptions, url, c.body)
 }
@@ -460,7 +460,7 @@ func buildURL(baseURL string, params url.Values) (string, error) {
 	}
 	u, err := url.Parse(baseURL)
 	if err != nil {
-		return "", errors.Wrap(err)
+		return "", errors.Tag(err)
 	}
 	q := u.Query()
 	for key, values := range params {
