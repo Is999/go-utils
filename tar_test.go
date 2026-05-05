@@ -169,6 +169,52 @@ func TestTarRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestUnTarRejectsSymlinkInDestinationPath(t *testing.T) {
+	tarPath := filepath.Join(t.TempDir(), "symlink-dest.tar")
+	file, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writer := tar.NewWriter(file)
+	if err = writer.WriteHeader(&tar.Header{
+		Name: "bin/app.sh",
+		Mode: 0644,
+		Size: int64(len("#!/bin/sh\n")),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = writer.Write([]byte("#!/bin/sh\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	destDir := filepath.Join(t.TempDir(), "untar")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(destDir, "bin")); err != nil {
+		t.Fatal(err)
+	}
+
+	err = utils.UnTar(tarPath, destDir)
+	if err == nil {
+		t.Fatal("UnTar() expected symlink destination error")
+	}
+	if utils.IsExist(filepath.Join(outside, "app.sh")) {
+		t.Fatal("UnTar() should not write through destination symlink")
+	}
+}
+
 func createArchiveFixture(t *testing.T) string {
 	t.Helper()
 

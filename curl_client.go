@@ -21,6 +21,7 @@ const (
 	defaultMaxRetry   = 2                // 默认最大请求尝试次数，包含首次请求
 	defaultMaxRetries = 5                // 允许的最大请求尝试次数上限
 	defaultDumpLimit  = 4096             // dump 预览默认长度上限
+	defaultLogLimit   = 4096             // 默认日志 body 预览长度上限
 )
 
 // requestIDCounter 是请求 ID 自增计数器，保证同纳秒内生成值仍可区分。
@@ -41,6 +42,8 @@ type CurlOption func(*Curl)
 //   - BasicAuth/Proxy/TLS 认证配置
 //   - 请求重试/超时控制
 //   - 请求响应日志追踪
+//
+// 注意：Curl 实例的请求配置阶段不是并发安全的；多个 goroutine 并发请求时，应为每个请求分别创建 Curl 实例。
 //
 // 使用示例：
 //
@@ -76,6 +79,7 @@ type Curl struct {
 	maxRetry           uint8                                                                                          // 最大请求尝试次数（默认 2 次，最大 5 次，包含首次请求）
 	dump               bool                                                                                           // 是否开启 dump 模式：输出完整的请求和响应详情
 	dumpBodyLimit      int64                                                                                          // dump 预览内容长度上限
+	logBodyLimit       int64                                                                                          // 默认日志 body 预览长度上限
 	defLogOutput       bool                                                                                           // 是否启用默认日志输出（INFO 及以下级别）
 	baseLogger         Logger                                                                                         // 原始日志实例，用于重新绑定请求 ID 时避免字段叠加
 	Logger             Logger                                                                                         // 日志实例
@@ -120,6 +124,7 @@ func NewCurl(opts ...CurlOption) *Curl {
 		maxRetry:           defaultMaxRetry,
 		dump:               false,
 		dumpBodyLimit:      defaultDumpLimit,
+		logBodyLimit:       defaultLogLimit,
 		defLogOutput:       false,
 		baseLogger:         logger,
 		Logger:             logger,
@@ -307,12 +312,31 @@ func WithCurlDumpBodyLimit(limit int64) CurlOption {
 	}
 }
 
+// WithCurlLogBodyLimit 设置默认日志 body 预览长度上限。
+// 小于 0 的值会被忽略；等于 0 表示不记录 body 预览。
+func WithCurlLogBodyLimit(limit int64) CurlOption {
+	return func(c *Curl) {
+		if limit >= 0 {
+			c.logBodyLimit = limit
+		}
+	}
+}
+
 // ============================ 生命周期方法 ============================
 
 // SetDefLogOutput 设置默认日志输出开关。
 // true：打印 INFO 及以下级别日志；false：禁止打印默认日志。
 func (c *Curl) SetDefLogOutput(enable bool) *Curl {
 	c.defLogOutput = enable
+	return c
+}
+
+// SetLogBodyLimit 设置默认日志 body 预览长度上限。
+// 等于 0 表示不记录 body 预览。
+func (c *Curl) SetLogBodyLimit(limit int64) *Curl {
+	if limit >= 0 {
+		c.logBodyLimit = limit
+	}
 	return c
 }
 
@@ -368,6 +392,66 @@ func (c *Curl) GetRequestID() string {
 // Deprecated: 请使用 GetRequestID。
 func (c *Curl) GetRequestId() string {
 	return c.GetRequestID()
+}
+
+// Clone 深拷贝当前 Curl 配置。
+// 适用于以当前 Curl 为模板派生新的请求实例，避免多个 goroutine 共享可变请求状态。
+// Clone 会复用底层 Transport 连接池，但会复制 Header/Params/Cookie/Body 等请求级配置。
+//
+// 返回值：新的 Curl 指针、错误信息
+func (c *Curl) Clone() (*Curl, error) {
+	if c == nil {
+		return nil, errors.Tag(errors.New("Clone() Curl 不能为空"))
+	}
+
+	body, err := cloneCurlBody(c.body)
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+
+	cloned := &Curl{
+		cli:                cloneHTTPClient(c.cli),
+		header:             cloneHeader(c.header),
+		timeout:            c.timeout,
+		username:           c.username,
+		password:           c.password,
+		proxyURL:           c.proxyURL,
+		insecureSkipVerify: c.insecureSkipVerify,
+		rootCAs:            c.rootCAs,
+		cert:               c.cert,
+		key:                c.key,
+		transportDirty:     c.transportDirty,
+		cookies:            cloneCookies(c.cookies),
+		params:             cloneURLValues(c.params),
+		body:               body,
+		statusCode:         append([]int(nil), c.statusCode...),
+		beforeRequest:      c.beforeRequest,
+		beforeClient:       c.beforeClient,
+		afterResponse:      c.afterResponse,
+		afterBody:          c.afterBody,
+		afterDone:          c.afterDone,
+		requestID:          c.requestID,
+		maxRetry:           c.maxRetry,
+		dump:               c.dump,
+		dumpBodyLimit:      c.dumpBodyLimit,
+		logBodyLimit:       c.logBodyLimit,
+		defLogOutput:       c.defLogOutput,
+		baseLogger:         c.baseLogger,
+		Logger:             c.Logger,
+	}
+	return cloned, nil
+}
+
+// NewRequest 基于当前 Curl 配置派生新的请求实例。
+// 与 Clone 不同，NewRequest 会为新实例生成新的请求 ID，适合把当前 Curl 作为并发安全的模板复用。
+//
+// 返回值：新的 Curl 指针、错误信息
+func (c *Curl) NewRequest() (*Curl, error) {
+	cloned, err := c.Clone()
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	return cloned.SetRequestID(), nil
 }
 
 // ============================ HTTP 请求方法 ============================
@@ -492,6 +576,94 @@ func generateUniqID(length int) string {
 		out = strconv.AppendUint(out, requestIDCounter.Add(1), 36)
 	}
 	return string(out[:length])
+}
+
+// cloneHTTPClient 复制 http.Client，并复用已有 Transport 连接池。
+func cloneHTTPClient(client *http.Client) *http.Client {
+	if client == nil {
+		return &http.Client{}
+	}
+	return &http.Client{
+		Transport:     client.Transport,
+		CheckRedirect: client.CheckRedirect,
+		Jar:           client.Jar,
+		Timeout:       client.Timeout,
+	}
+}
+
+// cloneHeader 复制请求头，避免克隆实例之间共享可变 map。
+func cloneHeader(header http.Header) http.Header {
+	if header == nil {
+		return make(http.Header)
+	}
+	return header.Clone()
+}
+
+// cloneURLValues 复制 URL 参数，避免克隆实例之间共享可变 map。
+func cloneURLValues(values url.Values) url.Values {
+	if values == nil {
+		return make(url.Values)
+	}
+	cloned := make(url.Values, len(values))
+	for key, list := range values {
+		cloned[key] = append([]string(nil), list...)
+	}
+	return cloned
+}
+
+// cloneCookies 深拷贝 Cookie 映射，避免克隆实例之间共享指针。
+func cloneCookies(cookies map[string]*http.Cookie) map[string]*http.Cookie {
+	if cookies == nil {
+		return make(map[string]*http.Cookie)
+	}
+	cloned := make(map[string]*http.Cookie, len(cookies))
+	for name, cookie := range cookies {
+		if cookie == nil {
+			continue
+		}
+		cp := *cookie
+		cloned[name] = &cp
+	}
+	return cloned
+}
+
+// cloneCurlBody 复制可安全重放的请求体。
+// 对于流式或不可回放的请求体，返回错误，避免多个实例共享同一读取游标。
+func cloneCurlBody(body io.Reader) (io.Reader, error) {
+	switch v := body.(type) {
+	case nil:
+		return nil, nil
+	case *bytes.Buffer:
+		return bytes.NewReader(v.Bytes()), nil
+	case *bytes.Reader:
+		return cloneReadSeeker(v)
+	case io.ReadSeeker:
+		return cloneReadSeeker(v)
+	default:
+		return nil, errors.Errorf("Clone() 不支持复制不可重放的请求体类型: %T", body)
+	}
+}
+
+// cloneReadSeeker 将可回放 Reader 复制为独立的 bytes.Reader。
+func cloneReadSeeker(reader io.ReadSeeker) (io.Reader, error) {
+	if reader == nil {
+		return nil, nil
+	}
+	pos, err := reader.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	if _, err = reader.Seek(0, io.SeekStart); err != nil {
+		return nil, errors.Tag(err)
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	if _, err = reader.Seek(pos, io.SeekStart); err != nil {
+		return nil, errors.Tag(err)
+	}
+	return bytes.NewReader(data), nil
 }
 
 // generateUniqId 生成指定长度的请求唯一 ID。

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"io/fs"
 	"mime"
@@ -70,10 +71,17 @@ func Copy(src, dst string) error {
 		return errors.Tag(err)
 	}
 
-	// 目标文件已存在时，先判断是否与源文件指向同一 inode，避免打开目标时把源文件截断。
-	dstStat, err := os.Stat(dst)
+	// 目标文件已存在时，先拒绝符号链接，并判断是否与源文件指向同一 inode，避免覆盖写把源文件截断。
+	dstInfo, err := os.Lstat(dst)
 	switch {
 	case err == nil:
+		if dstInfo.Mode()&os.ModeSymlink != 0 {
+			return errors.Tag(fmt.Errorf("Copy() 不允许目标文件为符号链接: dst=%s", dst))
+		}
+		dstStat, statErr := os.Stat(dst)
+		if statErr != nil {
+			return errors.Tag(statErr)
+		}
 		if os.SameFile(stat, dstStat) {
 			return errors.Tag(errors.Errorf("Copy 不允许源文件和目标文件相同: src=%s dst=%s", src, dst))
 		}
@@ -83,25 +91,79 @@ func Copy(src, dst string) error {
 		return errors.Tag(err)
 	}
 
-	// 创建或打开拷贝文件
-	f2, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, stat.Mode())
-	if err != nil {
+	// 使用同目录临时文件 + Rename 原子替换，避免直接截断目标文件。
+	if err = writeFileAtomic(dst, stat.Mode(), func(file *os.File) error {
+		_, copyErr := io.Copy(file, f1)
+		if copyErr != nil {
+			return errors.Tag(copyErr)
+		}
+		return nil
+	}); err != nil {
 		return errors.Tag(err)
 	}
-	defer f2.Close()
+	return nil
+}
 
-	// 拷贝文件
-	_, err = io.Copy(f2, f1)
-	if err != nil {
-		return errors.Tag(err)
+// writeFileAtomic 使用同目录临时文件完成原子写入。
+// 该方法会拒绝通过符号链接目录或符号链接目标写入，降低覆盖写越界和半写文件风险。
+//
+// 参数说明：
+//   - fileName：目标文件路径
+//   - perm：目标文件权限
+//   - write：实际写入逻辑，由调用方负责向临时文件写内容
+func writeFileAtomic(fileName string, perm os.FileMode, write func(file *os.File) error) error {
+	dir := filepath.Dir(fileName)
+	var err error
+
+	// 拒绝目标路径链路中的符号链接，避免把内容写入符号链接指向的其它位置。
+	if err = assertNoSymlinkPath(dir, fileName); err != nil {
+		return errors.Tag(fmt.Errorf("writeFileAtomic() 校验路径失败: path=%s err=%w", fileName, err))
 	}
+	if info, err := os.Lstat(fileName); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.Tag(fmt.Errorf("writeFileAtomic() 不允许目标文件为符号链接: path=%s", fileName))
+		}
+	} else if !os.IsNotExist(err) {
+		return errors.Tag(fmt.Errorf("writeFileAtomic() 校验目标文件失败: path=%s err=%w", fileName, err))
+	}
+
+	tmpFile, err := os.CreateTemp(dir, "."+filepath.Base(fileName)+".tmp-*")
+	if err != nil {
+		return errors.Tag(fmt.Errorf("writeFileAtomic() 创建临时文件失败: path=%s err=%w", fileName, err))
+	}
+	tmpName := tmpFile.Name()
+	needCleanup := true
+	defer func() {
+		if needCleanup {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	// 临时文件先写入最终权限，Rename 后即可保持目标权限一致。
+	if err = tmpFile.Chmod(perm); err != nil {
+		return errors.Tag(fmt.Errorf("writeFileAtomic() 设置临时文件权限失败: path=%s err=%w", fileName, err))
+	}
+	if err = write(tmpFile); err != nil {
+		return errors.Tag(fmt.Errorf("writeFileAtomic() 写入临时文件失败: path=%s err=%w", fileName, err))
+	}
+	if err = tmpFile.Sync(); err != nil {
+		return errors.Tag(fmt.Errorf("writeFileAtomic() 刷盘失败: path=%s err=%w", fileName, err))
+	}
+	if err = tmpFile.Close(); err != nil {
+		return errors.Tag(fmt.Errorf("writeFileAtomic() 关闭临时文件失败: path=%s err=%w", fileName, err))
+	}
+	if err = os.Rename(tmpName, fileName); err != nil {
+		return errors.Tag(fmt.Errorf("writeFileAtomic() 原子替换失败: path=%s err=%w", fileName, err))
+	}
+	needCleanup = false
 	return nil
 }
 
 // FileInfo 文件信息
 type FileInfo struct {
 	fs.FileInfo
-	Path string // 文件相对路径
+	Path string // 文件绝对路径
 }
 
 // FindFiles 获取目录下所有匹配文件
@@ -345,6 +407,34 @@ func WithWritePerm(perm os.FileMode) WriteOption {
 	}
 }
 
+// WriteFileAtomic 原子写入完整文件内容。
+// 适用于配置文件、密钥文件、状态文件等需要“覆盖即完整替换”的场景。
+// 内部使用同目录临时文件 + Sync + Close + Rename，避免直接 O_TRUNC 截断目标文件。
+//
+// 参数说明：
+//   - fileName：目标文件路径
+//   - data：完整文件内容
+//   - perm：文件权限
+func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error {
+	return writeFileAtomic(fileName, perm, func(file *os.File) error {
+		if _, err := file.Write(data); err != nil {
+			return errors.Tag(err)
+		}
+		return nil
+	})
+}
+
+// WriteStringAtomic 原子写入完整字符串内容。
+// 适用于希望以字符串形式原子覆盖目标文件的场景。
+//
+// 参数说明：
+//   - fileName：目标文件路径
+//   - data：完整字符串内容
+//   - perm：文件权限
+func WriteStringAtomic(fileName, data string, perm os.FileMode) error {
+	return WriteFileAtomic(fileName, []byte(data), perm)
+}
+
 // NewWrite 返回一个WriteFile实例
 //
 //	fileName 文件路径: 不存在则创建
@@ -360,6 +450,20 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 	}
 	permFile := cfg.perm
 	path := filepath.Dir(fileName)
+
+	// 写入前拒绝目标文件为符号链接，避免通过通用写入口写穿到其它路径。
+	// 同时拒绝目标路径链路中的符号链接目录，避免写入穿透到预期目录之外。
+	if err := assertNoSymlinkPath(path, fileName); err != nil {
+		return nil, errors.Tag(err)
+	}
+	if info, err := os.Lstat(fileName); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.Errorf("NewWrite() 不允许目标文件为符号链接: %s", fileName)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, errors.Tag(err)
+	}
+
 	if !IsExist(path) {
 		// 本用户组必须拥有读写执行(7)权限
 		var premDir os.FileMode = 0744

@@ -204,7 +204,7 @@ func UnTar(tarFile, destDir string) error {
 		// 创建 gzip.Reader 用于读取压缩数据
 		gzReader, gzErr := gzip.NewReader(file)
 		if gzErr != nil {
-			return errors.Wrap(gzErr)
+			return errors.Tag(gzErr)
 		}
 		defer gzReader.Close()
 		reader = gzReader
@@ -251,13 +251,25 @@ func UnTar(tarFile, destDir string) error {
 			if err = counter.add(header.Name, 0); err != nil {
 				return errors.Tag(err)
 			}
+			// 解包落盘前，拒绝目标路径链路中的符号链接，避免跟随写到解包目录之外。
+			if err = assertNoSymlinkPath(destRoot, destPath); err != nil {
+				return errors.Tag(err)
+			}
 			// 如果是目录，创建目录
 			err := os.MkdirAll(destPath, untarDirPerm(header.Mode))
 			if err != nil {
 				return errors.Tag(err)
 			}
+			// 显式恢复目录权限，避免受 umask 或既有目录影响导致权限偏差。
+			if err := os.Chmod(destPath, untarDirPerm(header.Mode)); err != nil {
+				return errors.Tag(err)
+			}
 		case tar.TypeReg:
 			if err = counter.add(header.Name, header.Size); err != nil {
+				return errors.Tag(err)
+			}
+			// 解包落盘前，拒绝目标路径链路中的符号链接，避免跟随写到解包目录之外。
+			if err = assertNoSymlinkPath(destRoot, destPath); err != nil {
 				return errors.Tag(err)
 			}
 			// 判断目录是否存在, 不存在则创建
@@ -268,19 +280,19 @@ func UnTar(tarFile, destDir string) error {
 				}
 			}
 
-			// 如果是文件，创建文件并将tar数据写入文件
-			file, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, untarFilePerm(header.Mode))
-			if err != nil {
+			// 使用同目录临时文件 + Rename 原子落盘，避免直接截断已有目标文件。
+			if err = writeFileAtomic(destPath, untarFilePerm(header.Mode), func(file *os.File) error {
+				_, copyErr := io.Copy(file, tarReader)
+				if copyErr != nil {
+					return errors.Tag(copyErr)
+				}
+				return nil
+			}); err != nil {
 				return errors.Tag(err)
 			}
-
-			_, err = io.Copy(file, tarReader)
-			closeErr := file.Close()
-			if err != nil {
+			// 显式恢复文件权限，避免受 umask 或既有文件影响导致权限偏差。
+			if err := os.Chmod(destPath, untarFilePerm(header.Mode)); err != nil {
 				return errors.Tag(err)
-			}
-			if closeErr != nil {
-				return errors.Wrap(closeErr)
 			}
 		case tar.TypeXGlobalHeader, tar.TypeXHeader:
 			// PAX 扩展头由 archive/tar 内部消费，这里无需额外处理。

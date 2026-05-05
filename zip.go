@@ -193,8 +193,16 @@ func UnZip(zipFile, destDir string) error {
 				if err = counter.add(f.Name, 0); err != nil {
 					return errors.Tag(err)
 				}
+				// 解包落盘前，拒绝目标路径链路中的符号链接，避免跟随写到解包目录之外。
+				if err = assertNoSymlinkPath(destRoot, destPath); err != nil {
+					return errors.Tag(err)
+				}
 				err := os.MkdirAll(destPath, unzipDirPerm(mode))
 				if err != nil {
+					return errors.Tag(err)
+				}
+				// 显式恢复目录权限，避免受 umask 或既有目录影响导致权限偏差。
+				if err := os.Chmod(destPath, unzipDirPerm(mode)); err != nil {
 					return errors.Tag(err)
 				}
 				return nil
@@ -213,29 +221,34 @@ func UnZip(zipFile, destDir string) error {
 			}
 
 			// 创建解压后的文件
-			file, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, unzipFilePerm(mode))
-			if err != nil {
+			// 解包落盘前，拒绝目标路径链路中的符号链接，避免跟随写到解包目录之外。
+			if err = assertNoSymlinkPath(destRoot, destPath); err != nil {
 				return errors.Tag(err)
 			}
-
 			// 读取ZIP文件中的数据并写入解压后的文件
 			rc, err := f.Open()
 			if err != nil {
-				_ = file.Close()
 				return errors.Tag(err)
 			}
 
-			_, err = io.Copy(file, rc)
+			// 使用同目录临时文件 + Rename 原子落盘，避免直接截断已有目标文件。
+			writeErr := writeFileAtomic(destPath, unzipFilePerm(mode), func(file *os.File) error {
+				_, copyErr := io.Copy(file, rc)
+				if copyErr != nil {
+					return errors.Tag(copyErr)
+				}
+				return nil
+			})
 			closeReadErr := rc.Close()
-			closeWriteErr := file.Close()
-			if err != nil {
-				return errors.Tag(err)
+			if writeErr != nil {
+				return errors.Tag(writeErr)
 			}
 			if closeReadErr != nil {
-				return errors.Wrap(closeReadErr)
+				return errors.Tag(closeReadErr)
 			}
-			if closeWriteErr != nil {
-				return errors.Wrap(closeWriteErr)
+			// 显式恢复文件权限，避免受 umask 或既有文件影响导致权限偏差。
+			if err := os.Chmod(destPath, unzipFilePerm(mode)); err != nil {
+				return errors.Tag(err)
 			}
 			return nil
 		}(file)

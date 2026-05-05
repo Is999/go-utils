@@ -145,6 +145,7 @@ func ProxyURL(transport *http.Transport, proxyURL string) error {
 }
 
 // RootCAs 设置根证书池。
+// 默认会在系统根证书池基础上追加自定义根证书，避免误把系统根证书整体替换掉。
 //
 // 参数说明：
 //   - config：TLS 配置
@@ -158,8 +159,11 @@ func RootCAs(config *tls.Config, rootCAs string) error {
 		return errors.Tag(err)
 	}
 
-	// 创建证书池
-	certPool := x509.NewCertPool()
+	// 优先复用系统根证书池，兼容既有公网证书链。
+	certPool, err := x509.SystemCertPool()
+	if err != nil || certPool == nil {
+		certPool = x509.NewCertPool()
+	}
 	if ok := certPool.AppendCertsFromPEM(cert); !ok {
 		return errors.Errorf("RootCAs() 未解析到有效 PEM 证书: %s", rootCAs)
 	}

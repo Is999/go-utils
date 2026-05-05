@@ -1,10 +1,12 @@
 package utils
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Is999/go-utils/errors"
@@ -16,24 +18,45 @@ type TrustedProxies struct {
 	nets []*net.IPNet
 }
 
+const serverIPCacheTTL = time.Minute
+
+var serverIPCache struct {
+	mu        sync.RWMutex
+	ip        string
+	expiresAt time.Time
+}
+
 // ServerIP 获取服务器对外 IP 地址。
-// 通过连接外部服务（8.8.8.8:80）获取出站 IP 地址。
-// 如果连接失败，则回退到获取本地 IP。
+// 默认优先返回缓存值或本地网卡 IP，避免在热路径上频繁拨号外网地址。
+// 如需自定义超时控制，可使用 ServerIPContext。
 //
 // 返回值：服务器对外 IP 地址字符串，获取失败返回空字符串
 func ServerIP() string {
-	// 连接外部服务获取出站 IP
-	conn, err := net.DialTimeout("udp", "8.8.8.8:80", time.Second)
-	if err != nil {
-		return LocalIP()
-	}
-	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return ServerIPContext(ctx)
+}
 
-	// 提取本地 IP 地址
-	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
-		return addr.IP.String()
+// ServerIPContext 获取服务器出站 IP 地址，并允许调用方控制超时。
+// 默认优先返回缓存值或本地网卡 IP，仅在本地 IP 不可用时才回退到 UDP 探测。
+//
+// 参数说明：
+//   - ctx：上下文，可用于控制超时或取消
+//
+// 返回值：服务器出站 IP 地址字符串，获取失败返回空字符串
+func ServerIPContext(ctx context.Context) string {
+	if ip := loadServerIPCache(); ip != "" {
+		return ip
 	}
-	return ""
+	if ip := LocalIP(); ip != "" {
+		storeServerIPCache(ip)
+		return ip
+	}
+	ip := dialServerIP(ctx)
+	if ip != "" {
+		storeServerIPCache(ip)
+	}
+	return ip
 }
 
 // LocalIP 获取本机 IP 地址。
@@ -67,7 +90,7 @@ func LocalIP() string {
 }
 
 // ClientIP 获取客户端 IP 地址。
-// 默认仅在请求来自可信代理（回环、私网、链路本地地址）时信任转发头，避免被客户端伪造。
+// 默认仅在请求来自回环地址时信任转发头，生产环境建议使用 ClientIPWithTrustedProxies 显式配置白名单。
 //
 // 参数说明：
 //   - r：HTTP 请求对象
@@ -261,10 +284,49 @@ func parseTrustedProxy(value string) (*net.IPNet, error) {
 }
 
 // isTrustedProxyIP 判断来源地址是否可被视为可信代理。
-// 默认信任回环、私网和链路本地地址，以兼容常见内网反向代理部署。
+// 默认仅信任回环地址，避免把所有私网来源都视为可信代理。
 func isTrustedProxyIP(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+	return ip.IsLoopback()
+}
+
+// loadServerIPCache 读取未过期的 ServerIP 缓存值。
+func loadServerIPCache() string {
+	serverIPCache.mu.RLock()
+	defer serverIPCache.mu.RUnlock()
+	if serverIPCache.ip == "" || time.Now().After(serverIPCache.expiresAt) {
+		return ""
+	}
+	return serverIPCache.ip
+}
+
+// storeServerIPCache 写入 ServerIP 缓存值。
+func storeServerIPCache(ip string) {
+	if strings.TrimSpace(ip) == "" {
+		return
+	}
+	serverIPCache.mu.Lock()
+	serverIPCache.ip = ip
+	serverIPCache.expiresAt = time.Now().Add(serverIPCacheTTL)
+	serverIPCache.mu.Unlock()
+}
+
+// dialServerIP 通过 UDP 探测获取当前出站 IP。
+func dialServerIP(ctx context.Context) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+		return addr.IP.String()
+	}
+	return ""
 }

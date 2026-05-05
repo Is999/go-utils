@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bytes"
 	"io"
 	"mime/multipart"
 	"net/url"
@@ -22,6 +21,12 @@ type Form struct {
 
 	// Files 表单文件字段（字段名 -> 文件路径列表）
 	Files url.Values
+
+	// MaxSingleFileSize 单个文件大小上限，单位：字节；小于等于 0 表示不限制
+	MaxSingleFileSize int64
+
+	// MaxTotalFileSize 所有文件总大小上限，单位：字节；小于等于 0 表示不限制
+	MaxTotalFileSize int64
 }
 
 // ============================ Form 构造方法 ============================
@@ -34,6 +39,28 @@ func NewForm() *Form {
 		Params: make(url.Values),
 		Files:  make(url.Values),
 	}
+}
+
+// SetMaxSingleFileSize 设置单个文件大小上限。
+//
+// 参数说明：
+//   - limit：单个文件大小上限，单位：字节；小于等于 0 表示不限制
+//
+// 返回值：Form 指针，支持链式调用
+func (f *Form) SetMaxSingleFileSize(limit int64) *Form {
+	f.MaxSingleFileSize = limit
+	return f
+}
+
+// SetMaxTotalFileSize 设置所有文件总大小上限。
+//
+// 参数说明：
+//   - limit：所有文件总大小上限，单位：字节；小于等于 0 表示不限制
+//
+// 返回值：Form 指针，支持链式调用
+func (f *Form) SetMaxTotalFileSize(limit int64) *Form {
+	f.MaxTotalFileSize = limit
+	return f
 }
 
 // SetParam 设置单个表单字段。
@@ -180,36 +207,27 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 		return strings.NewReader(f.Params.Encode()), "application/x-www-form-urlencoded", nil
 	}
 
-	// 创建 multipart writer
-	buf := &bytes.Buffer{}
-	writer := multipart.NewWriter(buf)
-
-	// 处理普通表单字段
-	if f.Params != nil {
-		for key, values := range f.Params {
-			for _, value := range values {
-				if err := writer.WriteField(key, value); err != nil {
-					return nil, "", errors.Tag(err)
-				}
-			}
-		}
-	}
-
-	// 处理文件上传
-	for fieldName, files := range f.Files {
-		for _, filePath := range files {
-			if err := f.createFormFile(writer, fieldName, filePath); err != nil {
-				return nil, "", errors.Tag(err)
-			}
-		}
-	}
-
-	// 关闭 writer
-	if err := writer.Close(); err != nil {
+	// 先校验文件大小上限，避免请求发送过程中才发现超限。
+	if err := f.validateFiles(); err != nil {
 		return nil, "", errors.Tag(err)
 	}
 
-	return buf, writer.FormDataContentType(), nil
+	// 使用 io.Pipe + multipart.Writer 流式拼装 body，避免大文件全量读入内存。
+	pipeReader, pipeWriter := io.Pipe()
+	writer := multipart.NewWriter(pipeWriter)
+	contentType = writer.FormDataContentType()
+	go func() {
+		if writeErr := f.writeMultipart(writer); writeErr != nil {
+			_ = pipeWriter.CloseWithError(errors.Tag(writeErr))
+			return
+		}
+		if closeErr := writer.Close(); closeErr != nil {
+			_ = pipeWriter.CloseWithError(errors.Tag(closeErr))
+			return
+		}
+		_ = pipeWriter.Close()
+	}()
+	return pipeReader, contentType, nil
 }
 
 // createFormFile 创建表单文件字段。
@@ -239,5 +257,53 @@ func (f *Form) createFormFile(writer *multipart.Writer, fieldName, filePath stri
 		return errors.Tag(err)
 	}
 
+	return nil
+}
+
+// writeMultipart 将表单参数与文件按 multipart/form-data 规范流式写入 writer。
+func (f *Form) writeMultipart(writer *multipart.Writer) error {
+	// 处理普通表单字段
+	if f.Params != nil {
+		for key, values := range f.Params {
+			for _, value := range values {
+				if err := writer.WriteField(key, value); err != nil {
+					return errors.Tag(err)
+				}
+			}
+		}
+	}
+
+	// 处理文件上传
+	for fieldName, files := range f.Files {
+		for _, filePath := range files {
+			if err := f.createFormFile(writer, fieldName, filePath); err != nil {
+				return errors.Tag(err)
+			}
+		}
+	}
+	return nil
+}
+
+// validateFiles 校验待上传文件是否满足普通文件约束与大小上限。
+func (f *Form) validateFiles() error {
+	var totalSize int64
+	for fieldName, files := range f.Files {
+		for _, filePath := range files {
+			info, err := os.Stat(filePath)
+			if err != nil {
+				return errors.Tag(err)
+			}
+			if !info.Mode().IsRegular() {
+				return errors.Errorf("multipart 文件必须是普通文件: field=%s path=%s", fieldName, filePath)
+			}
+			if f.MaxSingleFileSize > 0 && info.Size() > f.MaxSingleFileSize {
+				return errors.Errorf("multipart 单文件大小超限: field=%s path=%s size=%d limit=%d", fieldName, filePath, info.Size(), f.MaxSingleFileSize)
+			}
+			totalSize += info.Size()
+			if f.MaxTotalFileSize > 0 && totalSize > f.MaxTotalFileSize {
+				return errors.Errorf("multipart 文件总大小超限: size=%d limit=%d", totalSize, f.MaxTotalFileSize)
+			}
+		}
+	}
 	return nil
 }

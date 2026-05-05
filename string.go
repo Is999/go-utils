@@ -1,11 +1,15 @@
 package utils
 
 import (
+	crand "crypto/rand"
+	"math/big"
 	"math/rand/v2"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // 字符集常量用于随机字符串与校验码生成。
@@ -97,7 +101,9 @@ func StrRev(str string) string {
 	return string(Reverse([]rune(str)))
 }
 
-// RandStr 随机生成字符串，使用 ALPHA 规则
+// RandStr 随机生成字符串，使用 ALPHA 规则。
+// 注意：该函数基于 math/rand，仅适用于测试数据、临时标识等非安全场景。
+// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandStr。
 //
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
@@ -107,6 +113,8 @@ func RandStr(n int, r ...*rand.Rand) string {
 
 // RandStr2 随机生成字符串，使用 ALNUM 规则。
 // 为兼容旧行为，首字符固定从 ALPHA 中选择，避免数字开头。
+// 注意：该函数基于 math/rand，仅适用于测试数据、临时标识等非安全场景。
+// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandStr2。
 //
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
@@ -132,7 +140,9 @@ func RandStr2(n int, r ...*rand.Rand) string {
 	return string(s)
 }
 
-// RandStr3 随机生成字符串
+// RandStr3 随机生成字符串。
+// 注意：该函数基于 math/rand，仅适用于测试数据、临时标识等非安全场景。
+// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandStr3。
 //
 //	n 生成字符串长度
 //	alpha 生成随机字符串的种子
@@ -158,8 +168,57 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string {
 	return string(s)
 }
 
+// SecureRandStr 使用密码学安全随机源生成字符串，使用 ALPHA 规则。
+//
+// 参数说明：
+//   - n：生成字符串长度
+//
+// 返回值：随机字符串、错误信息
+func SecureRandStr(n int) (string, error) {
+	return SecureRandStr3(n, ALPHA)
+}
+
+// SecureRandStr2 使用密码学安全随机源生成字符串，使用 ALNUM 规则。
+// 为兼容历史命名习惯，首字符固定从 ALPHA 中选择，避免数字开头。
+//
+// 参数说明：
+//   - n：生成字符串长度
+//
+// 返回值：随机字符串、错误信息
+func SecureRandStr2(n int) (string, error) {
+	if n <= 0 {
+		return "", nil
+	}
+	if n == 1 {
+		return SecureRandStr(1)
+	}
+
+	first, err := secureRandString(1, ALPHA)
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	rest, err := secureRandString(n-1, ALNUM)
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	return first + rest, nil
+}
+
+// SecureRandStr3 使用密码学安全随机源按自定义字符集生成字符串。
+//
+// 参数说明：
+//   - n：生成字符串长度
+//   - alpha：候选字符集
+//
+// 返回值：随机字符串、错误信息
+func SecureRandStr3(n int, alpha string) (string, error) {
+	return secureRandString(n, alpha)
+}
+
 // UniqID 生成一个长度范围 16-32 位的唯一 ID 字符串（可排序字符串）。
 // UniqID 只生成字符串标识，不承诺全局强唯一；强唯一场景建议使用业务唯一键或 UUID/ULID。
+// 注意：该函数基于时间戳与 math/rand，仅适用于非安全场景。
+// 禁止用于 token、验证码、重置链接等安全敏感用途；安全场景请使用 SecureUniqID。
 //
 //	l 生成 UniqID 长度: 取值范围[16-32], 小于16按16位处理, 大于32按32位处理
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
@@ -210,6 +269,22 @@ func UniqID(l uint8, r ...*rand.Rand) string {
 	return b.String()
 }
 
+// SecureUniqID 使用密码学安全随机源生成长度范围 16-32 位的字符串标识。
+// 与 UniqID 不同，SecureUniqID 不依赖时间戳，不保证可排序。
+//
+// 参数说明：
+//   - l：生成长度，取值范围 [16-32]
+//
+// 返回值：随机字符串、错误信息
+func SecureUniqID(l uint8) (string, error) {
+	if l > 32 {
+		l = 32
+	} else if l < 16 {
+		l = 16
+	}
+	return SecureRandStr2(int(l))
+}
+
 // UniqId 生成一个长度范围 16-32 位的唯一 ID 字符串。
 //
 // Deprecated: 请使用 UniqID。
@@ -219,3 +294,21 @@ func UniqId(l uint8, r ...*rand.Rand) string {
 
 // RandSource rand
 var RandSource = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
+
+// secureRandString 使用密码学安全随机源按字符集生成字符串。
+func secureRandString(n int, alpha string) (string, error) {
+	if n <= 0 || len(alpha) == 0 {
+		return "", nil
+	}
+
+	max := big.NewInt(int64(len(alpha)))
+	s := make([]byte, n)
+	for i := 0; i < n; i++ {
+		index, err := crand.Int(crand.Reader, max)
+		if err != nil {
+			return "", errors.Tag(err)
+		}
+		s[i] = alpha[index.Int64()]
+	}
+	return string(s), nil
+}

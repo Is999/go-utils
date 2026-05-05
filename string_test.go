@@ -1,6 +1,7 @@
 package utils_test
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"unicode/utf8"
@@ -232,6 +233,61 @@ func TestRandStr3(t *testing.T) {
 	}
 }
 
+func TestSecureRandStr(t *testing.T) {
+	got, err := utils.SecureRandStr(32)
+	if err != nil {
+		t.Fatalf("SecureRandStr() error = %v", err)
+	}
+	if len(got) != 32 {
+		t.Fatalf("SecureRandStr() len = %d, want 32", len(got))
+	}
+	if !allCharsInAlphabet(got, utils.ALPHA) {
+		t.Fatalf("SecureRandStr() = %q, want chars in %q", got, utils.ALPHA)
+	}
+}
+
+func TestSecureRandStr2(t *testing.T) {
+	got, err := utils.SecureRandStr2(32)
+	if err != nil {
+		t.Fatalf("SecureRandStr2() error = %v", err)
+	}
+	if len(got) != 32 {
+		t.Fatalf("SecureRandStr2() len = %d, want 32", len(got))
+	}
+	if !allCharsInAlphabet(got[:1], utils.ALPHA) {
+		t.Fatalf("SecureRandStr2() first char = %q, want alpha", got[:1])
+	}
+	if !allCharsInAlphabet(got[1:], utils.ALNUM) {
+		t.Fatalf("SecureRandStr2() tail = %q, want alnum", got[1:])
+	}
+}
+
+func TestSecureRandStr3(t *testing.T) {
+	got, err := utils.SecureRandStr3(24, "abc123")
+	if err != nil {
+		t.Fatalf("SecureRandStr3() error = %v", err)
+	}
+	if len(got) != 24 {
+		t.Fatalf("SecureRandStr3() len = %d, want 24", len(got))
+	}
+	if !allCharsInAlphabet(got, "abc123") {
+		t.Fatalf("SecureRandStr3() = %q, want chars in %q", got, "abc123")
+	}
+}
+
+func TestSecureUniqID(t *testing.T) {
+	got, err := utils.SecureUniqID(8)
+	if err != nil {
+		t.Fatalf("SecureUniqID() error = %v", err)
+	}
+	if len(got) != 16 {
+		t.Fatalf("SecureUniqID() len = %d, want 16", len(got))
+	}
+	if !allCharsInAlphabet(got[:1], utils.ALPHA) || !allCharsInAlphabet(got[1:], utils.ALNUM) {
+		t.Fatalf("SecureUniqID() = %q, want leading alpha and tail alnum", got)
+	}
+}
+
 func TestUniqId(t *testing.T) {
 	type args struct {
 		l uint8
@@ -289,4 +345,13 @@ func BenchmarkUniqId(t *testing.B) {
 			}
 		})
 	}
+}
+
+func allCharsInAlphabet(s, alpha string) bool {
+	for i := 0; i < len(s); i++ {
+		if !strings.ContainsRune(alpha, rune(s[i])) {
+			return false
+		}
+	}
+	return true
 }

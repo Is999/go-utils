@@ -143,3 +143,45 @@ func TestZipRejectsSymlink(t *testing.T) {
 		t.Fatal("Zip() expected symlink error")
 	}
 }
+
+func TestUnZipRejectsSymlinkInDestinationPath(t *testing.T) {
+	zipPath := filepath.Join(t.TempDir(), "symlink-dest.zip")
+	file, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	entryWriter, err := writer.Create("bin/app.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = entryWriter.Write([]byte("#!/bin/sh\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	destDir := filepath.Join(t.TempDir(), "unzip")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(destDir, "bin")); err != nil {
+		t.Fatal(err)
+	}
+
+	err = utils.UnZip(zipPath, destDir)
+	if err == nil {
+		t.Fatal("UnZip() expected symlink destination error")
+	}
+	if utils.IsExist(filepath.Join(outside, "app.sh")) {
+		t.Fatal("UnZip() should not write through destination symlink")
+	}
+}

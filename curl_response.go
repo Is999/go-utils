@@ -329,15 +329,14 @@ func (c *Curl) logRequest(method, url string, req *http.Request) {
 	var b strings.Builder
 	b.WriteString(method + ": " + url + "\n")
 
-	if req.Body != nil {
-		b.WriteString("Request Body:\n")
-		reqBody, restored, err := DrainBody(req.Body)
+	if req != nil && req.Body != nil && req.Body != http.NoBody && c.logBodyLimit > 0 {
+		b.WriteString("Request Body Preview:\n")
+		reqBody, truncated, err := requestBodyPreview(req, c.logBodyLimit)
 		if err != nil {
-			c.Logger.Error("DrainBody error", "err", err.Error())
+			c.Logger.Error("requestBodyPreview() error", "err", err.Error())
 			return
 		}
-		req.Body = restored
-		b.Write(reqBody)
+		b.WriteString(formatBodyPreview(reqBody, truncated))
 	}
 	c.Logger.Info("Request", "body", b.String())
 }
@@ -349,6 +348,49 @@ func (c *Curl) logRequest(method, url string, req *http.Request) {
 //
 // 返回值：错误信息
 func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
+	if resp == nil {
+		c.Logger.Info("Response", "body", "<nil>")
+		return nil, nil
+	}
+
+	isAllowedStatusCode := resp.StatusCode == http.StatusOK || containsStatusCode(resp.StatusCode, c.statusCode)
+	if c.afterBody != nil && c.afterResponse == nil && isAllowedStatusCode && resp.Body != nil && resp.Body != http.NoBody {
+		respBody, restored, err := DrainBody(resp.Body)
+		if err != nil {
+			return nil, errors.Tag(err)
+		}
+		resp.Body = restored
+
+		if c.dump {
+			dump, err := httputil.DumpResponse(resp, false)
+			if err != nil {
+				return nil, errors.Tag(err)
+			}
+
+			limit := c.dumpBodyLimit
+			if limit > 0 && int64(len(respBody)) > limit {
+				c.Logger.Info("httputil.DumpResponse()", "response", formatDumpWithBody(string(dump), "Response Body", respBody[:limit], true))
+			} else {
+				c.Logger.Info("httputil.DumpResponse()", "response", formatDumpWithBody(string(dump), "Response Body", respBody, false))
+			}
+			return respBody, nil
+		}
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("Response Status: %s\n", resp.Status))
+		if c.logBodyLimit > 0 {
+			b.WriteString("Response Body Preview:\n")
+			limit := c.logBodyLimit
+			if limit > 0 && int64(len(respBody)) > limit {
+				b.WriteString(formatBodyPreview(respBody[:limit], true))
+			} else {
+				b.WriteString(formatBodyPreview(respBody, false))
+			}
+		}
+		c.Logger.Info("Response", "body", b.String())
+		return respBody, nil
+	}
+
 	if c.dump {
 		dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
 		if err != nil {
@@ -358,16 +400,18 @@ func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
 	} else {
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("Response Status: %s\n", resp.Status))
-		b.WriteString("Response Body:\n")
-
-		respBody, restored, err := DrainBody(resp.Body)
-		if err != nil {
-			return nil, errors.Tag(err)
+		if resp != nil && resp.Body != nil && resp.Body != http.NoBody && c.logBodyLimit > 0 {
+			b.WriteString("Response Body Preview:\n")
+			var truncated bool
+			var err error
+			var respBody []byte
+			respBody, truncated, resp.Body, err = readBodyPreviewAndRestore(resp.Body, c.logBodyLimit)
+			if err != nil {
+				return nil, errors.Tag(err)
+			}
+			b.WriteString(formatBodyPreview(respBody, truncated))
 		}
-		resp.Body = restored
-		b.Write(respBody)
 		c.Logger.Info("Response", "body", b.String())
-		return respBody, nil
 	}
 	return nil, nil
 }
@@ -514,6 +558,23 @@ func DrainBody(b io.ReadCloser) ([]byte, io.ReadCloser, error) {
 	return bodyBytes, io.NopCloser(bytes.NewReader(bodyBytes)), nil
 }
 
+// requestBodyPreview 获取请求体预览内容。
+// 仅对支持 GetBody 的请求体读取预览，避免阻塞流式 body。
+func requestBodyPreview(req *http.Request, limit int64) ([]byte, bool, error) {
+	if req == nil || req.Body == nil || req.Body == http.NoBody || limit <= 0 {
+		return nil, false, nil
+	}
+	if req.GetBody == nil {
+		return []byte("[skipped: non-rewindable]"), false, nil
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, false, errors.Tag(err)
+	}
+	defer body.Close()
+	return readBodyPreview(body, limit)
+}
+
 // containsStatusCode 检查状态码是否在列表中。
 //
 // 参数说明：
@@ -639,6 +700,17 @@ func readBodyPreviewAndRestore(body io.ReadCloser, limit int64) ([]byte, bool, i
 		Closer: body,
 	}
 	return preview, truncated, restored, nil
+}
+
+// formatBodyPreview 将预览内容格式化为日志文本。
+func formatBodyPreview(preview []byte, truncated bool) string {
+	if len(preview) == 0 {
+		return ""
+	}
+	if !truncated {
+		return string(preview)
+	}
+	return string(preview) + "\n...[truncated]"
 }
 
 // readCloser 将恢复后的 Reader 和原始 Closer 组合成 io.ReadCloser。

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -285,6 +286,30 @@ func TestRSA_PEMHeaders(t *testing.T) {
 func TestGenerateKeyRSARejectsWeakBits(t *testing.T) {
 	if _, err := utils.GenerateKeyRSA(t.TempDir(), 1024); err == nil {
 		t.Fatal("GenerateKeyRSA() expected weak bits error")
+	}
+}
+
+func TestGenerateKeyRSARejectsSymlinkDirectory(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	linkDir := filepath.Join(root, "link")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := utils.GenerateKeyRSA(linkDir, 2048); err == nil {
+		t.Fatal("GenerateKeyRSA() expected symlink directory error")
+	}
+
+	entries, err := os.ReadDir(realDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("real key dir should stay empty, got %d entries", len(entries))
 	}
 }
 

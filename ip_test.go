@@ -76,7 +76,7 @@ func TestClientIP(t *testing.T) {
 				},
 				RemoteAddr: "127.0.0.1:80",
 			},
-		}, want: "175.176.32.112"},
+		}, want: "192.168.47.143"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -96,6 +96,19 @@ func TestClientIPRejectsSpoofedForwardHeader(t *testing.T) {
 	}
 	if got := utils.ClientIP(req); got != "8.8.8.8" {
 		t.Fatalf("ClientIP() = %v, want %v", got, "8.8.8.8")
+	}
+}
+
+func TestClientIPDoesNotTrustPrivateRemoteByDefault(t *testing.T) {
+	req := &http.Request{
+		Header: http.Header{
+			"X-Forwarded-For": []string{"203.0.113.10"},
+			"X-Real-Ip":       []string{"198.51.100.8"},
+		},
+		RemoteAddr: "10.0.0.10:443",
+	}
+	if got := utils.ClientIP(req); got != "10.0.0.10" {
+		t.Fatalf("ClientIP() = %v, want %v", got, "10.0.0.10")
 	}
 }
 

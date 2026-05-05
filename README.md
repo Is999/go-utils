@@ -32,7 +32,7 @@ golang 帮助函数
 | slices / string / map | 常用函数无共享可变全局状态；传入的 slice/map 若被外部并发修改，调用方需自行加锁。                                                                              |
 | tar / zip             | 解压防 Zip Slip/Tar Slip，拒绝绝对路径、目录穿越、空字符、符号链接和特殊文件；限制条目数、单文件大小和总展开大小。                                                          |
 | errors                | 支持栈追踪、错误码、上下文键值、`errors.Join`、文本/JSON/slog 输出；全局配置使用原子变量并发安全。                                                               |
-| curl                  | 继承标准库默认 Transport 连接池/TLS 行为；Header 按请求克隆；可回放 body 才会重试；dump 有长度限制。`Curl` 实例配置阶段不建议并发修改。                                    |
+| curl                  | 继承标准库默认 Transport 连接池/TLS 行为；Header 按请求克隆；可回放 body 才会重试；默认日志 body 为预览上限；支持 `Clone/NewRequest` 派生独立请求实例并复用连接池。               |
 | response              | 状态码只写一次；Content-Type 自动规范化；下载文件名清洗 CR/LF 和路径；文件输出拒绝目录。                                                                      |
 
 本次验证命令：
@@ -1100,7 +1100,8 @@ func UniqId(l uint8, r ...*rand.Rand) string
 | *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：生成一个长度范围16-32位的唯一ID字符串(可排序的字符串)，UniqID函数生成字符串并不保证全局强唯一性；UniqId
-为历史兼容名称，新代码建议使用 UniqID。
+为历史兼容名称，新代码建议使用 UniqID。该函数基于 `math/rand`，仅适用于非安全场景；token、验证码、重置链接等安全用途请使用
+`SecureUniqID`。
 
 ------
 
@@ -1115,7 +1116,8 @@ func RandStr(n int, r ...*rand.Rand) string
 | *n* | 生成字符串的长度。                                   |
 | *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
-备注：随机生成字符串 ALPHA。ALPHA 值为：A-Za-z
+备注：随机生成字符串 ALPHA。ALPHA 值为：A-Za-z。该函数基于 `math/rand`，仅适用于测试数据、临时标识等非安全场景；安全用途请使用
+`SecureRandStr`。
 
 ------
 
@@ -1130,7 +1132,8 @@ func RandStr2(n int, r ...*rand.Rand) string
 | *n* | 生成字符串的长度。                                   |
 | *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
-备注：随机生成字符串 ALNUM。ALNUM 值为：A-Za-z0-9；为兼容旧行为，首字符固定为字母，不会以数字开头。
+备注：随机生成字符串 ALNUM。ALNUM 值为：A-Za-z0-9；为兼容旧行为，首字符固定为字母，不会以数字开头。该函数基于 `math/rand`，
+仅适用于非安全场景；安全用途请使用 `SecureRandStr2`。
 
 ------
 
@@ -1146,7 +1149,8 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string
 | *alpha* | 生成随机字符串的种子。                                 |
 | *r*     | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
-备注：随机生成字符串。alpha 指定生成随机字符串的种子。
+备注：随机生成字符串。alpha 指定生成随机字符串的种子。该函数基于 `math/rand`，仅适用于非安全场景；安全用途请使用
+`SecureRandStr3`。
 
 ------
 
@@ -1812,6 +1816,13 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error)
 
 备注：返回一个WriteFile实例。
 
+补充说明：
+
+- `NewWrite` 适合日志、顺序输出等持续写入场景。
+- 若是配置文件、密钥文件、状态文件等“整文件覆盖”场景，生产环境更建议使用 `WriteFileAtomic` / `WriteStringAtomic`，避免直接
+  `O_TRUNC` 导致半写文件。
+- `NewWrite` 会拒绝目标文件为符号链接，降低通过通用写入口写穿到其它路径的风险。
+
 ```go
 // 实例化一个WriteFile（追加写入）
 w, err := NewWrite(fileName, WithWriteAppend(true))
@@ -1827,25 +1838,34 @@ fmt.Errorf("Close() err %v", err)
 }
 }()
 
-// 写入byte数据
-n, err := w.Write([]byte{})
 
-// 写入string
-n, err := w.WriteString(string)
+------
 
-// 使用bufio写入数据
-_, err := w.WriteBuf(func (write *bufio.Writer) (int, error) {
-for j := 0; j < 10000; j++ {
-_, err := write.WriteString(fmt.Sprintf("WriteBuf %d Name %v; 红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n", j, tt.name))
-if err != nil {
-return 0, err
-}
-}
-return 0, nil
-})
+#### func    [utils.WriteFileAtomic / utils.WriteStringAtomic](https://github.com/Is999/go-utils/blob/master/file.go)
+
+```go
+func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error
+func WriteStringAtomic(fileName, data string, perm os.FileMode) error
 ```
 
-备注：WriteFile实例化，文件关闭，数据写入。
+备注：使用同目录临时文件 + `Sync` + `Close` + `Rename` 原子覆盖目标文件，适用于配置、密钥、状态等要求“覆盖即完整替换”的场景。
+
+```go
+err := utils.WriteFileAtomic(fileName, []byte("hello world"), 0644)
+if err != nil {
+	fmt.Errorf("WriteFileAtomic() err %v", err)
+	return
+}
+
+err = utils.WriteStringAtomic(fileName, "hello world", 0644)
+if err != nil {
+	fmt.Errorf("WriteStringAtomic() err %v", err)
+	return
+}
+```
+
+```
+备注：适合一次性覆盖完整文件内容；若需要持续写入、追加写入或 `bufio.Writer` 批量写入，继续使用 `NewWrite`。
 
 ------
 
@@ -3801,6 +3821,34 @@ func HasSymbols(value string) bool
 
 > 请求方式：GET、POST（form，file）、HEAD、PUT、PATCH、DELETE、OPTIONS
 
+备注：
+
+- `Curl` 适合作为“基础模板配置 + 按请求派生实例”使用。
+- 共享基础配置时，生产环境建议使用 `Clone()` 或 `NewRequest()` 获取独立请求实例，再设置本次请求的 Header / Param / Body。
+- `NewRequest()` 会复用底层 Transport 连接池，同时为新实例生成新的 `X-Request-Id`，更适合并发场景。
+
+示例：
+
+```go
+baseCurl := utils.NewCurl().
+  SetTimeout(10).
+  SetHeader("Authorization", "Bearer xxx").
+  SetUserAgent("go-utils-client/1.0")
+
+reqCurl, err := baseCurl.NewRequest()
+if err != nil {
+  return err
+}
+
+err = reqCurl.
+  SetParam("page", "1").
+  SetBodyBytes([]byte(`{"name":"Lisa"}`)).
+  AfterBody(func(body []byte) error {
+    return json.Unmarshal(body, &result)
+  }).
+  Post("https://api.example.com/user")
+```
+
 ------
 
 #### [GET 请求方式](https://github.com/Is999/go-utils/blob/master/curl_client.go#L368)
@@ -3840,6 +3888,27 @@ func (c *Curl) Post(url string) (err error)
 ```
 
 备注：参考测试用例：[TestPostFile](https://github.com/Is999/go-utils/blob/master/curl_test.go#L547)
+
+------
+
+#### [Clone / NewRequest](https://github.com/Is999/go-utils/blob/master/curl_client.go)
+
+```go
+func (c *Curl) Clone() (*Curl, error)
+func (c *Curl) NewRequest() (*Curl, error)
+```
+
+备注：
+
+- `Clone()` 会深拷贝 Header、Params、Cookie、StatusCode、Body 等请求级配置，并复用底层连接池。
+- `NewRequest()` 基于 `Clone()` 派生新的请求实例，并自动生成新的请求 ID。
+- 若当前 `Body` 是不可回放的流式 Reader，`Clone()` / `NewRequest()` 会返回错误，避免多个请求共享同一读取游标。
+
+参考测试用例：
+
+- [TestCurlCloneDeepCopiesRequestState](https://github.com/Is999/go-utils/blob/master/curl_test.go#L917)
+- [TestCurlNewRequestGeneratesIndependentRequestID](https://github.com/Is999/go-utils/blob/master/curl_test.go#L955)
+- [TestCurlTemplateReuseWithNewRequest](https://github.com/Is999/go-utils/blob/master/curl_test.go#L973)
 
 ------
 
@@ -4223,7 +4292,8 @@ func Unsetenv(key string) error
 func ServerIP() string
 ```
 
-备注：服务器对外IP。
+备注：服务器对外IP。默认优先返回缓存值或本地网卡 IP，仅在本地 IP 不可用时才回退到 UDP 探测；如需控制超时可使用
+`ServerIPContext`。
 
 ------
 
@@ -4243,8 +4313,8 @@ func LocalIP() string
 func ClientIP(r *http.Request) string
 ```
 
-备注：获取客户端 IP。默认仅在请求来自可信代理（回环、私网、链路本地地址）时信任 `X-Forwarded-For` / `X-Real-IP`，否则回退到
-`RemoteAddr`，避免被伪造请求头欺骗。
+备注：获取客户端 IP。默认仅在请求来自回环地址时信任 `X-Forwarded-For` / `X-Real-IP`，否则回退到 `RemoteAddr`，避免把所有私网来源都视为
+可信代理。生产环境建议优先使用 `ClientIPWithTrustedProxies` 显式配置白名单。
 
 ------
 

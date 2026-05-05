@@ -341,6 +341,14 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 		return nil, errors.Errorf("RSA 密钥位数不能低于 %d，当前位数: %d", minRSABits, bits)
 	}
 	if strings.TrimSpace(path) != "" {
+		// 拒绝通过符号链接目录写入密钥文件，避免把私钥写到调用方预期目录之外。
+		if info, err := os.Lstat(path); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return nil, errors.Errorf("GenerateKeyRSA() 不允许密钥目录为符号链接: path=%s", path)
+			}
+		} else if !os.IsNotExist(err) {
+			return nil, errors.Tag(err)
+		}
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			return nil, errors.Tag(err)
 		}
@@ -638,13 +646,10 @@ func marshalPublicKey(publicKey *rsa.PublicKey, isPKCS8 bool) ([]byte, error) {
 
 // writePEMFile 以指定权限写入 PEM 文件。
 func writePEMFile(name string, block *pem.Block, perm os.FileMode) error {
-	file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
-	if err != nil {
-		return errors.Tag(err)
-	}
-	defer file.Close()
-	if err = pem.Encode(file, block); err != nil {
-		return errors.Tag(err)
-	}
-	return nil
+	return writeFileAtomic(name, perm, func(file *os.File) error {
+		if err := pem.Encode(file, block); err != nil {
+			return errors.Tag(err)
+		}
+		return nil
+	})
 }

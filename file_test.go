@@ -188,6 +188,36 @@ func TestCopyRejectsSameUnderlyingFile(t *testing.T) {
 	}
 }
 
+func TestCopyRejectsSymlinkDestination(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source.txt")
+	outside := filepath.Join(dir, "outside.txt")
+	link := filepath.Join(dir, "target-link.txt")
+	original := []byte("copy should reject symlink destination")
+	if err := os.WriteFile(src, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("outside"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+
+	err := utils.Copy(src, link)
+	if err == nil {
+		t.Fatal("Copy() expected error when destination is symlink")
+	}
+
+	got, readErr := os.ReadFile(outside)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if string(got) != "outside" {
+		t.Fatalf("symlink target content changed after rejected Copy(): got %q want %q", got, "outside")
+	}
+}
+
 func TestScan(t *testing.T) {
 	type args struct {
 		name string
@@ -751,6 +781,68 @@ func TestWriteFileCloseWaitsForInFlightWriteBuf(t *testing.T) {
 	}
 	if err := <-closeDone; err != nil {
 		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+func TestWriteFileAtomicReplacesWholeFile(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "atomic.txt")
+	if err := os.WriteFile(fileName, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := utils.WriteFileAtomic(fileName, []byte("new-content"), 0644); err != nil {
+		t.Fatalf("WriteFileAtomic() error = %v", err)
+	}
+
+	got, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new-content" {
+		t.Fatalf("file content = %q, want %q", got, "new-content")
+	}
+}
+
+func TestWriteFileAtomicRejectsSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	realFile := filepath.Join(dir, "real.txt")
+	linkFile := filepath.Join(dir, "link.txt")
+	if err := os.WriteFile(realFile, []byte("real"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realFile, linkFile); err != nil {
+		t.Fatal(err)
+	}
+
+	err := utils.WriteFileAtomic(linkFile, []byte("blocked"), 0644)
+	if err == nil {
+		t.Fatal("WriteFileAtomic() expected symlink target error")
+	}
+
+	got, readErr := os.ReadFile(realFile)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != "real" {
+		t.Fatalf("real file content changed: got %q want %q", got, "real")
+	}
+}
+
+func TestNewWriteRejectsSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	realFile := filepath.Join(dir, "real.log")
+	linkFile := filepath.Join(dir, "link.log")
+	if err := os.WriteFile(realFile, []byte("real"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realFile, linkFile); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := utils.NewWrite(linkFile)
+	if err == nil {
+		_ = w.Close()
+		t.Fatal("NewWrite() expected symlink target error")
 	}
 }
 

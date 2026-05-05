@@ -914,6 +914,128 @@ func TestSetStatusCodeOverridesPreviousValues(t *testing.T) {
 	}
 }
 
+func TestCurlCloneDeepCopiesRequestState(t *testing.T) {
+	base := utils.NewCurl().
+		SetHeader("X-Base", "base").
+		SetParam("page", "1").
+		SetBodyBytes([]byte("base-body")).
+		SetCookies(&http.Cookie{Name: "sid", Value: "base"}).
+		SetStatusCode(http.StatusCreated).
+		SetRequestID("req-base")
+
+	cloned, err := base.Clone()
+	if err != nil {
+		t.Fatalf("Clone() error = %v", err)
+	}
+
+	cloned.SetHeader("X-Base", "clone").
+		SetParam("page", "2").
+		SetBodyBytes([]byte("clone-body")).
+		SetCookies(&http.Cookie{Name: "sid", Value: "clone"}).
+		SetStatusCode(http.StatusAccepted).
+		SetRequestID("req-clone")
+
+	if got := base.GetHeader().Get("X-Base"); got != "base" {
+		t.Fatalf("base header = %q, want base", got)
+	}
+	if got := base.GetParams().Get("page"); got != "1" {
+		t.Fatalf("base param = %q, want 1", got)
+	}
+	if got := base.GetCookie("sid").Value; got != "base" {
+		t.Fatalf("base cookie = %q, want base", got)
+	}
+	if got := base.GetStatusCode()[0]; got != http.StatusCreated {
+		t.Fatalf("base status code = %d, want %d", got, http.StatusCreated)
+	}
+	if got := base.GetRequestID(); got != "req-base" {
+		t.Fatalf("base request id = %q, want req-base", got)
+	}
+}
+
+func TestCurlNewRequestGeneratesIndependentRequestID(t *testing.T) {
+	base := utils.NewCurl().SetRequestID("req-base")
+
+	requestCurl, err := base.NewRequest()
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	if requestCurl == base {
+		t.Fatal("NewRequest() should return a new instance")
+	}
+	if got := requestCurl.GetRequestID(); got == "" || got == base.GetRequestID() {
+		t.Fatalf("request id = %q, want new non-empty id", got)
+	}
+	if got := base.GetRequestID(); got != "req-base" {
+		t.Fatalf("base request id = %q, want req-base", got)
+	}
+}
+
+func TestCurlCloneRejectsNonReplayableBody(t *testing.T) {
+	reader, _ := io.Pipe()
+	base := utils.NewCurl().SetBody(reader)
+
+	_, err := base.Clone()
+	if err == nil {
+		t.Fatal("Clone() expected error for non-replayable body")
+	}
+}
+
+func TestCurlTemplateReuseWithNewRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("server ReadAll() error = %v", err)
+		}
+		_, _ = w.Write([]byte(r.Header.Get("X-Req") + "|" + r.URL.Query().Get("id") + "|" + string(body)))
+	}))
+	defer srv.Close()
+
+	base := utils.NewCurl().
+		SetHeader("X-Base", "template").
+		SetParam("base", "1")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			id := fmt.Sprintf("req-%d", i)
+			requestCurl, err := base.NewRequest()
+			if err != nil {
+				t.Errorf("NewRequest() error = %v", err)
+				return
+			}
+
+			var got string
+			err = requestCurl.
+				SetHeader("X-Req", id).
+				SetParam("id", id).
+				SetBodyBytes([]byte(id)).
+				AfterBody(func(body []byte) error {
+					got = string(body)
+					return nil
+				}).
+				Post(srv.URL)
+			if err != nil {
+				t.Errorf("Post() error = %v", err)
+				return
+			}
+			want := id + "|" + id + "|" + id
+			if got != want {
+				t.Errorf("response = %q, want %q", got, want)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if got := base.GetHeader().Get("X-Req"); got != "" {
+		t.Fatalf("base X-Req header = %q, want empty", got)
+	}
+	if got := base.GetParams().Get("id"); got != "" {
+		t.Fatalf("base id param = %q, want empty", got)
+	}
+}
+
 func TestCurlRebuildsTransportOnlyWhenTransportConfigChanges(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
