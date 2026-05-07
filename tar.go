@@ -16,31 +16,28 @@ import (
 //	tarFile 打包后文件
 //	files 待打包文件【夹】
 func Tar(tarFile string, files []string) error {
-	if !strings.HasSuffix(tarFile, ".tar") {
-		return errors.New("文件名错误：非.tar文件")
-	}
-
-	// 创建压缩文件
-	file, err := os.Create(tarFile)
-	if err != nil {
+	if err := validateArchiveOutput(tarFile, ".tar", "tar", files); err != nil {
 		return errors.Tag(err)
 	}
-	defer file.Close()
 
-	// 创建一个tar写入器
-	tarWriter := tar.NewWriter(file)
-	defer tarWriter.Close()
+	// 使用原子写入避免归档生成失败时留下半截 tar 文件。
+	return writeFileAtomic(tarFile, 0644, func(file *os.File) (err error) {
+		// 创建 tar 写入器，最终必须显式关闭以刷新尾部块。
+		tarWriter := tar.NewWriter(file)
+		defer func() {
+			if closeErr := tarWriter.Close(); err == nil && closeErr != nil {
+				err = errors.Tag(closeErr)
+			}
+		}()
 
-	// 遍历文件和目录列表，将它们添加到tar归档文件中
-	for _, filePath := range files {
-		// 将文件添加到 zip 文件
-		err = AddFileToTar(tarWriter, filePath, "")
-		if err != nil {
-			return errors.Tag(err)
+		// 遍历文件和目录列表，将它们添加到 tar 归档文件中。
+		for _, filePath := range files {
+			if err = AddFileToTar(tarWriter, filePath, ""); err != nil {
+				return errors.Tag(err)
+			}
 		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // TarGz 使用tar打包gzip压缩
@@ -48,35 +45,36 @@ func Tar(tarFile string, files []string) error {
 //	tarGzFile 打包压缩后文件
 //	files 待打包压缩文件【夹】
 func TarGz(tarGzFile string, files []string) error {
-	if !strings.HasSuffix(tarGzFile, ".tar.gz") {
-		return errors.New("文件名错误：非.tar.gz文件")
-	}
-
-	// 创建压缩文件
-	file, err := os.Create(tarGzFile)
-	if err != nil {
+	if err := validateArchiveOutput(tarGzFile, ".tar.gz", "tar.gz", files); err != nil {
 		return errors.Tag(err)
 	}
-	defer file.Close()
 
-	// 创建 gzip
-	gw := gzip.NewWriter(file)
-	defer gw.Close()
+	// 使用原子写入避免归档生成失败时留下半截 tar.gz 文件。
+	return writeFileAtomic(tarGzFile, 0644, func(file *os.File) (err error) {
+		// 创建 gzip 写入器，tar 数据会先写入 gzip 流。
+		gzipWriter := gzip.NewWriter(file)
+		defer func() {
+			if closeErr := gzipWriter.Close(); err == nil && closeErr != nil {
+				err = errors.Tag(closeErr)
+			}
+		}()
 
-	// 创建一个tar写入器
-	tarWriter := tar.NewWriter(gw)
-	defer tarWriter.Close()
+		// 创建 tar 写入器，关闭顺序必须先 tar 后 gzip。
+		tarWriter := tar.NewWriter(gzipWriter)
+		defer func() {
+			if closeErr := tarWriter.Close(); err == nil && closeErr != nil {
+				err = errors.Tag(closeErr)
+			}
+		}()
 
-	// 遍历文件和目录列表，将它们添加到tar归档文件中
-	for _, filePath := range files {
-		// 将文件添加到 zip 文件
-		err = AddFileToTar(tarWriter, filePath, "")
-		if err != nil {
-			return errors.Tag(err)
+		// 遍历文件和目录列表，将它们添加到 tar 归档文件中。
+		for _, filePath := range files {
+			if err = AddFileToTar(tarWriter, filePath, ""); err != nil {
+				return errors.Tag(err)
+			}
 		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // AddFileToTar 添加文件【夹】到tar
@@ -84,6 +82,9 @@ func TarGz(tarGzFile string, files []string) error {
 //	fileToCompress 需要压缩的文件
 //	baseDir 打包文件根目录
 func AddFileToTar(tarWriter *tar.Writer, fileToCompress string, baseDir string) error {
+	if tarWriter == nil {
+		return errors.New("tar.Writer 不能为空")
+	}
 	fileInfo, err := os.Lstat(fileToCompress)
 	if err != nil {
 		return errors.Tag(err)

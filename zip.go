@@ -15,30 +15,28 @@ import (
 //	zipFile 打包压缩后文件
 //	files 待打包压缩文件【夹】
 func Zip(zipFile string, files []string) error {
-	if !strings.HasSuffix(zipFile, ".zip") {
-		return errors.New("invalid file name: expected a .zip file")
-	}
-
-	// 创建 zip 文件
-	file, err := os.Create(zipFile)
-	if err != nil {
+	if err := validateArchiveOutput(zipFile, ".zip", "zip", files); err != nil {
 		return errors.Tag(err)
 	}
-	defer file.Close()
 
-	// 创建 zip.Writer
-	zipWriter := zip.NewWriter(file)
-	defer zipWriter.Close()
+	// 使用原子写入避免归档生成失败时留下半截 zip 文件。
+	return writeFileAtomic(zipFile, 0644, func(file *os.File) (err error) {
+		// 创建 zip.Writer，最终必须显式关闭以刷新中央目录。
+		zipWriter := zip.NewWriter(file)
+		defer func() {
+			if closeErr := zipWriter.Close(); err == nil && closeErr != nil {
+				err = errors.Tag(closeErr)
+			}
+		}()
 
-	for _, filePath := range files {
-		// 将文件添加到 zip 文件
-		err = AddFileToZip(zipWriter, filePath, "")
-		if err != nil {
-			return errors.Tag(err)
+		// 遍历文件和目录列表，将它们添加到 zip 文件。
+		for _, filePath := range files {
+			if err = AddFileToZip(zipWriter, filePath, ""); err != nil {
+				return errors.Tag(err)
+			}
 		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // AddFileToZip 添加文件【夹】到zip
@@ -46,6 +44,9 @@ func Zip(zipFile string, files []string) error {
 //	fileToCompress 需要压缩的文件
 //	baseDir 打包文件根目录
 func AddFileToZip(zipWriter *zip.Writer, fileToCompress string, baseDir string) error {
+	if zipWriter == nil {
+		return errors.New("zip.Writer 不能为空")
+	}
 	fileInfo, err := os.Lstat(fileToCompress)
 	if err != nil {
 		return errors.Tag(err)
@@ -151,7 +152,7 @@ func addDirectoryToZip(zipWriter *zip.Writer, directoryToCompress string, fileIn
 //	destDir 解压文件目录
 func UnZip(zipFile, destDir string) error {
 	if !strings.HasSuffix(zipFile, ".zip") {
-		return errors.New("invalid file name: expected a .zip file")
+		return errors.New("文件名错误：非.zip文件")
 	}
 
 	// 打开ZIP文件进行读取
@@ -185,7 +186,7 @@ func UnZip(zipFile, destDir string) error {
 
 			mode := f.Mode()
 			if mode&os.ModeSymlink != 0 || !mode.IsDir() && !mode.IsRegular() {
-				return errors.Errorf("unsupported zip entry type: %s", f.Name)
+				return errors.Errorf("不支持的 zip 条目类型: %s", f.Name)
 			}
 
 			// 如果文件是一个目录，则创建对应的目录
@@ -265,15 +266,15 @@ func UnZip(zipFile, destDir string) error {
 // 仅允许写入目标目录内，拒绝空路径、绝对路径、目录穿越和 Windows 风格分隔符绕过。
 func safeUnzipPath(destRoot, entryName string) (string, error) {
 	if entryName == "" {
-		return "", errors.New("zip entry name must not be empty")
+		return "", errors.New("zip 条目名称不能为空")
 	}
 	if strings.Contains(entryName, "\x00") {
-		return "", errors.New("zip entry name must not contain null bytes")
+		return "", errors.New("zip 条目名称不能包含空字符")
 	}
 
 	normalizedName := strings.ReplaceAll(entryName, "\\", "/")
 	if strings.HasPrefix(normalizedName, "/") || filepath.IsAbs(normalizedName) {
-		return "", errors.Errorf("absolute paths are not allowed in zip entries: %s", entryName)
+		return "", errors.Errorf("zip 条目不允许使用绝对路径: %s", entryName)
 	}
 
 	cleanName := filepath.Clean(filepath.FromSlash(normalizedName))
@@ -287,7 +288,7 @@ func safeUnzipPath(destRoot, entryName string) (string, error) {
 		return "", errors.Tag(err)
 	}
 	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
-		return "", errors.Errorf("zip entry path escapes the target directory: %s", entryName)
+		return "", errors.Errorf("zip 条目路径越界: %s", entryName)
 	}
 	return destPath, nil
 }

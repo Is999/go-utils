@@ -49,6 +49,70 @@ func (c *archiveCounter) add(entryName string, size int64) error {
 	return nil
 }
 
+// validateArchiveOutput 校验归档输出路径和输入列表。
+//
+// 参数说明：
+//   - outputFile：最终归档文件路径
+//   - suffix：归档文件名后缀，例如 .zip、.tar、.tar.gz
+//   - format：归档格式名称，用于错误信息
+//   - files：待打包文件或目录列表
+func validateArchiveOutput(outputFile, suffix, format string, files []string) error {
+	outputFile = strings.TrimSpace(outputFile)
+	if outputFile == "" {
+		return errors.Errorf("%s 输出文件名不能为空", format)
+	}
+	if !strings.HasSuffix(outputFile, suffix) {
+		return errors.Errorf("文件名错误：非%s文件", suffix)
+	}
+
+	outputAbs, err := filepath.Abs(outputFile)
+	if err != nil {
+		return errors.Tag(err)
+	}
+
+	// 输出文件不能位于待打包目录内，否则临时文件或最终归档可能被打包进自身。
+	for _, filePath := range files {
+		filePath = strings.TrimSpace(filePath)
+		if filePath == "" {
+			return errors.Errorf("%s 待打包路径不能为空", format)
+		}
+
+		info, err := os.Lstat(filePath)
+		if err != nil {
+			return errors.Tag(err)
+		}
+		inputAbs, err := filepath.Abs(filePath)
+		if err != nil {
+			return errors.Tag(err)
+		}
+
+		if info.IsDir() {
+			inside, err := isPathInside(inputAbs, outputAbs)
+			if err != nil {
+				return errors.Tag(err)
+			}
+			if inside {
+				return errors.Errorf("%s 输出文件不能位于待打包目录内: output=%s input=%s", format, outputFile, filePath)
+			}
+			continue
+		}
+
+		if filepath.Clean(inputAbs) == filepath.Clean(outputAbs) {
+			return errors.Errorf("%s 输出文件不能与待打包文件相同: %s", format, outputFile)
+		}
+	}
+	return nil
+}
+
+// isPathInside 判断 target 是否位于 root 路径内部或与 root 相同。
+func isPathInside(root, target string) (bool, error) {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false, errors.Tag(err)
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
+}
+
 // rejectArchiveSymlink 统一拒绝打包符号链接，避免归档结果依赖宿主机路径状态。
 //
 // 参数说明：

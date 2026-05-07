@@ -151,6 +151,24 @@ func TestRSA(t *testing.T) {
 			if !reflect.DeepEqual(decryptString, string(marshal)) {
 				t.Errorf("解密后数据不等于加密前数据 got = %v, want %v", decryptString, string(marshal))
 			}
+
+			// 公钥加密 OAEP（按 crypto.Hash 创建独立摘要实例）
+			encodeString, err = r.EncryptOAEPHash(string(marshal), tt.args.encodeToString, crypto.SHA256)
+			if err != nil {
+				t.Errorf("EncryptOAEPHash() WrapError = %v", err)
+				return
+			}
+
+			// 私钥解密 OAEP（按 crypto.Hash 创建独立摘要实例）
+			decryptString, err = r.DecryptOAEPHash(encodeString, tt.args.decode, crypto.SHA256)
+			if err != nil {
+				t.Errorf("DecryptOAEPHash() WrapError = %v", err)
+				return
+			}
+
+			if !reflect.DeepEqual(decryptString, string(marshal)) {
+				t.Errorf("OAEPHash 解密后数据不等于加密前数据 got = %v, want %v", decryptString, string(marshal))
+			}
 		})
 	}
 }
@@ -320,6 +338,9 @@ func TestRSARejectsWeakHash(t *testing.T) {
 	}
 	if _, err = r.Sign("hello", crypto.MD5, base64.StdEncoding.EncodeToString); err == nil {
 		t.Fatal("Sign() expected weak hash error")
+	}
+	if _, err = r.DecryptOAEPHash("", base64.StdEncoding.DecodeString, crypto.SHA1); err == nil {
+		t.Fatal("DecryptOAEPHash() expected weak hash error")
 	}
 }
 

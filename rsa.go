@@ -137,7 +137,7 @@ func (r *RSA) SetPrivateKey(privateKey string, isFilePath bool) error {
 // IsSetPublicKey 校验公钥是否已设置。
 func (r *RSA) IsSetPublicKey() error {
 	if r == nil || r.pubKey == nil {
-		return errors.New("Public Key is not set")
+		return errors.New("RSA 公钥未设置")
 	}
 	return nil
 }
@@ -145,7 +145,7 @@ func (r *RSA) IsSetPublicKey() error {
 // IsSetPrivateKey 校验私钥是否已设置。
 func (r *RSA) IsSetPrivateKey() error {
 	if r == nil || r.priKey == nil {
-		return errors.New("Private Key is not set")
+		return errors.New("RSA 私钥未设置")
 	}
 	return nil
 }
@@ -239,12 +239,14 @@ func (r *RSA) Verify(data, sign string, hash crypto.Hash, decode DecodeString) e
 }
 
 // EncryptOAEP 使用公钥和 OAEP 填充加密。
+//
+// 注意：hash.Hash 实例不是并发安全对象；并发场景推荐使用 EncryptOAEPHash，由方法内部创建摘要实例。
 func (r *RSA) EncryptOAEP(data string, encode EncodeToString, hash hash.Hash) (string, error) {
 	if encode == nil {
 		return "", errors.New("encode 不能为空")
 	}
-	if hash == nil {
-		return "", errors.New("hash 不能为空")
+	if err := validateRSAOAEPHash(hash); err != nil {
+		return "", errors.Tag(err)
 	}
 	if err := r.IsSetPublicKey(); err != nil {
 		return "", errors.Tag(err)
@@ -263,12 +265,14 @@ func (r *RSA) EncryptOAEP(data string, encode EncodeToString, hash hash.Hash) (s
 }
 
 // DecryptOAEP 使用私钥和 OAEP 填充解密。
+//
+// 注意：hash.Hash 实例不是并发安全对象；并发场景推荐使用 DecryptOAEPHash，由方法内部创建摘要实例。
 func (r *RSA) DecryptOAEP(encrypt string, decode DecodeString, hash hash.Hash) (string, error) {
 	if decode == nil {
 		return "", errors.New("decode 不能为空")
 	}
-	if hash == nil {
-		return "", errors.New("hash 不能为空")
+	if err := validateRSAOAEPHash(hash); err != nil {
+		return "", errors.Tag(err)
 	}
 	if err := r.IsSetPrivateKey(); err != nil {
 		return "", errors.Tag(err)
@@ -281,6 +285,64 @@ func (r *RSA) DecryptOAEP(encrypt string, decode DecodeString, hash hash.Hash) (
 	decrypted, err := rsaDecryptChunks(ciphertext, r.priKey.Size(), func(chunk []byte) ([]byte, error) {
 		hash.Reset()
 		return rsa.DecryptOAEP(hash, rand.Reader, r.priKey, chunk, nil)
+	})
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	return string(decrypted), nil
+}
+
+// EncryptOAEPHash 使用指定 crypto.Hash 创建独立摘要实例并执行 OAEP 加密。
+//
+// 该方法比直接传 hash.Hash 更适合高并发复用 RSA 对象，生产代码建议优先使用 SHA256 及以上摘要算法。
+func (r *RSA) EncryptOAEPHash(data string, encode EncodeToString, hashID crypto.Hash) (string, error) {
+	if encode == nil {
+		return "", errors.New("encode 不能为空")
+	}
+	if err := validateRSAOAEPHashID(hashID); err != nil {
+		return "", errors.Tag(err)
+	}
+	if err := r.IsSetPublicKey(); err != nil {
+		return "", errors.Tag(err)
+	}
+
+	keySize := r.pubKey.Size()
+	maxPayload := keySize - 2*hashID.Size() - 2
+	oaepHash := hashID.New()
+	encrypted, err := rsaEncryptChunks([]byte(data), keySize, maxPayload, func(chunk []byte) ([]byte, error) {
+		// 单次方法调用内复用摘要对象，避免每个 RSA 分块重复分配。
+		oaepHash.Reset()
+		return rsa.EncryptOAEP(oaepHash, rand.Reader, r.pubKey, chunk, nil)
+	})
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	return encode(encrypted), nil
+}
+
+// DecryptOAEPHash 使用指定 crypto.Hash 创建独立摘要实例并执行 OAEP 解密。
+//
+// 该方法比直接传 hash.Hash 更适合高并发复用 RSA 对象，生产代码建议优先使用 SHA256 及以上摘要算法。
+func (r *RSA) DecryptOAEPHash(encrypt string, decode DecodeString, hashID crypto.Hash) (string, error) {
+	if decode == nil {
+		return "", errors.New("decode 不能为空")
+	}
+	if err := validateRSAOAEPHashID(hashID); err != nil {
+		return "", errors.Tag(err)
+	}
+	if err := r.IsSetPrivateKey(); err != nil {
+		return "", errors.Tag(err)
+	}
+
+	ciphertext, err := decode(encrypt)
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	oaepHash := hashID.New()
+	decrypted, err := rsaDecryptChunks(ciphertext, r.priKey.Size(), func(chunk []byte) ([]byte, error) {
+		// 单次方法调用内复用摘要对象，避免每个 RSA 分块重复分配。
+		oaepHash.Reset()
+		return rsa.DecryptOAEP(oaepHash, rand.Reader, r.priKey, chunk, nil)
 	})
 	if err != nil {
 		return "", errors.Tag(err)
@@ -423,7 +485,7 @@ func AddPEMHeaders(key, keyType string) (string, error) {
 		header = "-----BEGIN RSA PRIVATE KEY-----"
 		footer = "-----END RSA PRIVATE KEY-----"
 	default:
-		return "", errors.New("Invalid key type")
+		return "", errors.New("密钥类型错误")
 	}
 
 	body := RemovePEMHeaders(key)
@@ -459,7 +521,7 @@ func decodeKeyDER(key []byte, wantType string) ([]byte, error) {
 	}
 	if block, _ := pem.Decode(key); block != nil {
 		if wantType != "" && !strings.Contains(strings.ToUpper(block.Type), wantType) {
-			return nil, errors.Errorf("%s key type error", rsaKeyTypeName(wantType))
+			return nil, errors.Errorf("%s类型错误", rsaKeyTypeName(wantType))
 		}
 		return block.Bytes, nil
 	}
@@ -476,11 +538,14 @@ func decodeKeyDER(key []byte, wantType string) ([]byte, error) {
 
 // rsaKeyTypeName 返回适合错误信息展示的密钥类型名称。
 func rsaKeyTypeName(wantType string) string {
-	keyType := strings.ToLower(wantType)
-	if keyType == "" {
-		return ""
+	switch strings.ToUpper(wantType) {
+	case "PUBLIC":
+		return "公钥"
+	case "PRIVATE":
+		return "私钥"
+	default:
+		return "密钥"
 	}
-	return strings.ToUpper(keyType[:1]) + keyType[1:]
 }
 
 // parseRSAPublicKey 解析 PKIX 或 PKCS#1 公钥并校验安全位数。
@@ -488,7 +553,7 @@ func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
 	if pubAny, err := x509.ParsePKIXPublicKey(der); err == nil {
 		pub, ok := pubAny.(*rsa.PublicKey)
 		if !ok {
-			return nil, errors.New("PublicKey 类型错误")
+			return nil, errors.New("公钥类型错误")
 		}
 		if err = validateRSAPublicKey(pub); err != nil {
 			return nil, errors.Tag(err)
@@ -501,7 +566,7 @@ func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
 		}
 		return pub, nil
 	}
-	return nil, errors.New("Public key parse error")
+	return nil, errors.New("公钥解析失败")
 }
 
 // parseRSAPrivateKey 解析 PKCS#1 或 PKCS#8 私钥并校验安全位数。
@@ -515,14 +580,14 @@ func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	if priAny, err := x509.ParsePKCS8PrivateKey(der); err == nil {
 		pri, ok := priAny.(*rsa.PrivateKey)
 		if !ok {
-			return nil, errors.New("PrivateKey 类型错误")
+			return nil, errors.New("私钥类型错误")
 		}
 		if err = validateRSAPrivateKey(pri); err != nil {
 			return nil, errors.Tag(err)
 		}
 		return pri, nil
 	}
-	return nil, errors.New("Private key parse error")
+	return nil, errors.New("私钥解析失败")
 }
 
 // validateRSAPublicKey 校验 RSA 公钥是否满足生产安全下限。
@@ -557,6 +622,8 @@ func validateRSAPrivateKey(pri *rsa.PrivateKey) error {
 	if err := pri.Validate(); err != nil {
 		return errors.Tag(err)
 	}
+	// 预计算 CRT 参数，加快后续私钥解密和签名操作。
+	pri.Precompute()
 	return nil
 }
 
@@ -624,6 +691,32 @@ func validateRSASignHash(hash crypto.Hash) error {
 	}
 	if !hash.Available() {
 		return errors.New("hash 不可用")
+	}
+	return nil
+}
+
+// validateRSAOAEPHash 校验 OAEP 摘要实例是否满足生产安全下限。
+func validateRSAOAEPHash(hash hash.Hash) error {
+	if hash == nil {
+		return errors.New("hash 不能为空")
+	}
+	if hash.Size() < 32 {
+		return errors.Errorf("OAEP 摘要长度不能低于 32 字节，当前长度: %d", hash.Size())
+	}
+	return nil
+}
+
+// validateRSAOAEPHashID 校验 OAEP 摘要算法标识是否可用且安全。
+func validateRSAOAEPHashID(hashID crypto.Hash) error {
+	switch hashID {
+	case crypto.MD5, crypto.SHA1:
+		return errors.Errorf("不安全的 RSA OAEP 摘要算法: %s", hashID.String())
+	}
+	if !hashID.Available() {
+		return errors.New("hash 不可用")
+	}
+	if hashID.Size() < 32 {
+		return errors.Errorf("OAEP 摘要长度不能低于 32 字节，当前长度: %d", hashID.Size())
 	}
 	return nil
 }

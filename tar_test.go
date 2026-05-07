@@ -169,6 +169,15 @@ func TestTarRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestTarRejectsOutputInsideSourceDir(t *testing.T) {
+	srcDir := createArchiveFixture(t)
+	tarPath := filepath.Join(srcDir, "self.tar")
+
+	if err := utils.Tar(tarPath, []string{srcDir}); err == nil {
+		t.Fatal("Tar() expected output-inside-source error")
+	}
+}
+
 func TestUnTarRejectsSymlinkInDestinationPath(t *testing.T) {
 	tarPath := filepath.Join(t.TempDir(), "symlink-dest.tar")
 	file, err := os.Create(tarPath)

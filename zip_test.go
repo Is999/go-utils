@@ -144,6 +144,15 @@ func TestZipRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestZipRejectsOutputInsideSourceDir(t *testing.T) {
+	srcDir := createArchiveFixture(t)
+	zipPath := filepath.Join(srcDir, "self.zip")
+
+	if err := utils.Zip(zipPath, []string{srcDir}); err == nil {
+		t.Fatal("Zip() expected output-inside-source error")
+	}
+}
+
 func TestUnZipRejectsSymlinkInDestinationPath(t *testing.T) {
 	zipPath := filepath.Join(t.TempDir(), "symlink-dest.zip")
 	file, err := os.Create(zipPath)
