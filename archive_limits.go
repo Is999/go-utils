@@ -149,6 +149,13 @@ func assertNoSymlinkPath(root, target string) error {
 	if err != nil {
 		return errors.Tag(err)
 	}
+	if info, err := os.Lstat(rootAbs); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 && !isAllowedSystemSymlinkRoot(rootAbs) {
+			return errors.Errorf("不允许符号链接路径段: %s", rootAbs)
+		}
+	} else if !os.IsNotExist(err) {
+		return errors.Tag(err)
+	}
 	rel, err := filepath.Rel(rootAbs, targetAbs)
 	if err != nil {
 		return errors.Tag(err)
@@ -178,4 +185,13 @@ func assertNoSymlinkPath(root, target string) error {
 		}
 	}
 	return nil
+}
+
+// isAllowedSystemSymlinkRoot 放行操作系统级临时目录别名。
+//
+// macOS 上 /tmp 通常是指向 /private/tmp 的系统符号链接；历史调用方和测试都可能直接使用 /tmp。
+// 这里仍会拒绝业务目录中的符号链接，只避免把系统临时目录入口误判为攻击路径。
+func isAllowedSystemSymlinkRoot(path string) bool {
+	cleanPath := filepath.Clean(path)
+	return cleanPath == filepath.Clean(os.TempDir()) || cleanPath == string(filepath.Separator)+"tmp"
 }

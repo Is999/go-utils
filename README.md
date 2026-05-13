@@ -23,7 +23,7 @@ golang 帮助函数
 
 | 模块                    | 生产级结论                                                                                                                       |
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| AES / DES             | AES 推荐 `GCM`；`CBC/CTR` 必须显式 `WithIV(...)` 或 `WithRandIV(true)`；`ECB`、`CFB/OFB`、默认 key 派生 IV 默认禁用。DES/3DES 仅保留历史兼容，不建议新系统使用。 |
+| AES / DES             | AES 推荐 `GCM`；`CBC` 必须显式 `WithIV(...)` 或 `WithRandIV(true)`；`CTR/CFB/OFB`、`ECB`、默认 key 派生 IV 默认禁用。DES/3DES 仅保留历史兼容，不建议新系统使用。 |
 | RSA                   | 生成和导入密钥均要求至少 2048 位；推荐 `EncryptOAEP/DecryptOAEP` 与 `SignPSS/VerifyPSS`；`PKCS#1 v1.5` 仅用于旧协议兼容；签名拒绝 MD5/SHA1。                |
 | PKCS7 / Zero          | `Pkcs7UnPadding` 严格校验填充字节；`ZeroPadding` 仅适合能接受尾部 0 歧义的旧协议。                                                                  |
 | Pool / Once           | `Pool[T]` 基于 `sync.Pool`，支持归还前 reset；`Once` 并发安全，失败按有限指数退避重试，结果会缓存，需重新执行时调用 `Reset`。                                        |
@@ -244,7 +244,7 @@ logger.Error("操作失败", "error", err.Error(), "trace", errors.TraceString(e
 logger.Error("操作失败", "error", err.Error(), "trace", errors.TraceJSON(err))
 
 // 方式4: 使用 fmt 格式化
-fmt.Sprintf("%+v", err) // 等同于 TraceString
+fmt.Sprintf("%+v", err) // 等同于 TraceJSON
 fmt.Sprintf("%#v", err) // 等同于 TraceJSON
 ```
 
@@ -2058,15 +2058,14 @@ fmt.Log("Verify() = 验证成功")
 
 #### 加密模式选型建议
 
-| 场景         | 推荐方案                                        | 说明                                     |
-|------------|---------------------------------------------|----------------------------------------|
-| 新系统对称加密    | `AES + GCM`                                 | 默认优先方案，带机密性和完整性校验，支持 `additionalData`。 |
-| 兼容分组协议     | `AES/DES + CBC + WithIV/WithRandIV`         | 需要补位，适合和旧系统的固定协议对接。                    |
-| 流式对称加密     | `AES + CTR + NoPadding/NoUnPadding`         | 无需块补位，开销更低，适合短报文和二进制数据。                |
-| 旧系统流模式兼容   | `CFB/OFB + WithAllowUnsafeStreamMode(true)` | 默认禁用，仅用于兼容历史协议。                        |
-| 旧系统 ECB 兼容 | `ECB + WithAllowUnsafeECB(true)`            | 默认禁用，不建议新系统使用。                         |
-| RSA 加密     | `EncryptOAEP/DecryptOAEP`                   | 新协议优先，适合加密小数据或对称密钥。                    |
-| RSA 签名     | `SignPSS/VerifyPSS`                         | 新协议优先，推荐配合 `SHA256` 或更强摘要。             |
+| 场景         | 推荐方案                                            | 说明                                     |
+|------------|-------------------------------------------------|----------------------------------------|
+| 新系统对称加密    | `AES + GCM`                                     | 默认优先方案，带机密性和完整性校验，支持 `additionalData`。 |
+| 兼容分组协议     | `AES/DES + CBC + WithIV/WithRandIV`             | 需要补位，适合和旧系统的固定协议对接。                    |
+| 旧系统流模式兼容   | `CTR/CFB/OFB + WithAllowUnsafeStreamMode(true)` | 默认禁用；无需块补位，但不提供完整性校验，仅用于兼容历史协议。        |
+| 旧系统 ECB 兼容 | `ECB + WithAllowUnsafeECB(true)`                | 默认禁用，不建议新系统使用。                         |
+| RSA 加密     | `EncryptOAEP/DecryptOAEP`                       | 新协议优先，适合加密小数据或对称密钥。                    |
+| RSA 签名     | `SignPSS/VerifyPSS`                             | 新协议优先，推荐配合 `SHA256` 或更强摘要。             |
 
 备注：
 
@@ -2141,10 +2140,11 @@ return
 ```
 
 备注：先实例化 AES 并设置 key；CBC/CTR/CFB/OFB 等需要显式通过 `WithIV` 设置固定 IV，或通过 `WithRandIV(true)` 使用随机 IV。
-`ECB` 默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
+`CTR/CFB/OFB` 属于非认证流模式，默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeStreamMode(true)` 显式开启。`ECB`
+默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
 IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `WithAllowUnsafeKeyIV(true)`。
 
-补充：`CTR/CFB/OFB` 若无需补位，建议配合 `NoPadding` / `NoUnPadding` 使用，避免多余填充和块长度约束。
+补充：`CTR/CFB/OFB` 若用于旧协议兼容且无需补位，建议配合 `NoPadding` / `NoUnPadding` 使用，避免多余填充和块长度约束。
 
 ------
 
@@ -2178,11 +2178,12 @@ return
 ```
 
 备注：DES/3DES 仅建议用于旧系统兼容，新系统应优先使用 AES-GCM。先实例化 DES 并设置 key；CBC/CTR/CFB/OFB 等需要显式通过
-`WithIV` 设置固定 IV，或通过 `WithRandIV(true)` 使用随机 IV。
+`WithIV` 设置固定 IV，或通过 `WithRandIV(true)` 使用随机 IV。`CTR/CFB/OFB` 属于非认证流模式，默认禁用，仅在兼容旧系统时通过
+`WithAllowUnsafeStreamMode(true)` 显式开启。
 `ECB` 默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
 IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `WithAllowUnsafeKeyIV(true)`。
 
-补充：`CTR/CFB/OFB` 若无需补位，建议配合 `NoPadding` / `NoUnPadding` 使用，避免多余填充和块长度约束。
+补充：`CTR/CFB/OFB` 若用于旧协议兼容且无需补位，建议配合 `NoPadding` / `NoUnPadding` 使用，避免多余填充和块长度约束。
 
 ------
 
@@ -2222,8 +2223,8 @@ return
 #### NoPadding / NoUnPadding
 
 ```go
-// CTR 模式下直接关闭补位
-a, err := AES(key, WithRandIV(true))
+// CTR 模式下直接关闭补位。CTR 不提供完整性校验，仅用于旧协议兼容。
+a, err := AES(key, WithRandIV(true), WithAllowUnsafeStreamMode(true))
 if err != nil {
 return
 }
@@ -2239,7 +2240,8 @@ return
 }
 ```
 
-备注：`NoPadding` / `NoUnPadding` 适合 `CTR/CFB/OFB/GCM` 这类不依赖块补位的模式，不建议用于 `CBC/ECB`。
+备注：`NoPadding` / `NoUnPadding` 适合 `CTR/CFB/OFB/GCM` 这类不依赖块补位的模式；其中 `CTR/CFB/OFB`
+不提供完整性校验，默认禁用，不建议用于新协议。
 
 ------
 
@@ -2260,7 +2262,7 @@ go test -race ./...
 
 - 基准数据受 CPU、系统负载、Go 版本影响较大，建议关注相对变化而不是绝对数值。
 - `RSA` 私钥解密/签名天然比公钥加密/验签更重，属于算法特性，不是实现异常。
-- 对称加密建议把 `CBC`、`CTR-NoPadding`、`GCM` 分开观察，分别对应兼容模式、轻量流模式和认证加密模式。
+- 对称加密建议把 `CBC`、`CTR-NoPadding`、`GCM` 分开观察，分别对应兼容分组模式、旧协议流模式和认证加密模式。
 
 ------
 

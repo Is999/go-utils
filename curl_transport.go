@@ -136,6 +136,9 @@ func defaultTLSConfig() *tls.Config {
 //
 // 返回值：错误信息
 func ProxyURL(transport *http.Transport, proxyURL string) error {
+	if transport == nil {
+		return errors.New("http.Transport 不能为空")
+	}
 	proxy, err := url.Parse(proxyURL)
 	if err != nil {
 		return errors.Tag(err)
@@ -153,6 +156,9 @@ func ProxyURL(transport *http.Transport, proxyURL string) error {
 //
 // 返回值：错误信息
 func RootCAs(config *tls.Config, rootCAs string) error {
+	if config == nil {
+		return errors.New("tls.Config 不能为空")
+	}
 	// 读取根证书文件
 	cert, err := os.ReadFile(rootCAs)
 	if err != nil {
@@ -181,6 +187,9 @@ func RootCAs(config *tls.Config, rootCAs string) error {
 //
 // 返回值：错误信息
 func Certificate(config *tls.Config, certFile, keyFile string) error {
+	if config == nil {
+		return errors.New("tls.Config 不能为空")
+	}
 	// 加载客户端证书
 	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {

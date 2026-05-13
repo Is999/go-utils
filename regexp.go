@@ -329,9 +329,8 @@ func PassWord2(value string, min, max uint8) error {
 
 // PassWord3 强密码(必须包含大小写字母和数字的组合，可以使用特殊字符，长度在min-max之间)
 func PassWord3(value string, min, max uint8) error {
-	// 验证长度
-	l := len(value)
-	if l < int(min) || l > int(max) {
+	// 验证长度。PassWord3 保持历史正则 `.` 的语义，按 Unicode 字符数计算，而不是按 UTF-8 字节数计算。
+	if !runeCountInRange(value, int(min), int(max)) {
 		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
@@ -346,7 +345,7 @@ func PassWord3(value string, min, max uint8) error {
 	if !hasDigit {
 		return newValidationError(ValidationReasonMissingDigit, min, max)
 	}
-	if !noNewline || !runeCountInRange(value, int(min), int(max)) {
+	if !noNewline {
 		return newValidationError(ValidationReasonInvalidFormat, min, max)
 	}
 	return nil

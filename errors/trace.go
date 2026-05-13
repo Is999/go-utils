@@ -242,7 +242,7 @@ func flattenJoinCarrier(info nodeInfo) nodeInfo {
 func formatError(s fmt.State, verb rune, err error) {
 	switch verb {
 	case 'v':
-		if s.Flag('#') {
+		if s.Flag('+') || s.Flag('#') {
 			// %+v 或 %#v，输出 JSON 格式
 			_, _ = io.WriteString(s, TraceJSON(err))
 			return

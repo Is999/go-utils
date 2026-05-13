@@ -653,6 +653,7 @@ func TestPassWord3(t *testing.T) {
 		// 正确的格式
 		{name: "s-001", args: args{value: "ABC*-f&#21c", min: 8, max: 12}, want: true},
 		{name: "s-002", args: args{value: "*-Af&#2c", min: 8, max: 12}, want: true},
+		{name: "s-003", args: args{value: "ABc你123*", min: 8, max: 8}, want: true},
 		// 错误的格式
 		{name: "e-001", args: args{value: "Fg2B*-AAf&#256cb", min: 8, max: 12}, want: false}, // 长度16 不在 8 - 12之间
 		{name: "e-002", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, want: false},       // 必须包含小写字母

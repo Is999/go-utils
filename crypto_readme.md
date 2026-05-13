@@ -4,10 +4,11 @@
 >
 > 1. **新系统首选方案**：对称加密优先使用 **AES-GCM**（带认证机制）；非对称加密优先使用 **RSA-OAEP**（加密）与 **RSA-PSS**
      （签名）。
-> 2. **安全的默认值**：默认已禁用不安全的 **ECB 模式**、**CFB/OFB 流模式** 以及 **未显式配置 IV 时退回 Key 派生 IV** 的行为。
+> 2. **安全的默认值**：默认已禁用不安全的 **ECB 模式**、**CTR/CFB/OFB 非认证流模式** 以及 **未显式配置 IV 时退回 Key 派生
+     IV** 的行为。
 > 3. **兼容旧系统协议**：如需对接历史系统，可通过显式配置 `WithAllowUnsafeECB(true)`、`WithAllowUnsafeStreamMode(true)` 或
      `WithAllowUnsafeKeyIV(true)` 开启兼容。
-> 4. **填充模式选择**：块加密（CBC/ECB）需搭配 `Pkcs7Padding` 或 `ZeroPadding`；流加密（CTR/GCM）无需补位，请搭配
+> 4. **填充模式选择**：块加密（CBC/ECB）需搭配 `Pkcs7Padding` 或 `ZeroPadding`；旧协议流模式（CTR/CFB/OFB）和 GCM 无需补位，请搭配
      `NoPadding/NoUnPadding` 避免额外开销。
 > 5. **密钥位数要求**：生产环境 RSA 密钥必须至少 **2048** 位，摘要算法推荐 SHA256/SHA384/SHA512。
 
@@ -43,11 +44,11 @@ encryptStr, err := a.EncryptGCMString(data, base64.StdEncoding.EncodeToString, [
 got, err := a.DecryptGCMString(encryptStr, base64.StdEncoding.DecodeString, []byte("request-id=r-1"))
 ```
 
-#### AES-CTR 流模式（推荐）
+#### AES-CTR 流模式（旧系统兼容）
 
 ```go
-// CTR 模式搭配随机 IV 与 NoPadding 零额外拷贝
-a, err := utils.AES(key, utils.WithRandIV(true))
+// CTR 不提供完整性校验，仅在兼容旧协议时显式开启
+a, err := utils.AES(key, utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 
 encryptStr, err := a.Encrypt(data, utils.CTR, base64.StdEncoding.EncodeToString, utils.NoPadding)
 got, err := a.Decrypt(encryptStr, utils.CTR, base64.StdEncoding.DecodeString, utils.NoUnPadding)
@@ -83,7 +84,7 @@ encryptStr, err := a.Encrypt(data, utils.ECB, base64.StdEncoding.EncodeToString,
 
 - `utils.Pkcs7Padding` / `utils.Pkcs7UnPadding`：标准 PKCS#7 填充方案（推荐块加密使用）。
 - `utils.ZeroPadding` / `utils.ZeroUnPadding`：补 0 填充方案（兼容特定旧协议）。
-- `utils.NoPadding` / `utils.NoUnPadding`：不进行任何填充，无额外内存拷贝（流模式推荐使用）。
+- `utils.NoPadding` / `utils.NoUnPadding`：不进行任何填充，无额外内存拷贝（GCM 或旧协议流模式使用；CTR/CFB/OFB 不提供完整性校验）。
 
 ---
 
@@ -128,7 +129,7 @@ err = pubRsa.VerifyPSS(data, sign, crypto.SHA256, base64.StdEncoding.DecodeStrin
 通过本地压测验证各项加密机制的吞吐与分配开销。
 
 ```bash
-# 对称加密基准测试（对比 CBC、CTR-NoPadding 与 GCM）
+# 对称加密基准测试（对比 CBC、CTR 兼容模式与 GCM）
 go test -run '^$' -bench 'BenchmarkCipherAES(CBCEncrypt|CBCDecrypt|CTRNoPaddingEncrypt|CTRNoPaddingDecrypt|GCMEncrypt|GCMDecrypt)$' -benchmem ./...
 
 # RSA 基准测试（对比 OAEP 与 PSS）

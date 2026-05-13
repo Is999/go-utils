@@ -150,6 +150,9 @@ func CheckDate(year, month, day int) bool {
 func AddTime(t time.Time, addTimes ...string) (time.Time, error) {
 	for _, v := range addTimes {
 		v = strings.TrimSpace(v)
+		if len(v) < 2 {
+			return t, errors.Errorf("addTimes parameter error: %q", v)
+		}
 		add, err := strconv.Atoi(strings.TrimSpace(v[:len(v)-1]))
 		if err != nil {
 			return t, errors.Tag(err)
@@ -249,6 +252,7 @@ func DateInfo(t time.Time) map[string]interface{} {
 //	TimeFormat(CST(), "2006-01-02 15:04:05", 1700000000)
 //	TimeFormat(CST(), "2006-01-02 15:04:05", 1700000000000000000) // 纳秒时间戳
 func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) string {
+	timeZone = normalizeLocation(timeZone)
 	if len(timestamp) == 0 {
 		return time.Now().In(timeZone).Format(layout)
 	}
@@ -258,7 +262,7 @@ func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) stri
 		nsec = timestamp[1]
 	}
 
-	if len(timestamp) == 1 && sec >= 1e18 {
+	if len(timestamp) == 1 && (sec >= 1e18 || sec <= -1e18) {
 		sec = timestamp[0] / 1e9
 		nsec = timestamp[0] % 1e9
 	}
@@ -274,7 +278,7 @@ func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) stri
 //
 // 返回值：解析后的时间，错误信息
 func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, error) {
-	return time.ParseInLocation(layout, timeStr, timeZone)
+	return time.ParseInLocation(layout, timeStr, normalizeLocation(timeZone))
 }
 
 // Date 使用 patterns 规则格式化时间。
@@ -309,6 +313,7 @@ func Date(timeZone *time.Location, layout string, timestamp ...int64) string {
 //	Strtotime(CST(), "2006-01-02 15:04:05", "2024-01-01 12:00:00") // 指定时间
 //	Strtotime(CST(), "Y-m-d H:i:s") // 当前时间
 func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error) {
+	timeZone = normalizeLocation(timeZone)
 	if len(parse) == 1 {
 		layouts := []string{
 			time.RFC3339Nano,
@@ -317,7 +322,7 @@ func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error
 		}
 
 		for _, layout := range layouts {
-			if len(layout) != len(parse[0]) {
+			if layout != time.RFC3339Nano && len(layout) != len(parse[0]) {
 				continue
 			}
 			t, err = TimeParse(timeZone, layout, parse[0])
@@ -340,6 +345,14 @@ func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error
 		err = errors.Tag(err)
 	}
 	return time.Now().In(timeZone), err
+}
+
+// normalizeLocation 将 nil 时区归一为 time.Local，避免 time.Time.In(nil) 或 ParseInLocation(nil) panic。
+func normalizeLocation(location *time.Location) *time.Location {
+	if location == nil {
+		return time.Local
+	}
+	return location
 }
 
 // ============================ 时间比较 ============================

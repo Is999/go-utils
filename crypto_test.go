@@ -46,7 +46,7 @@ func TestCipherConcurrentRandIV(t *testing.T) {
 }
 
 func TestCipherEncryptToDecryptToCTRNoPadding(t *testing.T) {
-	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +134,9 @@ func TestCipherRejectsUnsafeStreamModesByDefault(t *testing.T) {
 	c, err := utils.AES("1234567812345678")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := c.EncryptCTR([]byte("data"), utils.NoPadding); err == nil {
+		t.Fatal("EncryptCTR() expected error when unsafe stream mode is disabled")
 	}
 	if _, err := c.EncryptCFB([]byte("data"), utils.Pkcs7Padding); err == nil {
 		t.Fatal("EncryptCFB() expected error when unsafe stream mode is disabled")
@@ -247,7 +250,11 @@ func TestCipherRejectsImplicitKeyIVByDefault(t *testing.T) {
 	if _, err := c.EncryptCBC([]byte("data"), utils.Pkcs7Padding); err == nil {
 		t.Fatal("EncryptCBC() expected error when IV is not configured")
 	}
-	if _, err := c.EncryptCTR([]byte("data"), utils.Pkcs7Padding); err == nil {
+	ctr, err := utils.AES("1234567812345678", utils.WithAllowUnsafeStreamMode(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ctr.EncryptCTR([]byte("data"), utils.Pkcs7Padding); err == nil {
 		t.Fatal("EncryptCTR() expected error when IV is not configured")
 	}
 }
@@ -256,6 +263,18 @@ func TestCipherAllowsUnsafeStreamModesWhenEnabled(t *testing.T) {
 	c, err := utils.AES("1234567812345678", utils.WithAllowUnsafeStreamMode(true), utils.WithAllowUnsafeKeyIV(true))
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	ctrEncrypted, err := c.EncryptCTR([]byte("legacy-data"), utils.Pkcs7Padding)
+	if err != nil {
+		t.Fatalf("EncryptCTR() error = %v", err)
+	}
+	ctrDecrypted, err := c.DecryptCTR(ctrEncrypted, utils.Pkcs7UnPadding)
+	if err != nil {
+		t.Fatalf("DecryptCTR() error = %v", err)
+	}
+	if string(ctrDecrypted) != "legacy-data" {
+		t.Fatalf("DecryptCTR() = %q, want %q", ctrDecrypted, "legacy-data")
 	}
 
 	encrypted, err := c.EncryptCFB([]byte("legacy-data"), utils.Pkcs7Padding)
@@ -308,7 +327,7 @@ func TestCipherAllowsUnsafeKeyIVWhenEnabled(t *testing.T) {
 }
 
 func TestCipherCTRNoPadding(t *testing.T) {
-	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +463,7 @@ func BenchmarkCipherAESCBCDecrypt(b *testing.B) {
 }
 
 func BenchmarkCipherAESCTRNoPaddingEncrypt(b *testing.B) {
-	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -459,7 +478,7 @@ func BenchmarkCipherAESCTRNoPaddingEncrypt(b *testing.B) {
 }
 
 func BenchmarkCipherAESCTRNoPaddingEncryptTo(b *testing.B) {
-	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -478,7 +497,7 @@ func BenchmarkCipherAESCTRNoPaddingEncryptTo(b *testing.B) {
 }
 
 func BenchmarkCipherAESCTRNoPaddingDecrypt(b *testing.B) {
-	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -496,7 +515,7 @@ func BenchmarkCipherAESCTRNoPaddingDecrypt(b *testing.B) {
 }
 
 func BenchmarkCipherAESCTRNoPaddingDecryptTo(b *testing.B) {
-	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		b.Fatal(err)
 	}

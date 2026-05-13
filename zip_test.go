@@ -2,6 +2,7 @@ package utils_test
 
 import (
 	"archive/zip"
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,6 +26,31 @@ func TestZip(t *testing.T) {
 				t.Errorf("Zip() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestAddFileToZipHonorsBaseDirForDirectory(t *testing.T) {
+	srcDir := createArchiveFixture(t)
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	if err := utils.AddFileToZip(writer, srcDir, "root"); err != nil {
+		t.Fatalf("AddFileToZip() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make(map[string]bool, len(reader.File))
+	for _, file := range reader.File {
+		names[file.Name] = true
+	}
+	want := filepath.ToSlash(filepath.Join("root", filepath.Base(srcDir), "README.md"))
+	if !names[want] {
+		t.Fatalf("zip entries missing %q, got %#v", want, names)
 	}
 }
 
@@ -192,5 +218,86 @@ func TestUnZipRejectsSymlinkInDestinationPath(t *testing.T) {
 	}
 	if utils.IsExist(filepath.Join(outside, "app.sh")) {
 		t.Fatal("UnZip() should not write through destination symlink")
+	}
+}
+
+func TestUnZipRejectsSymlinkDestinationRoot(t *testing.T) {
+	zipPath := filepath.Join(t.TempDir(), "root-symlink.zip")
+	file, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	entryWriter, err := writer.Create("app.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = entryWriter.Write([]byte("#!/bin/sh\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	destLink := filepath.Join(t.TempDir(), "unzip-link")
+	if err := os.Symlink(outside, destLink); err != nil {
+		t.Fatal(err)
+	}
+
+	err = utils.UnZip(zipPath, destLink)
+	if err == nil {
+		t.Fatal("UnZip() expected symlink destination root error")
+	}
+	if utils.IsExist(filepath.Join(outside, "app.sh")) {
+		t.Fatal("UnZip() should not write through destination root symlink")
+	}
+}
+
+func TestUnZipRejectsSymlinkBeforeCreatingNestedDir(t *testing.T) {
+	zipPath := filepath.Join(t.TempDir(), "symlink-nested.zip")
+	file, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	entryWriter, err := writer.Create("bin/new/app.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = entryWriter.Write([]byte("#!/bin/sh\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	destDir := filepath.Join(t.TempDir(), "unzip")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(destDir, "bin")); err != nil {
+		t.Fatal(err)
+	}
+
+	err = utils.UnZip(zipPath, destDir)
+	if err == nil {
+		t.Fatal("UnZip() expected symlink destination error")
+	}
+	if utils.IsExist(filepath.Join(outside, "new")) {
+		t.Fatal("UnZip() should reject symlink before creating nested directories outside")
 	}
 }

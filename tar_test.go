@@ -2,6 +2,8 @@ package utils_test
 
 import (
 	"archive/tar"
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,6 +27,35 @@ func TestTar(t *testing.T) {
 				t.Errorf("Tar() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestAddFileToTarHonorsBaseDirForDirectory(t *testing.T) {
+	srcDir := createArchiveFixture(t)
+	var buf bytes.Buffer
+	writer := tar.NewWriter(&buf)
+	if err := utils.AddFileToTar(writer, srcDir, "root"); err != nil {
+		t.Fatalf("AddFileToTar() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader := tar.NewReader(bytes.NewReader(buf.Bytes()))
+	names := make(map[string]bool)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		names[header.Name] = true
+	}
+	want := filepath.ToSlash(filepath.Join("root", filepath.Base(srcDir), "README.md"))
+	if !names[want] {
+		t.Fatalf("tar entries missing %q, got %#v", want, names)
 	}
 }
 
@@ -221,6 +252,48 @@ func TestUnTarRejectsSymlinkInDestinationPath(t *testing.T) {
 	}
 	if utils.IsExist(filepath.Join(outside, "app.sh")) {
 		t.Fatal("UnTar() should not write through destination symlink")
+	}
+}
+
+func TestUnTarRejectsSymlinkDestinationRoot(t *testing.T) {
+	tarPath := filepath.Join(t.TempDir(), "root-symlink.tar")
+	file, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := tar.NewWriter(file)
+	if err = writer.WriteHeader(&tar.Header{
+		Name: "app.sh",
+		Mode: 0644,
+		Size: int64(len("#!/bin/sh\n")),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = writer.Write([]byte("#!/bin/sh\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	destLink := filepath.Join(t.TempDir(), "untar-link")
+	if err := os.Symlink(outside, destLink); err != nil {
+		t.Fatal(err)
+	}
+
+	err = utils.UnTar(tarPath, destLink)
+	if err == nil {
+		t.Fatal("UnTar() expected symlink destination root error")
+	}
+	if utils.IsExist(filepath.Join(outside, "app.sh")) {
+		t.Fatal("UnTar() should not write through destination root symlink")
 	}
 }
 

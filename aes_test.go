@@ -60,7 +60,7 @@ func TestAES(t *testing.T) {
 			if tt.args.mode == utils.ECB {
 				opts = append(opts, utils.WithAllowUnsafeECB(true))
 			}
-			if tt.args.mode == utils.CFB || tt.args.mode == utils.OFB {
+			if tt.args.mode == utils.CTR || tt.args.mode == utils.CFB || tt.args.mode == utils.OFB {
 				opts = append(opts, utils.WithAllowUnsafeStreamMode(true))
 			}
 			a, err := utils.AES(tt.args.key, opts...)
@@ -126,7 +126,7 @@ func TestAESRandIV(t *testing.T) {
 			if tt.args.mode == utils.ECB {
 				opts = append(opts, utils.WithAllowUnsafeECB(true))
 			}
-			if tt.args.mode == utils.CFB || tt.args.mode == utils.OFB {
+			if tt.args.mode == utils.CTR || tt.args.mode == utils.CFB || tt.args.mode == utils.OFB {
 				opts = append(opts, utils.WithAllowUnsafeStreamMode(true))
 			}
 			a, err := utils.AES(tt.args.key, opts...)

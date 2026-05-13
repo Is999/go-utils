@@ -160,6 +160,18 @@ func TestRootCAsAppendsSystemPool(t *testing.T) {
 	}
 }
 
+func TestTransportHelpersRejectNilInputs(t *testing.T) {
+	if err := utils.ProxyURL(nil, "http://127.0.0.1:8080"); err == nil {
+		t.Fatal("ProxyURL() expected nil transport error")
+	}
+	if err := utils.RootCAs(nil, "root-ca.pem"); err == nil {
+		t.Fatal("RootCAs() expected nil TLS config error")
+	}
+	if err := utils.Certificate(nil, "client.crt", "client.key"); err == nil {
+		t.Fatal("Certificate() expected nil TLS config error")
+	}
+}
+
 type recordLogger struct {
 	mu      sync.Mutex
 	records map[string][]string

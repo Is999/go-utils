@@ -459,6 +459,19 @@ func TestWithCode(t *testing.T) {
 	}
 }
 
+func TestHasMsgTraversesChain(t *testing.T) {
+	err := errors.Wrap(errors.New("inner"), "outer")
+	if !errors.HasMsg(err, "outer") {
+		t.Fatal("HasMsg() should match outer message")
+	}
+	if !errors.HasMsg(err, "inner") {
+		t.Fatal("HasMsg() should match inner message")
+	}
+	if errors.HasMsg(err, "missing") {
+		t.Fatal("HasMsg() should not match missing message")
+	}
+}
+
 func TestTraceRetainsOuterLightweightWrapper(t *testing.T) {
 	err := errors.Wrap(errors.New("inner"), "outer")
 
@@ -475,6 +488,9 @@ func TestTraceRetainsOuterLightweightWrapper(t *testing.T) {
 	gotFmt := fmt.Sprintf("%+v", err)
 	if !strings.Contains(gotFmt, "outer") || !strings.Contains(gotFmt, "inner") {
 		t.Fatalf("fmt %%+v should contain outer and inner messages, got %s", gotFmt)
+	}
+	if !json.Valid([]byte(gotFmt)) {
+		t.Fatalf("fmt %%+v should return JSON trace, got %s", gotFmt)
 	}
 }
 
@@ -940,6 +956,9 @@ func TestErrorFormat(t *testing.T) {
 	pv := fmt.Sprintf("%+v", err)
 	if pv == "" {
 		t.Error("Error format with +v returned empty string")
+	}
+	if !json.Valid([]byte(pv)) {
+		t.Errorf("Error format with +v should return JSON, got %s", pv)
 	}
 
 	// 测试 %#v 格式化

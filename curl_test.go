@@ -862,6 +862,31 @@ func TestRetryRewindsRequestBody(t *testing.T) {
 	}
 }
 
+func TestCurlBytesBufferBodyCanBeSentRepeatedly(t *testing.T) {
+	const payload = "buffer-body"
+
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("server ReadAll() error = %v", err)
+		}
+		bodies = append(bodies, string(body))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	curl := utils.NewCurl().SetBody(bytes.NewBufferString(payload))
+	for i := 0; i < 2; i++ {
+		if err := curl.Post(srv.URL); err != nil {
+			t.Fatalf("Post(%d) error = %v", i, err)
+		}
+	}
+	if len(bodies) != 2 || bodies[0] != payload || bodies[1] != payload {
+		t.Fatalf("request bodies = %#v, want two %q bodies", bodies, payload)
+	}
+}
+
 func TestBuildURLPreservesExistingQuery(t *testing.T) {
 	params := mapValues("page", "2", "q", "codex")
 	got, err := utils.BuildUrl("https://example.com/search?lang=go", params)

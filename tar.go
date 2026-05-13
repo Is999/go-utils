@@ -95,7 +95,11 @@ func AddFileToTar(tarWriter *tar.Writer, fileToCompress string, baseDir string) 
 
 	if fileInfo.IsDir() {
 		// 压缩目录
-		return addDirectoryToTar(tarWriter, fileToCompress, fileInfo, fileInfo.Name())
+		archiveBaseDir := fileInfo.Name()
+		if baseDir != "" {
+			archiveBaseDir = filepath.Join(baseDir, archiveBaseDir)
+		}
+		return addDirectoryToTar(tarWriter, fileToCompress, fileInfo, archiveBaseDir)
 	} else {
 		// 压缩文件
 		return addSingleFileToTar(tarWriter, fileToCompress, fileInfo, baseDir)
@@ -225,6 +229,9 @@ func UnTar(tarFile, destDir string) error {
 	// 创建目标目录
 	err = os.MkdirAll(destRoot, 0755)
 	if err != nil {
+		return errors.Tag(err)
+	}
+	if err = assertNoSymlinkPath(destRoot, destRoot); err != nil {
 		return errors.Tag(err)
 	}
 

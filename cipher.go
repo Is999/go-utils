@@ -13,7 +13,7 @@ import (
 // 架构说明：
 //   - key 和固定 IV 在构造后只读，Encrypt/Decrypt 过程中不再修改对象状态，便于并发复用。
 //   - WithRandIV(true) 时，加密会把随机 IV 写入密文头部，解密会从密文头部读取 IV。
-//   - ECB 与“未显式设置 IV 时使用 key 派生 IV”都属于兼容旧系统的保留能力，默认禁用。
+//   - ECB、非认证流模式与“未显式设置 IV 时使用 key 派生 IV”都属于兼容旧系统的保留能力，默认禁用。
 //   - 公开 API 同时支持传统 padding 语义和 `NoPadding/NoUnPadding` 零额外拷贝路径。
 type Cipher struct {
 	key                   []byte       // AES: 16/24/32 字节；DES: 8 字节；3DES: 24 字节。
@@ -35,13 +35,13 @@ type CipherOption func(*cipherOptions)
 //   - iv：固定 IV，优先级高于随机 IV。
 //   - allowUnsafeECB：是否允许使用 ECB。
 //   - allowUnsafeKeyIV：是否允许未配置 IV 时回退到 key 派生 IV。
-//   - allowUnsafeStreamMode：是否允许使用 CFB/OFB 等不推荐模式。
+//   - allowUnsafeStreamMode：是否允许使用 CTR/CFB/OFB 等非认证流模式。
 type cipherOptions struct {
 	randIV                bool    // 是否启用随机 IV。
 	iv                    *string // 固定 IV 配置。
 	allowUnsafeECB        bool    // 是否允许使用 ECB。
 	allowUnsafeKeyIV      bool    // 是否允许使用 key 派生 IV。
-	allowUnsafeStreamMode bool    // 是否允许使用不安全流模式。
+	allowUnsafeStreamMode bool    // 是否允许使用非认证流模式。
 }
 
 // WithRandIV 设置是否随机生成 IV。
@@ -84,7 +84,7 @@ func WithAllowUnsafeKeyIV(allow bool) CipherOption {
 	}
 }
 
-// WithAllowUnsafeStreamMode 设置是否允许使用 CFB/OFB 等非认证流模式。
+// WithAllowUnsafeStreamMode 设置是否允许使用 CTR/CFB/OFB 等非认证流模式。
 //
 // 安全说明：
 //   - 默认不允许，避免在生产环境中误用已不推荐的非认证模式。
@@ -294,6 +294,9 @@ func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
 //
 // 返回值：密文字节，错误信息。
 func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
+	if err := c.checkUnsafeStreamMode("CTR"); err != nil {
+		return nil, errors.Tag(err)
+	}
 	return c.encryptStream(data, padding, cipher.NewCTR)
 }
 
@@ -305,6 +308,9 @@ func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 //
 // 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
+	if err := c.checkUnsafeStreamMode("CTR"); err != nil {
+		return nil, errors.Tag(err)
+	}
 	return c.decryptStream(data, unPadding, cipher.NewCTR)
 }
 
@@ -429,6 +435,9 @@ func (c *Cipher) DecryptBytes(data []byte, mode McryptMode, unPadding UnPadding)
 func (c *Cipher) EncryptTo(dst, data []byte, mode McryptMode, padding Padding) ([]byte, error) {
 	switch mode {
 	case CTR:
+		if err := c.checkUnsafeStreamMode("CTR"); err != nil {
+			return nil, errors.Tag(err)
+		}
 		return c.encryptStreamTo(dst, data, padding, cipher.NewCTR)
 	case CFB:
 		if err := c.checkUnsafeStreamMode("CFB"); err != nil {
@@ -463,6 +472,9 @@ func (c *Cipher) EncryptTo(dst, data []byte, mode McryptMode, padding Padding) (
 func (c *Cipher) DecryptTo(dst, data []byte, mode McryptMode, unPadding UnPadding) ([]byte, error) {
 	switch mode {
 	case CTR:
+		if err := c.checkUnsafeStreamMode("CTR"); err != nil {
+			return nil, errors.Tag(err)
+		}
 		return c.decryptStreamTo(dst, data, unPadding, cipher.NewCTR)
 	case CFB:
 		if err := c.checkUnsafeStreamMode("CFB"); err != nil {
@@ -550,7 +562,7 @@ func (c *Cipher) validateBlockPlaintext(data []byte) error {
 	return nil
 }
 
-// checkUnsafeStreamMode 校验是否允许使用不安全流模式。
+// checkUnsafeStreamMode 校验是否允许使用非认证流模式。
 //
 // 参数说明：
 //   - modeName：模式名称，如 CFB、OFB。

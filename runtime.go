@@ -23,6 +23,10 @@ func RuntimeInfo(skip int) *Frame {
 	}
 
 	fPC := runtime.FuncForPC(pc)
+	if fPC == nil {
+		info.Func = "Unknown Function"
+		return info
+	}
 
 	info.File = file
 	info.Line = line
@@ -32,7 +36,14 @@ func RuntimeInfo(skip int) *Frame {
 
 // GetFunctionName 获取函数名（普通函数、结构体方法或匿名函数）
 func GetFunctionName(i interface{}) string {
-	pc := reflect.ValueOf(i).Pointer()
+	if i == nil {
+		return "Unknown Function"
+	}
+	value := reflect.ValueOf(i)
+	if value.Kind() != reflect.Func || value.IsNil() {
+		return "Unknown Function"
+	}
+	pc := value.Pointer()
 	fn := runtime.FuncForPC(pc)
 	if fn == nil {
 		return "Unknown Function"

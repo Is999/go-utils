@@ -37,9 +37,9 @@ func TestCipher(t *testing.T) {
 			switch tt.args.mode {
 			case utils.ECB:
 				opts = append(opts, utils.WithAllowUnsafeECB(true))
-			case utils.CBC, utils.CTR:
+			case utils.CBC:
 				opts = append(opts, utils.WithRandIV(true))
-			case utils.CFB, utils.OFB:
+			case utils.CTR, utils.CFB, utils.OFB:
 				opts = append(opts, utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 			}
 			a, err := utils.NewCipher(tt.args.key, aes.NewCipher, opts...)

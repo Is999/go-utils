@@ -57,7 +57,11 @@ func AddFileToZip(zipWriter *zip.Writer, fileToCompress string, baseDir string) 
 
 	if fileInfo.IsDir() {
 		// 压缩目录
-		return addDirectoryToZip(zipWriter, fileToCompress, fileInfo, fileInfo.Name())
+		archiveBaseDir := fileInfo.Name()
+		if baseDir != "" {
+			archiveBaseDir = filepath.Join(baseDir, archiveBaseDir)
+		}
+		return addDirectoryToZip(zipWriter, fileToCompress, fileInfo, archiveBaseDir)
 	} else {
 		// 压缩文件
 		return addSingleFileToZip(zipWriter, fileToCompress, fileInfo, baseDir)
@@ -173,6 +177,9 @@ func UnZip(zipFile, destDir string) error {
 	if err != nil {
 		return errors.Tag(err)
 	}
+	if err = assertNoSymlinkPath(destRoot, destRoot); err != nil {
+		return errors.Tag(err)
+	}
 
 	// 遍历ZIP文件中的文件和目录
 	counter := archiveCounter{}
@@ -213,6 +220,11 @@ func UnZip(zipFile, destDir string) error {
 				return errors.Tag(err)
 			}
 
+			// 解包落盘前，拒绝目标路径链路中的符号链接，避免跟随写到解包目录之外。
+			if err = assertNoSymlinkPath(destRoot, destPath); err != nil {
+				return errors.Tag(err)
+			}
+
 			// 判断目录是否存在, 不存在则创建
 			if !IsExist(filepath.Dir(destPath)) {
 				err := os.MkdirAll(filepath.Dir(destPath), 0755)
@@ -222,10 +234,6 @@ func UnZip(zipFile, destDir string) error {
 			}
 
 			// 创建解压后的文件
-			// 解包落盘前，拒绝目标路径链路中的符号链接，避免跟随写到解包目录之外。
-			if err = assertNoSymlinkPath(destRoot, destPath); err != nil {
-				return errors.Tag(err)
-			}
 			// 读取ZIP文件中的数据并写入解压后的文件
 			rc, err := f.Open()
 			if err != nil {

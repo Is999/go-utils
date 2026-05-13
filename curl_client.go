@@ -628,7 +628,7 @@ func cloneCurlBody(body io.Reader) (io.Reader, error) {
 	case nil:
 		return nil, nil
 	case *bytes.Buffer:
-		return bytes.NewReader(v.Bytes()), nil
+		return bytes.NewReader(append([]byte(nil), v.Bytes()...)), nil
 	case *bytes.Reader:
 		return cloneReadSeeker(v)
 	case io.ReadSeeker:

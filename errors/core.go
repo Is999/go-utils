@@ -569,7 +569,26 @@ func HasMsg(err error, msg string) bool {
 	if err == nil || msg == "" {
 		return false
 	}
-	return err.Error() == msg
+	var stackBuf [8]error
+	stack := stackBuf[:0]
+	stack = append(stack, err)
+	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
+		current := popError(&stack)
+		if current == nil {
+			continue
+		}
+		info := inspectError(current)
+		if info.hasMsg && info.msg == msg {
+			return true
+		}
+		switch {
+		case len(info.children) > 0:
+			pushChildren(&stack, info.children)
+		case info.next != nil:
+			stack = append(stack, info.next)
+		}
+	}
+	return false
 }
 
 // composeErrorMessage 组合错误消息。

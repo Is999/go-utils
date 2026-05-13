@@ -282,6 +282,9 @@ func rewindRequestBody(body io.Reader) (io.Reader, error) {
 	if body == nil {
 		return nil, nil
 	}
+	if buffer, ok := body.(*bytes.Buffer); ok {
+		return bytes.NewReader(append([]byte(nil), buffer.Bytes()...)), nil
+	}
 	if seeker, ok := body.(io.Seeker); ok {
 		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
 			return nil, errors.Tag(err)

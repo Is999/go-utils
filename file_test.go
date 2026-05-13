@@ -828,6 +828,26 @@ func TestWriteFileAtomicRejectsSymlinkTarget(t *testing.T) {
 	}
 }
 
+func TestWriteFileAtomicRejectsSymlinkDirectory(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(dir, "link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+
+	err := utils.WriteFileAtomic(filepath.Join(linkDir, "blocked.txt"), []byte("blocked"), 0644)
+	if err == nil {
+		t.Fatal("WriteFileAtomic() expected symlink directory error")
+	}
+	if utils.IsExist(filepath.Join(realDir, "blocked.txt")) {
+		t.Fatal("WriteFileAtomic() should not write through symlink directory")
+	}
+}
+
 func TestNewWriteRejectsSymlinkTarget(t *testing.T) {
 	dir := t.TempDir()
 	realFile := filepath.Join(dir, "real.log")
@@ -843,6 +863,27 @@ func TestNewWriteRejectsSymlinkTarget(t *testing.T) {
 	if err == nil {
 		_ = w.Close()
 		t.Fatal("NewWrite() expected symlink target error")
+	}
+}
+
+func TestNewWriteRejectsSymlinkDirectory(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(dir, "link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := utils.NewWrite(filepath.Join(linkDir, "blocked.log"))
+	if err == nil {
+		_ = w.Close()
+		t.Fatal("NewWrite() expected symlink directory error")
+	}
+	if utils.IsExist(filepath.Join(realDir, "blocked.log")) {
+		t.Fatal("NewWrite() should not write through symlink directory")
 	}
 }
 

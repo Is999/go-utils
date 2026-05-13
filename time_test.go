@@ -77,6 +77,22 @@ func TestDateInfo(t *testing.T) {
 	}
 }
 
+func TestAddTimeRejectsInvalidInputWithoutPanic(t *testing.T) {
+	tests := []string{"", "   ", "1"}
+	for _, tt := range tests {
+		t.Run(tt, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("AddTime(%q) panicked: %v", tt, recovered)
+				}
+			}()
+			if _, err := utils.AddTime(time.Unix(0, 0), tt); err == nil {
+				t.Fatalf("AddTime(%q) expected error", tt)
+			}
+		})
+	}
+}
+
 func TestDate(t *testing.T) {
 	type args struct {
 		format string
@@ -142,6 +158,21 @@ func TestTimeFormat(t *testing.T) {
 	}
 }
 
+func TestTimeFormatNilLocationAndNegativeUnixNano(t *testing.T) {
+	got := utils.TimeFormat(nil, time.RFC3339, 0)
+	want := time.Unix(0, 0).In(time.Local).Format(time.RFC3339)
+	if got != want {
+		t.Fatalf("TimeFormat(nil) = %q, want %q", got, want)
+	}
+
+	const ts int64 = -1234567890123456789
+	got = utils.TimeFormat(utils.UTC(), "2006-01-02 15:04:05.000000000", ts)
+	want = time.Unix(ts/1e9, ts%1e9).In(utils.UTC()).Format("2006-01-02 15:04:05.000000000")
+	if got != want {
+		t.Fatalf("TimeFormat(negative unix nano) = %q, want %q", got, want)
+	}
+}
+
 func TestStrtotime(t *testing.T) {
 	type args struct {
 		e []string
@@ -171,6 +202,20 @@ func TestStrtotime(t *testing.T) {
 				t.Errorf("Strtotime() = %v, want %v, WrapError = %v", got.UnixNano(), tt.wantErr, err)
 			} else if !tt.wantErr {
 				//t.Logf("Strtotime() unxNano %v, time %v", got.UnixNano(), got.Format(utils.DateNanosecond))
+			}
+		})
+	}
+}
+
+func TestStrtotimeParsesRFC3339NanoVariableLength(t *testing.T) {
+	tests := []string{
+		"2023-03-13T14:40:01Z",
+		"2023-03-13T14:40:01.124685076Z",
+	}
+	for _, tt := range tests {
+		t.Run(tt, func(t *testing.T) {
+			if _, err := utils.Strtotime(utils.UTC(), tt); err != nil {
+				t.Fatalf("Strtotime(%q) error = %v", tt, err)
 			}
 		})
 	}

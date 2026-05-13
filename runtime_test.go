@@ -43,6 +43,14 @@ func TestGetFunctionName(t *testing.T) {
 			t.Errorf("GetFunctionName() = %v, want a valid name", name)
 		}
 	})
+
+	t.Run("invalid_input", func(t *testing.T) {
+		for _, input := range []any{nil, 123} {
+			if name := utils.GetFunctionName(input); name != "Unknown Function" {
+				t.Errorf("GetFunctionName(%v) = %v, want Unknown Function", input, name)
+			}
+		}
+	})
 }
 
 func TestRuntimeInfo_InvalidSkip(t *testing.T) {
