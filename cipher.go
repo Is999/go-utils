@@ -212,7 +212,9 @@ func (c *Cipher) EncryptECB(data []byte, padding Padding) ([]byte, error) {
 
 	// 逐块独立加密，保持 ECB 原始语义。
 	encrypted := make([]byte, len(paddingData))
-	c.cryptBlockLoop(encrypted, paddingData, c.block.Encrypt)
+	if err := c.cryptBlockLoop(encrypted, paddingData, c.block.Encrypt); err != nil {
+		return nil, errors.Tag(err)
+	}
 	return encrypted, nil
 }
 
@@ -238,7 +240,9 @@ func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 	}
 
 	decrypted := make([]byte, len(data))
-	c.cryptBlockLoop(decrypted, data, c.block.Decrypt)
+	if err := c.cryptBlockLoop(decrypted, data, c.block.Decrypt); err != nil {
+		return nil, errors.Tag(err)
+	}
 	return unPadding(decrypted)
 }
 
@@ -252,6 +256,9 @@ func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 	paddingData, out, dst, iv, err := c.prepareBlockEncrypt(data, padding)
 	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	if err = c.validateBlockPlaintext(paddingData); err != nil {
 		return nil, errors.Tag(err)
 	}
 	cipher.NewCBCEncrypter(c.block, iv).CryptBlocks(dst, paddingData)
@@ -529,6 +536,18 @@ func (c *Cipher) pad(data []byte, padding Padding) ([]byte, error) {
 		return nil, errors.New("padding 后数据长度必须是分组大小的倍数")
 	}
 	return paddingData, nil
+}
+
+// validateBlockPlaintext 校验块模式明文是否可以直接分组加密。
+//
+// NoPadding 用于 CBC/ECB 时不会补齐长度，因此必须在调用 CryptBlocks 或逐块加密前显式返回错误，
+// 避免标准库或切片边界检查触发 panic；CTR/CFB/OFB 等流模式不走该校验。
+func (c *Cipher) validateBlockPlaintext(data []byte) error {
+	blockSize := c.block.BlockSize()
+	if len(data)%blockSize != 0 {
+		return errors.Errorf("明文长度必须是分组大小的倍数: length=%d, blockSize=%d", len(data), blockSize)
+	}
+	return nil
 }
 
 // checkUnsafeStreamMode 校验是否允许使用不安全流模式。
@@ -830,10 +849,17 @@ func (c *Cipher) validateBlockCiphertext(data []byte) error {
 //   - dst：目标缓冲区。
 //   - src：源缓冲区。
 //   - crypt：单个分组的加解密函数。
-func (c *Cipher) cryptBlockLoop(dst, src []byte, crypt func(dst, src []byte)) {
+func (c *Cipher) cryptBlockLoop(dst, src []byte, crypt func(dst, src []byte)) error {
 	blockSize := c.block.BlockSize()
+	if len(src)%blockSize != 0 {
+		return errors.Errorf("输入长度必须是分组大小的倍数: length=%d, blockSize=%d", len(src), blockSize)
+	}
+	if len(dst) < len(src) {
+		return errors.Errorf("输出缓冲区长度不足: dst=%d, src=%d", len(dst), len(src))
+	}
 	for start := 0; start < len(src); start += blockSize {
 		end := start + blockSize
 		crypt(dst[start:end], src[start:end])
 	}
+	return nil
 }

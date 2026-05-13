@@ -153,6 +153,92 @@ func TestCipherRejectsECBByDefault(t *testing.T) {
 	}
 }
 
+func TestCipherBlockModesNoPaddingRejectPartialBlockWithoutPanic(t *testing.T) {
+	c, err := utils.AES(
+		"1234567812345678",
+		utils.WithIV("abcdefgh12345678"),
+		utils.WithAllowUnsafeECB(true),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		run  func() error
+	}{
+		{
+			name: "EncryptECB",
+			run: func() error {
+				_, err := c.EncryptECB([]byte("short"), utils.NoPadding)
+				return err
+			},
+		},
+		{
+			name: "EncryptCBC",
+			run: func() error {
+				_, err := c.EncryptCBC([]byte("short"), utils.NoPadding)
+				return err
+			},
+		},
+		{
+			name: "EncryptBytes ECB",
+			run: func() error {
+				_, err := c.EncryptBytes([]byte("short"), utils.ECB, utils.NoPadding)
+				return err
+			},
+		},
+		{
+			name: "EncryptBytes CBC",
+			run: func() error {
+				_, err := c.EncryptBytes([]byte("short"), utils.CBC, utils.NoPadding)
+				return err
+			},
+		},
+		{
+			name: "EncryptTo ECB",
+			run: func() error {
+				_, err := c.EncryptTo(nil, []byte("short"), utils.ECB, utils.NoPadding)
+				return err
+			},
+		},
+		{
+			name: "EncryptTo CBC",
+			run: func() error {
+				_, err := c.EncryptTo(nil, []byte("short"), utils.CBC, utils.NoPadding)
+				return err
+			},
+		},
+		{
+			name: "Encrypt string ECB",
+			run: func() error {
+				_, err := c.Encrypt("short", utils.ECB, base64.StdEncoding.EncodeToString, utils.NoPadding)
+				return err
+			},
+		},
+		{
+			name: "Encrypt string CBC",
+			run: func() error {
+				_, err := c.Encrypt("short", utils.CBC, base64.StdEncoding.EncodeToString, utils.NoPadding)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("%s panicked: %v", tt.name, recovered)
+				}
+			}()
+			if err := tt.run(); err == nil {
+				t.Fatalf("%s expected partial-block error", tt.name)
+			}
+		})
+	}
+}
+
 func TestCipherRejectsImplicitKeyIVByDefault(t *testing.T) {
 	c, err := utils.AES("1234567812345678")
 	if err != nil {
