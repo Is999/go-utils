@@ -2,6 +2,7 @@ package utils
 
 import (
 	crand "crypto/rand"
+	"io"
 	"math/big"
 	"math/rand/v2"
 	"sort"
@@ -24,14 +25,59 @@ const (
 	ALNUM = ALPHA + DIGIT
 )
 
-// Replace 字符串替换
+var (
+	// uniqIDMinBase36ByLen 缓存 base36 指定位数的最小值，数据来源是 36 进制位数边界，用于避免 UniqID 每次解析字符串。
+	uniqIDMinBase36ByLen [13]int64
+	// uniqIDMaxBase36ByLen 缓存 base36 指定位数的最大值，索引范围 1-12，对应 UniqID 随机段的最大块长度。
+	uniqIDMaxBase36ByLen [13]int64
+)
+
+// init 初始化字符串工具的包级缓存，当前只预计算 UniqID 随机段使用的 base36 边界。
+func init() {
+	initUniqIDBase36Bounds()
+}
+
+// Replacer 是可复用字符串替换器。
 //
-//	s 源字符串
-//	oldnew 替换规则，map类型， map的键为要替换的字符串，map的值为替换成什么字符串。
-func Replace(s string, oldnew map[string]string) string {
+// 业务意图：
+//   - 当同一批替换规则被反复使用时，调用方可复用已排序和已构建的 strings.Replacer。
+//   - 替换规则来源于 map，构造时会固定排序，避免 map 遍历无序导致重叠替换规则结果不稳定。
+type Replacer struct {
+	replacer *strings.Replacer // 底层标准库替换器；nil 表示无替换规则，Replace 会原样返回输入。
+}
+
+// NewReplacer 根据 map 规则创建可复用字符串替换器。
+//
+// oldnew 字段含义：
+//   - key：需要被替换的原字符串。
+//   - value：替换后的目标字符串。
+func NewReplacer(oldnew map[string]string) *Replacer {
+	pairs := replacePairs(oldnew)
+	if len(pairs) == 0 {
+		return &Replacer{}
+	}
+	return &Replacer{replacer: strings.NewReplacer(pairs...)}
+}
+
+// Replace 使用已构建规则替换字符串。
+//
+// 空规则或 nil 接收者会原样返回输入，便于调用方在条件化构造替换器时不额外判空。
+func (r *Replacer) Replace(s string) string {
+	if r == nil || r.replacer == nil {
+		return s
+	}
+	return r.replacer.Replace(s)
+}
+
+// replacePairs 将 map 替换规则转换为 strings.NewReplacer 需要的有序 pairs。
+//
+// 性能保护：
+//   - 只在构造替换器时排序一次，避免复用场景每次 Replace 都重复排序。
+//   - 对空 map 直接返回 nil，调用方可跳过底层 Replacer 分配。
+func replacePairs(oldnew map[string]string) []string {
 	length := len(oldnew)
 	if length == 0 {
-		return s
+		return nil
 	}
 
 	// map 遍历无序，先排序可保证重叠替换规则结果稳定。
@@ -44,6 +90,18 @@ func Replace(s string, oldnew map[string]string) string {
 	pairs := make([]string, 0, length*2)
 	for _, old := range keys {
 		pairs = append(pairs, old, oldnew[old])
+	}
+	return pairs
+}
+
+// Replace 字符串替换
+//
+//	s 源字符串
+//	oldnew 替换规则，map类型，map 的键为要替换的字符串，map 的值为替换后的字符串。
+func Replace(s string, oldnew map[string]string) string {
+	pairs := replacePairs(oldnew)
+	if len(pairs) == 0 {
+		return s
 	}
 	return strings.NewReplacer(pairs...).Replace(s)
 }
@@ -58,42 +116,84 @@ func Replace(s string, oldnew map[string]string) string {
 //		- length小于0时，length表示为截取的最后一个字符所在的索引，值为：len(str) + length + 1
 //		- 例如：等于-1时，表示截取到最后一个字符；等于-2时，表示截取到倒数第二个字符
 func Substr(str string, start, length int) string {
-	end := length
-	if end == 0 {
-		return ""
+	if isASCIIString(str) {
+		return substrASCII(str, start, length)
 	}
+	return substrRunes(str, start, length)
+}
 
+// substrRunes 按 Unicode 字符截取非 ASCII 字符串，保持历史对中文等多字节字符按 rune 计数的行为。
+func substrRunes(str string, start, length int) string {
 	runes := []rune(str)
-	l := len(runes)
-	if l == 0 || l < start {
+	begin, end, ok := substrRange(len(runes), start, length)
+	if !ok {
 		return ""
 	}
+	return string(runes[begin:end])
+}
 
-	// 计算start值
+// substrASCII 按 byte 下标截取纯 ASCII 字符串。
+//
+// 纯 ASCII 的 byte 数等于字符数，可直接切片避免 []rune 分配，是 Substr 的高频性能保护路径。
+func substrASCII(str string, start, length int) string {
+	begin, end, ok := substrRange(len(str), start, length)
+	if !ok {
+		return ""
+	}
+	return str[begin:end]
+}
+
+// substrRange 根据历史 Substr 语义计算截取范围。
+//
+// 边界说明：
+//   - length 为 0、空字符串、start 超出末尾时返回 false。
+//   - start 为负数时从尾部倒算，越过头部则降级为 0。
+//   - length 为负数时表示结束字符索引，和旧实现保持 len+length+1 的闭区间语义。
+func substrRange(size, start, length int) (int, int, bool) {
+	if length == 0 || size == 0 || start > size {
+		return 0, 0, false
+	}
+
+	// 负数 start 来自历史接口约定，用于从字符串尾部倒数起点。
 	if start < 0 {
-		start += l
+		start += size
 		if start < 0 {
 			start = 0
 		}
 	}
 
-	// 计算end值
-	if end < 0 {
-		end += l + 1
-		if end <= 0 {
-			return ""
+	end := length
+	if length < 0 {
+		// 结束位置越过字符串头部时直接返回空，避免 size+length+1 在极端负数下溢出。
+		if length < -size {
+			return 0, 0, false
 		}
+		end = size + length + 1
 	} else {
-		end += start
-		if l < end {
-			end = l
+		// 正数 length 表示截取长度，先比较剩余空间再相加，避免 start+length 在极端值下溢出。
+		if length > size-start {
+			end = size
+		} else {
+			end = start + length
 		}
 	}
 
 	if start >= end {
-		return ""
+		return 0, 0, false
 	}
-	return string(runes[start:end])
+	return start, end, true
+}
+
+// isASCIIString 判断字符串是否全为 ASCII 字符。
+//
+// 数据来源为原始字符串字节；只要存在最高位为 1 的字节，就说明需要走 rune 路径以保持 Unicode 语义。
+func isASCIIString(str string) bool {
+	for i := 0; i < len(str); i++ {
+		if str[i]&0x80 != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // StrRev 反转字符串
@@ -189,19 +289,16 @@ func SecureRandStr2(n int) (string, error) {
 	if n <= 0 {
 		return "", nil
 	}
-	if n == 1 {
-		return SecureRandStr(1)
-	}
-
-	first, err := secureRandString(1, ALPHA)
-	if err != nil {
+	s := make([]byte, n)
+	if err := secureRandBytes(s[:1], ALPHA); err != nil {
 		return "", errors.Tag(err)
 	}
-	rest, err := secureRandString(n-1, ALNUM)
-	if err != nil {
-		return "", errors.Tag(err)
+	if n > 1 {
+		if err := secureRandBytes(s[1:], ALNUM); err != nil {
+			return "", errors.Tag(err)
+		}
 	}
-	return first + rest, nil
+	return string(s), nil
 }
 
 // SecureRandStr3 使用密码学安全随机源按自定义字符集生成字符串。
@@ -256,9 +353,9 @@ func UniqID(l uint8, r ...*rand.Rand) string {
 		}
 		total -= num
 
-		// 计算最小值, 最大值
-		minInt, _ := strconv.ParseInt("1"+strings.Repeat("0", num-1), 36, 64)
-		maxInt, _ := strconv.ParseInt(strings.Repeat("z", num), 36, 64)
+		// 复用预计算的 base36 边界，避免在高频 ID 生成路径里重复 strings.Repeat 和 ParseInt。
+		minInt := uniqIDMinBase36ByLen[num]
+		maxInt := uniqIDMaxBase36ByLen[num]
 
 		// 随机生成 minInt - maxInt 之间的数, 并转换成36位字符串
 		rv := strconv.FormatInt(Rand(minInt, maxInt, r...), 36)
@@ -295,20 +392,97 @@ func UniqId(l uint8, r ...*rand.Rand) string {
 // RandSource rand
 var RandSource = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
 
+// initUniqIDBase36Bounds 初始化 UniqID 随机段的 base36 数值边界。
+//
+// 边界说明：
+//   - 随机段一次最多生成 12 位 base36 字符，36^12-1 仍在 int64 范围内。
+//   - 索引 0 不使用，保留零值，调用方仅访问 1-12。
+func initUniqIDBase36Bounds() {
+	var min int64 = 1
+	var max int64 = 35
+	for digits := 1; digits <= 12; digits++ {
+		uniqIDMinBase36ByLen[digits] = min
+		uniqIDMaxBase36ByLen[digits] = max
+		min *= 36
+		max = max*36 + 35
+	}
+}
+
 // secureRandString 使用密码学安全随机源按字符集生成字符串。
 func secureRandString(n int, alpha string) (string, error) {
 	if n <= 0 || len(alpha) == 0 {
 		return "", nil
 	}
 
-	max := big.NewInt(int64(len(alpha)))
 	s := make([]byte, n)
-	for i := 0; i < n; i++ {
-		index, err := crand.Int(crand.Reader, max)
-		if err != nil {
-			return "", errors.Tag(err)
-		}
-		s[i] = alpha[index.Int64()]
+	if err := secureRandBytes(s, alpha); err != nil {
+		return "", errors.Tag(err)
 	}
 	return string(s), nil
+}
+
+// secureRandBytes 使用密码学安全随机源填充目标字节切片。
+//
+// 参数说明：
+//   - dst：待填充的目标切片，调用方负责按目标长度预分配。
+//   - alpha：候选字符集，按字节索引以保持历史随机字符串接口的 ASCII 字符集语义。
+//
+// 性能保护：
+//   - 常见字符集长度不超过 256 时，批量读取随机字节并做拒绝采样，避免每个字符一次 big.Int 分配。
+//   - 超过 256 的非常规字符集退回到 crand.Int，优先保证分布均匀和行为正确。
+func secureRandBytes(dst []byte, alpha string) error {
+	if len(dst) == 0 || len(alpha) == 0 {
+		return nil
+	}
+	if len(alpha) == 1 {
+		for i := range dst {
+			dst[i] = alpha[0]
+		}
+		return nil
+	}
+	if len(alpha) > 256 {
+		return secureRandBytesBigAlpha(dst, alpha)
+	}
+
+	alphaLen := len(alpha)
+	acceptLimit := 256 - 256%alphaLen
+	written := 0
+	var randomBuf [256]byte
+	for written < len(dst) {
+		need := len(dst) - written
+		readSize := need + need/4 + 1
+		if readSize > len(randomBuf) {
+			readSize = len(randomBuf)
+		}
+		if _, err := io.ReadFull(crand.Reader, randomBuf[:readSize]); err != nil {
+			return errors.Tag(err)
+		}
+
+		// 拒绝采样丢弃落在不完整区间里的随机字节，避免 byte%len(alpha) 产生取模偏差。
+		for i := 0; i < readSize && written < len(dst); i++ {
+			randomByte := int(randomBuf[i])
+			if randomByte >= acceptLimit {
+				continue
+			}
+			dst[written] = alpha[randomByte%alphaLen]
+			written++
+		}
+	}
+	return nil
+}
+
+// secureRandBytesBigAlpha 处理超大字符集的降级路径。
+//
+// 该路径保留每字符一次 crand.Int 的实现，业务意图是支持历史上可能传入的任意长度 alpha，
+// 边界条件是 alpha 长度超过单字节拒绝采样能表达的范围。
+func secureRandBytesBigAlpha(dst []byte, alpha string) error {
+	max := big.NewInt(int64(len(alpha)))
+	for i := range dst {
+		index, err := crand.Int(crand.Reader, max)
+		if err != nil {
+			return errors.Tag(err)
+		}
+		dst[i] = alpha[index.Int64()]
+	}
+	return nil
 }

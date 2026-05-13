@@ -409,6 +409,74 @@ func (c *Cipher) DecryptBytes(data []byte, mode McryptMode, unPadding UnPadding)
 	}
 }
 
+// EncryptTo 将加密结果追加到 dst 并返回结果切片。
+// 业务意图：高频加密场景可复用调用方缓冲区，减少密文字节切片分配；CTR/CFB/OFB 且 NoPadding 时走零填充复制快路径。
+//
+// 参数说明：
+//   - dst：调用方提供的输出缓冲区，历史内容会保留，新密文追加在末尾。
+//   - data：待加密原始数据，不能与 dst 的可写容量部分重叠，避免流加密覆盖尚未读取的明文。
+//   - mode：加密模式。
+//   - padding：填充函数。
+//
+// 返回值：追加密文后的 dst，错误信息。
+func (c *Cipher) EncryptTo(dst, data []byte, mode McryptMode, padding Padding) ([]byte, error) {
+	switch mode {
+	case CTR:
+		return c.encryptStreamTo(dst, data, padding, cipher.NewCTR)
+	case CFB:
+		if err := c.checkUnsafeStreamMode("CFB"); err != nil {
+			return nil, errors.Tag(err)
+		}
+		return c.encryptStreamTo(dst, data, padding, cipher.NewCFBEncrypter)
+	case OFB:
+		if err := c.checkUnsafeStreamMode("OFB"); err != nil {
+			return nil, errors.Tag(err)
+		}
+		return c.encryptStreamTo(dst, data, padding, cipher.NewOFB)
+	default:
+		// 分组模式和自定义 padding 可能改变长度或返回新切片，统一复用现有路径保证兼容性。
+		encrypted, err := c.EncryptBytes(data, mode, padding)
+		if err != nil {
+			return nil, errors.Tag(err)
+		}
+		return append(dst, encrypted...), nil
+	}
+}
+
+// DecryptTo 将解密结果追加到 dst 并返回结果切片。
+// 业务意图：高频解密场景可复用调用方缓冲区，减少明文字节切片分配；CTR/CFB/OFB 且 NoUnPadding 时走直接写入快路径。
+//
+// 参数说明：
+//   - dst：调用方提供的输出缓冲区，历史内容会保留，新明文追加在末尾。
+//   - data：待解密密文，不能与 dst 的可写容量部分重叠，避免流解密覆盖尚未读取的密文。
+//   - mode：解密模式。
+//   - unPadding：去填充函数。
+//
+// 返回值：追加明文后的 dst，错误信息。
+func (c *Cipher) DecryptTo(dst, data []byte, mode McryptMode, unPadding UnPadding) ([]byte, error) {
+	switch mode {
+	case CTR:
+		return c.decryptStreamTo(dst, data, unPadding, cipher.NewCTR)
+	case CFB:
+		if err := c.checkUnsafeStreamMode("CFB"); err != nil {
+			return nil, errors.Tag(err)
+		}
+		return c.decryptStreamTo(dst, data, unPadding, cipher.NewCFBDecrypter)
+	case OFB:
+		if err := c.checkUnsafeStreamMode("OFB"); err != nil {
+			return nil, errors.Tag(err)
+		}
+		return c.decryptStreamTo(dst, data, unPadding, cipher.NewOFB)
+	default:
+		// 分组模式和自定义 unPadding 可能改变长度或返回新切片，统一复用现有路径保证兼容性。
+		decrypted, err := c.DecryptBytes(data, mode, unPadding)
+		if err != nil {
+			return nil, errors.Tag(err)
+		}
+		return append(dst, decrypted...), nil
+	}
+}
+
 // Encrypt 加密字符串并编码输出。
 //
 // data 为待加密数据；mode 为加密模式；encode 为编码方法；padding 为填充方法。
@@ -601,6 +669,99 @@ func (c *Cipher) decryptStream(data []byte, unPadding UnPadding, newStream func(
 		return decrypted, nil
 	}
 	return unPadding(decrypted)
+}
+
+// encryptStreamTo 使用流模式将密文追加写入 dst。
+//
+// 参数说明：
+//   - dst：调用方复用的输出缓冲区。
+//   - data：待加密原始数据。
+//   - padding：填充函数；只有 NoPadding 可直接写入 dst，其余策略回退到兼容路径。
+//   - newStream：流模式构造函数。
+//
+// 返回值：追加密文后的 dst，错误信息。
+func (c *Cipher) encryptStreamTo(dst, data []byte, padding Padding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
+	if padding == nil {
+		return nil, errors.New("padding 不能为空")
+	}
+	if !isNoPaddingFunc(padding) {
+		// 自定义 padding 可能返回新数据或改变长度，回退到旧路径以保留调用方定义的边界语义。
+		encrypted, err := c.encryptStream(data, padding, newStream)
+		if err != nil {
+			return nil, errors.Tag(err)
+		}
+		return append(dst, encrypted...), nil
+	}
+	if err := c.check(); err != nil {
+		return nil, errors.Tag(err)
+	}
+
+	blockSize := c.block.BlockSize()
+	if c.isRandIV {
+		// 随机 IV 协议要求密文头部携带 IV，输出长度比明文多一个分组。
+		out, tail := appendCipherOutput(dst, blockSize+len(data))
+		iv := tail[:blockSize]
+		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+			return nil, errors.Tag(err)
+		}
+		newStream(c.block, iv).XORKeyStream(tail[blockSize:], data)
+		return out, nil
+	}
+
+	iv, err := c.fixedIV()
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	out, tail := appendCipherOutput(dst, len(data))
+	newStream(c.block, iv).XORKeyStream(tail, data)
+	return out, nil
+}
+
+// decryptStreamTo 使用流模式将明文追加写入 dst。
+//
+// 参数说明：
+//   - dst：调用方复用的输出缓冲区。
+//   - data：待解密密文。
+//   - unPadding：去填充函数；只有 NoUnPadding 可直接写入 dst，其余策略回退到兼容路径。
+//   - newStream：流模式构造函数。
+//
+// 返回值：追加明文后的 dst，错误信息。
+func (c *Cipher) decryptStreamTo(dst, data []byte, unPadding UnPadding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
+	if unPadding == nil {
+		return nil, errors.New("unPadding 不能为空")
+	}
+	if !isNoUnPaddingFunc(unPadding) {
+		// 自定义去填充可能裁剪或校验明文，回退到旧路径以保留错误与边界行为。
+		decrypted, err := c.decryptStream(data, unPadding, newStream)
+		if err != nil {
+			return nil, errors.Tag(err)
+		}
+		return append(dst, decrypted...), nil
+	}
+
+	body, iv, err := c.prepareStreamDecrypt(data)
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	out, tail := appendCipherOutput(dst, len(body))
+	newStream(c.block, iv).XORKeyStream(tail, body)
+	return out, nil
+}
+
+// appendCipherOutput 为密文或明文结果扩展 dst，并返回本次写入窗口。
+// 业务意图：集中处理容量复用，调用方负责保证 dst 可写区域不与输入数据发生不安全重叠。
+func appendCipherOutput(dst []byte, size int) ([]byte, []byte) {
+	start := len(dst)
+	if size <= 0 {
+		return dst, dst[start:]
+	}
+	if start+size <= cap(dst) {
+		out := dst[:start+size]
+		return out, out[start:]
+	}
+	out := make([]byte, start+size)
+	copy(out, dst)
+	return out, out[start:]
 }
 
 // fixedIV 获取固定 IV。

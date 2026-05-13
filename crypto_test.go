@@ -1,14 +1,15 @@
 package utils_test
 
-import "github.com/Is999/go-utils"
-
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/Is999/go-utils"
 )
 
 func TestCipherConcurrentRandIV(t *testing.T) {
@@ -42,6 +43,35 @@ func TestCipherConcurrentRandIV(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestCipherEncryptToDecryptToCTRNoPadding(t *testing.T) {
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// data 是流模式原始业务数据，用于验证 NoPadding 快路径不会额外复制或裁剪内容。
+	data := []byte("payload for dst reuse")
+	// encryptedDst 是调用方复用的密文缓冲区，前缀用于验证 EncryptTo 会追加而不是覆盖历史内容。
+	encryptedDst := []byte("prefix:")
+	encrypted, err := c.EncryptTo(encryptedDst, data, utils.CTR, utils.NoPadding)
+	if err != nil {
+		t.Fatalf("EncryptTo() error = %v", err)
+	}
+	if !bytes.HasPrefix(encrypted, encryptedDst) {
+		t.Fatalf("EncryptTo() should keep dst prefix, got %q", encrypted)
+	}
+
+	// decryptedDst 是调用方复用的明文缓冲区，解密输入跳过前缀后应恢复原始 data。
+	decryptedDst := []byte("plain:")
+	decrypted, err := c.DecryptTo(decryptedDst, encrypted[len(encryptedDst):], utils.CTR, utils.NoUnPadding)
+	if err != nil {
+		t.Fatalf("DecryptTo() error = %v", err)
+	}
+	if !bytes.Equal(decrypted[len(decryptedDst):], data) {
+		t.Fatalf("DecryptTo() = %q, want suffix %q", decrypted, data)
+	}
 }
 
 func TestPkcs7UnPaddingRejectsInvalidPadding(t *testing.T) {
@@ -342,6 +372,25 @@ func BenchmarkCipherAESCTRNoPaddingEncrypt(b *testing.B) {
 	}
 }
 
+func BenchmarkCipherAESCTRNoPaddingEncryptTo(b *testing.B) {
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	if err != nil {
+		b.Fatal(err)
+	}
+	// data 是流模式加密输入，NoPadding 下 EncryptTo 可直接写入复用缓冲区。
+	data := []byte("benchmark payload")
+	// dst 是循环复用的密文缓冲区，用于衡量减少输出切片分配后的收益。
+	dst := make([]byte, 0, len(data)+16)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		dst = dst[:0]
+		benchCipherBytes, err = c.EncryptTo(dst, data, utils.CTR, utils.NoPadding)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkCipherAESCTRNoPaddingDecrypt(b *testing.B) {
 	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
 	if err != nil {
@@ -354,6 +403,27 @@ func BenchmarkCipherAESCTRNoPaddingDecrypt(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		benchCipherBytes, err = c.DecryptCTR(encrypted, utils.NoUnPadding)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkCipherAESCTRNoPaddingDecryptTo(b *testing.B) {
+	c, err := utils.AES("1234567812345678", utils.WithRandIV(true))
+	if err != nil {
+		b.Fatal(err)
+	}
+	encrypted, err := c.EncryptCTR([]byte("benchmark payload"), utils.NoPadding)
+	if err != nil {
+		b.Fatal(err)
+	}
+	// dst 是循环复用的明文缓冲区，用于衡量减少输出切片分配后的收益。
+	dst := make([]byte, 0, len(encrypted))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		dst = dst[:0]
+		benchCipherBytes, err = c.DecryptTo(dst, encrypted, utils.CTR, utils.NoUnPadding)
 		if err != nil {
 			b.Fatal(err)
 		}

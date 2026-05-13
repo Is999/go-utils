@@ -33,6 +33,26 @@ func TestReplace(t *testing.T) {
 	}
 }
 
+// TestNewReplacer 验证可复用替换器会固定构造时的 map 规则，并支持 nil 接收者安全返回原字符串。
+func TestNewReplacer(t *testing.T) {
+	rules := map[string]string{
+		"blue": "red",
+		".":    "!",
+	}
+	replacer := utils.NewReplacer(rules)
+	rules["blue"] = "green"
+
+	got := replacer.Replace("blue car.")
+	if got != "red car!" {
+		t.Fatalf("Replacer.Replace() = %q, want %q", got, "red car!")
+	}
+
+	var nilReplacer *utils.Replacer
+	if got = nilReplacer.Replace("keep"); got != "keep" {
+		t.Fatalf("nil Replacer.Replace() = %q, want keep", got)
+	}
+}
+
 func TestSubstr(t *testing.T) {
 	type args struct {
 		str    string
@@ -57,6 +77,70 @@ func TestSubstr(t *testing.T) {
 				t.Errorf("Substr() = %d %v, want %d %v", utf8.RuneCountInString(got), got, utf8.RuneCountInString(tt.want), tt.want)
 			}
 		})
+	}
+}
+
+// TestSubstrASCII 覆盖纯 ASCII 快路径的正负索引边界，保证优化后仍保持历史截取语义。
+func TestSubstrASCII(t *testing.T) {
+	tests := []struct {
+		name   string
+		value  string
+		start  int
+		length int
+		want   string
+	}{
+		{name: "middle", value: "abcdef", start: 1, length: 3, want: "bcd"},
+		{name: "negative_start", value: "abcdef", start: -3, length: 2, want: "de"},
+		{name: "negative_end_last", value: "abcdef", start: 2, length: -1, want: "cdef"},
+		{name: "negative_end_before_last", value: "abcdef", start: 2, length: -2, want: "cde"},
+		{name: "start_before_head", value: "abcdef", start: -99, length: 3, want: "abc"},
+		{name: "start_after_tail", value: "abcdef", start: 99, length: 3, want: ""},
+		{name: "start_at_tail", value: "abcdef", start: 6, length: 1, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := utils.Substr(tt.value, tt.start, tt.length); got != tt.want {
+				t.Fatalf("Substr() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// BenchmarkReplace 衡量兼容函数每次构造替换规则的成本，作为可复用替换器的对照组。
+func BenchmarkReplace(b *testing.B) {
+	rules := map[string]string{
+		"blue": "red",
+		".":    "!",
+	}
+	for i := 0; i < b.N; i++ {
+		_ = utils.Replace("Mr Blue has a blue house and a blue car.", rules)
+	}
+}
+
+// BenchmarkReplacerReuse 衡量同一批规则反复替换时的复用收益。
+func BenchmarkReplacerReuse(b *testing.B) {
+	replacer := utils.NewReplacer(map[string]string{
+		"blue": "red",
+		".":    "!",
+	})
+	for i := 0; i < b.N; i++ {
+		_ = replacer.Replace("Mr Blue has a blue house and a blue car.")
+	}
+}
+
+// BenchmarkSubstrASCII 衡量纯 ASCII 字符串截取的零分配快路径。
+func BenchmarkSubstrASCII(b *testing.B) {
+	value := "And know that you do not have to be perfect, you can be good."
+	for i := 0; i < b.N; i++ {
+		_ = utils.Substr(value, 4, 32)
+	}
+}
+
+// BenchmarkSubstrUnicode 衡量非 ASCII 字符串继续按 rune 截取的兼容路径。
+func BenchmarkSubstrUnicode(b *testing.B) {
+	value := "你可以很好，但你无需完美。"
+	for i := 0; i < b.N; i++ {
+		_ = utils.Substr(value, 2, 8)
 	}
 }
 

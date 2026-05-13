@@ -3,7 +3,6 @@ package utils
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -88,14 +87,17 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 	if err != nil {
 		return errors.Tag(err)
 	}
-	setRequestGetBody(req, body)
+	if err = setRequestGetBody(req, body); err != nil {
+		return errors.Tag(err)
+	}
 
-	// 设置请求头
-	if c.header != nil && len(c.header) > 0 {
+	// 设置请求头。默认 Content-Type 在发送前补齐，避免 NewCurl 只作为模板使用时提前分配 Header。
+	header := c.ensureDefaultContentType()
+	if len(header) > 0 {
 		if c.defLogOutput {
 			c.Logger.Debug("set header")
 		}
-		req.Header = c.header.Clone()
+		req.Header = header.Clone()
 	}
 
 	// 设置 Cookie
@@ -298,24 +300,77 @@ type reusableReadSeeker struct {
 	io.ReadSeeker // 可重复定位的请求体。
 }
 
-// setRequestGetBody 为可 Seek 的请求体补充 GetBody，保证传输错误后可以安全重试。
+// setRequestGetBody 为可安全重放的请求体补充 GetBody，保证日志预览和传输重试不会共享读取游标。
 //
 // 参数说明：
 //   - req：HTTP 请求对象。
 //   - body：请求体。
-func setRequestGetBody(req *http.Request, body io.Reader) {
+func setRequestGetBody(req *http.Request, body io.Reader) error {
 	if req == nil || req.GetBody != nil || body == nil {
-		return
+		return nil
 	}
-	readSeeker, ok := body.(io.ReadSeeker)
-	if !ok {
-		return
+
+	switch v := body.(type) {
+	case *bytes.Buffer:
+		// bytes.Buffer 暴露的 Bytes() 可能被调用方继续修改，复制一份快照可保证后续重试内容稳定。
+		setRequestGetBodyFromBytes(req, append([]byte(nil), v.Bytes()...))
+		return nil
+	case reusableReadSeeker:
+		return setRequestGetBodyFromReadSeeker(req, v.ReadSeeker)
+	case io.ReadSeeker:
+		return setRequestGetBodyFromReadSeeker(req, v)
+	default:
+		// 流式 body 无法无损重放；保持 GetBody 为空，让重试逻辑在需要重试时明确返回不可重放错误。
+		return nil
 	}
+}
+
+// setRequestGetBodyFromReadSeeker 为内存型 ReadSeeker 创建独立快照。
+//
+// 降级策略：
+//   - 只处理 bytes.Reader、strings.Reader 以及它们被 reusableReadSeeker 包装后的场景。
+//   - 其它 ReadSeeker 可能是大文件或外部流，避免为了重试把未知体积内容读入内存。
+func setRequestGetBodyFromReadSeeker(req *http.Request, readSeeker io.ReadSeeker) error {
+	switch readSeeker.(type) {
+	case *bytes.Reader, *strings.Reader:
+	default:
+		return nil
+	}
+
+	data, err := snapshotReadSeeker(readSeeker)
+	if err != nil {
+		return errors.Tag(err)
+	}
+	setRequestGetBodyFromBytes(req, data)
+	return nil
+}
+
+// snapshotReadSeeker 从头读取 ReadSeeker 内容并恢复原始游标。
+//
+// 该函数只供已知内存型 reader 使用，业务意图是让 GetBody 每次返回独立 bytes.Reader，
+// 避免日志预览、重试和实际发送共享同一个游标。
+func snapshotReadSeeker(readSeeker io.ReadSeeker) ([]byte, error) {
+	pos, err := readSeeker.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	if _, err = readSeeker.Seek(0, io.SeekStart); err != nil {
+		return nil, errors.Tag(err)
+	}
+	data, err := io.ReadAll(readSeeker)
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	if _, err = readSeeker.Seek(pos, io.SeekStart); err != nil {
+		return nil, errors.Tag(err)
+	}
+	return data, nil
+}
+
+// setRequestGetBodyFromBytes 基于不可变字节快照创建 GetBody。
+func setRequestGetBodyFromBytes(req *http.Request, data []byte) {
 	req.GetBody = func() (io.ReadCloser, error) {
-		if _, err := readSeeker.Seek(0, io.SeekStart); err != nil {
-			return nil, errors.Tag(err)
-		}
-		return io.NopCloser(readSeeker), nil
+		return io.NopCloser(bytes.NewReader(data)), nil
 	}
 }
 
@@ -355,40 +410,31 @@ func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
 
 	isAllowedStatusCode := resp.StatusCode == http.StatusOK || containsStatusCode(resp.StatusCode, c.statusCode)
 	if c.afterBody != nil && c.afterResponse == nil && isAllowedStatusCode && resp.Body != nil && resp.Body != http.NoBody {
-		respBody, restored, err := DrainBody(resp.Body)
-		if err != nil {
-			return nil, errors.Tag(err)
-		}
-		resp.Body = restored
-
+		// 响应 body 还需要交给 afterBody 完整读取；日志阶段只截取预览并恢复流，避免大响应被 DrainBody 全量复制。
 		if c.dump {
-			dump, err := httputil.DumpResponse(resp, false)
+			dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
 			if err != nil {
 				return nil, errors.Tag(err)
 			}
-
-			limit := c.dumpBodyLimit
-			if limit > 0 && int64(len(respBody)) > limit {
-				c.Logger.Info("httputil.DumpResponse()", "response", formatDumpWithBody(string(dump), "Response Body", respBody[:limit], true))
-			} else {
-				c.Logger.Info("httputil.DumpResponse()", "response", formatDumpWithBody(string(dump), "Response Body", respBody, false))
-			}
-			return respBody, nil
+			c.Logger.Info("httputil.DumpResponse()", "response", dump)
+			return nil, nil
 		}
 
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("Response Status: %s\n", resp.Status))
+		b.WriteString("Response Status: ")
+		b.WriteString(resp.Status)
+		b.WriteByte('\n')
 		if c.logBodyLimit > 0 {
 			b.WriteString("Response Body Preview:\n")
-			limit := c.logBodyLimit
-			if limit > 0 && int64(len(respBody)) > limit {
-				b.WriteString(formatBodyPreview(respBody[:limit], true))
-			} else {
-				b.WriteString(formatBodyPreview(respBody, false))
+			respBody, truncated, restored, err := readBodyPreviewAndRestore(resp.Body, c.logBodyLimit)
+			if err != nil {
+				return nil, errors.Tag(err)
 			}
+			resp.Body = restored
+			b.WriteString(formatBodyPreview(respBody, truncated))
 		}
 		c.Logger.Info("Response", "body", b.String())
-		return respBody, nil
+		return nil, nil
 	}
 
 	if c.dump {
@@ -399,7 +445,9 @@ func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
 		c.Logger.Info("httputil.DumpResponse()", "response", dump)
 	} else {
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("Response Status: %s\n", resp.Status))
+		b.WriteString("Response Status: ")
+		b.WriteString(resp.Status)
+		b.WriteByte('\n')
 		if resp != nil && resp.Body != nil && resp.Body != http.NoBody && c.logBodyLimit > 0 {
 			b.WriteString("Response Body Preview:\n")
 			var truncated bool

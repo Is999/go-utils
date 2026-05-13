@@ -418,6 +418,19 @@ func TestTraceJSONIsValidJSON(t *testing.T) {
 	}
 }
 
+func TestTraceJSONEscapesControlAndInvalidUTF8(t *testing.T) {
+	// msg 是模拟外部系统返回的异常消息，包含控制字符和非法 UTF-8，TraceJSON 必须仍保持可解析。
+	msg := "outer\x00line\n" + string([]byte{0xff})
+	// ctx 带入请求上下文字段，覆盖 ctx key/value 与 msg 使用同一转义入口的边界。
+	ctx := errors.WithContextErr(context.Background(), "request\x00id", "value"+string([]byte{0xff}))
+	err := errors.WithContext(ctx, errors.New(msg))
+
+	trace := errors.TraceJSON(err)
+	if !json.Valid([]byte(trace)) {
+		t.Fatalf("TraceJSON() returned invalid JSON: %s", trace)
+	}
+}
+
 func TestWithCode(t *testing.T) {
 	err := errors.WithCode(errors.Wrap(io.EOF, "read failed"), 409)
 
@@ -940,4 +953,89 @@ func TestErrorFormat(t *testing.T) {
 	if q == "" {
 		t.Error("Error format with q returned empty string")
 	}
+}
+
+// lazyTracePayload 表示 TraceJSON 输出中与本用例相关的最小结构。
+// 只解析 trace 字段，是为了验证懒裁剪后的项目栈帧数量和路径格式，不绑定完整 JSON 协议。
+type lazyTracePayload struct {
+	Trace []string `json:"trace"` // Trace 是 JSON 输出中的栈帧数组，元素应为项目相对路径定位。
+}
+
+// TestLazyStackProjectFrameTrimming 验证创建错误时延迟解析栈帧后，最终链路追踪输出保持原有项目裁剪效果。
+// 文本、JSON、slog 三个入口都应只暴露项目内连续调用栈，不能泄露绝对路径或 runtime/testing 框架帧。
+func TestLazyStackProjectFrameTrimming(t *testing.T) {
+	oldDepth := errors.StackDepth()
+	defer errors.SetStackDepth(oldDepth)
+	errors.SetStackDepth(8)
+
+	err := lazyStackProjectEntry()
+	if err == nil {
+		t.Fatal("lazyStackProjectEntry() returned nil")
+	}
+
+	// 文本入口常用于第三方日志库，必须保持首个业务位置为项目相对路径。
+	traceText := errors.TraceString(err)
+	assertProjectTraceNoFramework(t, traceText)
+
+	// JSON 入口会渲染完整 trace 数组，懒裁剪后仍应保留多层项目调用链。
+	traceJSON := errors.TraceJSON(err)
+	assertProjectTraceNoFramework(t, traceJSON)
+	var payload lazyTracePayload
+	if decodeErr := json.Unmarshal([]byte(traceJSON), &payload); decodeErr != nil {
+		t.Fatalf("TraceJSON() unmarshal error = %v", decodeErr)
+	}
+	if len(payload.Trace) < 2 {
+		t.Fatalf("TraceJSON() trace length = %d, want at least 2: %s", len(payload.Trace), traceJSON)
+	}
+	for _, frame := range payload.Trace {
+		if !strings.Contains(frame, "errors/errors_test.go:") {
+			t.Fatalf("TraceJSON() frame should use project-relative test path, got %s", frame)
+		}
+	}
+
+	// slog 入口会通过 stackTrace.LogValue 延迟渲染，需复用同一套项目帧裁剪规则。
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	}))
+	logger.Error("lazy stack failed", "trace", errors.Trace(err))
+	assertProjectTraceNoFramework(t, buf.String())
+}
+
+// assertProjectTraceNoFramework 校验追踪输出的路径边界。
+// 数据来源可以是 TraceString、TraceJSON 或 slog JSON，统一要求只保留项目相对路径并过滤测试框架帧。
+func assertProjectTraceNoFramework(t *testing.T, output string) {
+	t.Helper()
+	if !strings.Contains(output, "errors/errors_test.go:") {
+		t.Fatalf("trace should contain project-relative path, got %s", output)
+	}
+	if strings.Contains(output, "/Users/") {
+		t.Fatalf("trace should not contain absolute path, got %s", output)
+	}
+	if strings.Contains(output, "testing/testing.go") || strings.Contains(output, "runtime/") {
+		t.Fatalf("trace should not contain runtime/testing frames, got %s", output)
+	}
+}
+
+// lazyStackProjectEntry 构造多层项目内调用栈的入口。
+// 通过固定的测试调用链模拟业务 handler 到 repository 的传播路径，便于验证连续项目帧裁剪。
+func lazyStackProjectEntry() error {
+	return lazyStackProjectMiddle()
+}
+
+// lazyStackProjectMiddle 构造多层项目内调用栈的中间层。
+// 该层没有额外包装错误，确保测试关注点停留在栈帧采集和渲染边界。
+func lazyStackProjectMiddle() error {
+	return lazyStackProjectLeaf()
+}
+
+// lazyStackProjectLeaf 构造多层项目内调用栈的失败点。
+// 这里使用 errors.New 采集栈，验证懒解析后首帧仍定位到真实业务失败位置。
+func lazyStackProjectLeaf() error {
+	return errors.New("lazy stack failed")
 }

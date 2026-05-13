@@ -17,11 +17,14 @@ import (
 // ============================ 常量定义 ============================
 
 const (
-	defaultTimeout    = 30 * time.Second // 默认超时时间
-	defaultMaxRetry   = 2                // 默认最大请求尝试次数，包含首次请求
-	defaultMaxRetries = 5                // 允许的最大请求尝试次数上限
-	defaultDumpLimit  = 4096             // dump 预览默认长度上限
-	defaultLogLimit   = 4096             // 默认日志 body 预览长度上限
+	defaultTimeout         = 30 * time.Second   // 默认超时时间
+	defaultMaxRetry        = 2                  // 默认最大请求尝试次数，包含首次请求
+	defaultMaxRetries      = 5                  // 允许的最大请求尝试次数上限
+	defaultDumpLimit       = 4096               // dump 预览默认长度上限
+	defaultLogLimit        = 4096               // 默认日志 body 预览长度上限
+	defaultCurlContentType = "application/json" // Curl 默认请求 Content-Type，发送 JSON 请求体时无需调用方重复设置
+	curlHeaderContentType  = "Content-Type"     // HTTP Content-Type 请求头名，用于默认值与用户显式设置的边界判断
+	curlHeaderRequestID    = "X-Request-Id"     // 请求链路 ID 头名，发送前写入 Header 并同步到 Logger 字段
 )
 
 // requestIDCounter 是请求 ID 自增计数器，保证同纳秒内生成值仍可区分。
@@ -68,6 +71,8 @@ type Curl struct {
 	transportDirty     bool                                                                                           // 传输层配置是否已变更；仅在代理/TLS 配置变化时重建 Transport
 	cookies            map[string]*http.Cookie                                                                        // Cookie 配置
 	params             url.Values                                                                                     // URL 查询参数或 POST Form 参数
+	encodedParams      string                                                                                         // 已编码参数缓存，数据来源于 params.Encode，供重复请求复用
+	paramsDirty        bool                                                                                           // 参数缓存是否失效；Set/Add/Del/GetParams 暴露可变 map 后置为 true
 	body               io.Reader                                                                                      // 请求体
 	statusCode         []int                                                                                          // 可接受的状态码列表（除 200 以外需要特殊处理的状态码）
 	beforeRequest      func(ctx context.Context, request *http.Request) error                                         // 请求发送前的回调，可对 Request 进行自定义处理
@@ -92,56 +97,39 @@ type Curl struct {
 //   - 超时时间：30 秒
 //   - 最大重试：2 次
 //   - Content-Type：application/json
-//   - 自动生成 X-Request-Id
+//   - 显式传入 X-Request-Id 时立即绑定；未传入时首次发送或读取请求 ID 时自动生成
 //
 // 参数说明：
 //   - opts：可选的配置项列表
 //
 // 返回值：配置好的 Curl 客户端指针
 func NewCurl(opts ...CurlOption) *Curl {
-	logger := Log()
 	c := &Curl{
-		cli:                &http.Client{},
-		header:             make(http.Header),
-		timeout:            defaultTimeout,
-		username:           "",
-		password:           "",
-		proxyURL:           "",
-		insecureSkipVerify: false,
-		rootCAs:            "",
-		cert:               "",
-		key:                "",
-		transportDirty:     true,
-		cookies:            make(map[string]*http.Cookie),
-		params:             make(url.Values),
-		body:               nil,
-		statusCode:         make([]int, 0),
-		beforeRequest:      nil,
-		beforeClient:       nil,
-		afterResponse:      nil,
-		afterBody:          nil,
-		requestID:          "",
-		maxRetry:           defaultMaxRetry,
-		dump:               false,
-		dumpBodyLimit:      defaultDumpLimit,
-		logBodyLimit:       defaultLogLimit,
-		defLogOutput:       false,
-		baseLogger:         logger,
-		Logger:             logger,
+		timeout:        defaultTimeout,
+		transportDirty: true,
+		maxRetry:       defaultMaxRetry,
+		dumpBodyLimit:  defaultDumpLimit,
+		logBodyLimit:   defaultLogLimit,
 	}
 
-	// 设置默认 Content-Type
-	c.SetContentType("application/json")
-
-	// 应用配置选项
+	// 应用配置选项。Header/Params/Cookies 等可变容器由对应 setter 懒初始化，避免只构造不配置时产生无用分配。
 	for _, opt := range opts {
 		if opt != nil {
 			opt(c)
 		}
 	}
 
-	// 统一绑定请求 ID，确保 WithLogger/WithRequestID 任意顺序都能生效。
-	c.SetRequestID(c.requestID)
+	if c.baseLogger == nil {
+		c.baseLogger = Log()
+	}
+	if c.Logger == nil {
+		c.Logger = c.baseLogger
+	}
+
+	// 显式请求 ID 立即绑定 Logger/Header；默认 ID 延迟到真正发送请求，降低只构造模板对象时的开销。
+	if c.requestID != "" {
+		c.SetRequestID(c.requestID)
+	}
 
 	return c
 }
@@ -371,7 +359,7 @@ func (c *Curl) SetRequestID(requestID ...string) *Curl {
 	c.Logger = logger.With("X-Request-Id", c.requestID)
 
 	// 更新请求头
-	c.header.Set("X-Request-Id", c.requestID)
+	c.ensureHeader().Set(curlHeaderRequestID, c.requestID)
 	return c
 }
 
@@ -383,7 +371,11 @@ func (c *Curl) SetRequestId(requestId ...string) *Curl {
 }
 
 // GetRequestID 获取当前请求 ID。
+// 未显式设置时会懒生成默认 ID，确保读取行为与发送请求时的链路 ID 一致。
 func (c *Curl) GetRequestID() string {
+	if c.requestID == "" {
+		c.SetRequestID()
+	}
 	return c.requestID
 }
 
@@ -423,6 +415,8 @@ func (c *Curl) Clone() (*Curl, error) {
 		transportDirty:     c.transportDirty,
 		cookies:            cloneCookies(c.cookies),
 		params:             cloneURLValues(c.params),
+		encodedParams:      c.encodedParams,
+		paramsDirty:        c.paramsDirty,
 		body:               body,
 		statusCode:         append([]int(nil), c.statusCode...),
 		beforeRequest:      c.beforeRequest,
@@ -463,7 +457,7 @@ func (c *Curl) Get(url string) (err error) {
 
 // GetContext 发起带 context 的 GET 请求。
 func (c *Curl) GetContext(ctx context.Context, url string) (err error) {
-	url, err = buildURL(url, c.params)
+	url, err = buildURLWithEncodedParams(url, c.encodedQueryParams())
 	if err != nil {
 		return errors.Tag(err)
 	}
@@ -477,7 +471,7 @@ func (c *Curl) Post(url string) (err error) {
 
 // PostContext 发起带 context 的 POST 请求。
 func (c *Curl) PostContext(ctx context.Context, url string) (err error) {
-	url, err = buildURL(url, c.params)
+	url, err = buildURLWithEncodedParams(url, c.encodedQueryParams())
 	if err != nil {
 		return errors.Tag(err)
 	}
@@ -492,7 +486,7 @@ func (c *Curl) PostForm(url string) error {
 // PostFormContext 发起带 context 的 POST Form 请求。
 func (c *Curl) PostFormContext(ctx context.Context, url string) error {
 	return c.SetContentType("application/x-www-form-urlencoded").
-		SendContext(ctx, http.MethodPost, url, strings.NewReader(c.params.Encode()))
+		SendContext(ctx, http.MethodPost, url, strings.NewReader(c.encodedQueryParams()))
 }
 
 // Put 发起 PUT 请求。
@@ -502,7 +496,7 @@ func (c *Curl) Put(url string) (err error) {
 
 // PutContext 发起带 context 的 PUT 请求。
 func (c *Curl) PutContext(ctx context.Context, url string) (err error) {
-	url, err = buildURL(url, c.params)
+	url, err = buildURLWithEncodedParams(url, c.encodedQueryParams())
 	if err != nil {
 		return errors.Tag(err)
 	}
@@ -516,7 +510,7 @@ func (c *Curl) Patch(url string) (err error) {
 
 // PatchContext 发起带 context 的 PATCH 请求。
 func (c *Curl) PatchContext(ctx context.Context, url string) (err error) {
-	url, err = buildURL(url, c.params)
+	url, err = buildURLWithEncodedParams(url, c.encodedQueryParams())
 	if err != nil {
 		return errors.Tag(err)
 	}
@@ -540,7 +534,7 @@ func (c *Curl) Delete(url string) (err error) {
 
 // DeleteContext 发起带 context 的 DELETE 请求。
 func (c *Curl) DeleteContext(ctx context.Context, url string) (err error) {
-	url, err = buildURL(url, c.params)
+	url, err = buildURLWithEncodedParams(url, c.encodedQueryParams())
 	if err != nil {
 		return errors.Tag(err)
 	}
@@ -554,7 +548,7 @@ func (c *Curl) Options(url string) (err error) {
 
 // OptionsContext 发起带 context 的 OPTIONS 请求。
 func (c *Curl) OptionsContext(ctx context.Context, url string) (err error) {
-	url, err = buildURL(url, c.params)
+	url, err = buildURLWithEncodedParams(url, c.encodedQueryParams())
 	if err != nil {
 		return errors.Tag(err)
 	}
@@ -678,18 +672,46 @@ func buildURL(baseURL string, params url.Values) (string, error) {
 	if params == nil || len(params) == 0 {
 		return baseURL, nil
 	}
-	u, err := url.Parse(baseURL)
-	if err != nil {
+	return buildURLWithEncodedParams(baseURL, params.Encode())
+}
+
+// buildURLWithEncodedParams 构建完整 URL，并复用调用方已经编码好的查询串。
+// encodedParams 数据来源应为 url.Values.Encode；为空时说明没有有效参数，直接返回原 URL 保持旧边界。
+func buildURLWithEncodedParams(baseURL, encodedParams string) (string, error) {
+	if encodedParams == "" {
+		return baseURL, nil
+	}
+
+	if _, err := url.Parse(baseURL); err != nil {
 		return "", errors.Tag(err)
 	}
-	q := u.Query()
-	for key, values := range params {
-		for _, value := range values {
-			q.Add(key, value)
+	return appendEncodedQuery(baseURL, encodedParams), nil
+}
+
+// appendEncodedQuery 将已经编码好的查询参数追加到 URL 中。
+//
+// 业务意图：
+//   - buildURL 的新增参数来自 url.Values.Encode，已经完成转义。
+//   - 原 URL 的 query 不重新解析，避免在每次请求前重复分配 map 和切片。
+//   - fragment 必须保留在 URL 最末尾，因此追加点位于 # 之前。
+func appendEncodedQuery(baseURL, encodedParams string) string {
+	fragment := ""
+	queryTarget := baseURL
+	if idx := strings.IndexByte(baseURL, '#'); idx >= 0 {
+		queryTarget = baseURL[:idx]
+		fragment = baseURL[idx:]
+	}
+
+	separator := "?"
+	if strings.Contains(queryTarget, "?") {
+		switch {
+		case strings.HasSuffix(queryTarget, "?"), strings.HasSuffix(queryTarget, "&"):
+			separator = ""
+		default:
+			separator = "&"
 		}
 	}
-	u.RawQuery = q.Encode()
-	return u.String(), nil
+	return queryTarget + separator + encodedParams + fragment
 }
 
 // buildUrl 构建完整的 URL，将 params 追加为查询参数。

@@ -21,8 +21,8 @@ var (
 // ============================ 栈追踪类型 ============================
 
 // stackTrace 程序计数器数组类型，用于存储栈帧信息。
-// 只保存 uintptr 形式的程序计数器，在渲染时（LogValue/TraceString）才转为文件名和行号。
-// 这样设计可以延迟解析开销，只在真正需要展示时才进行耗时的 runtime.CallersFrames 操作。
+// 创建错误时只保存 uintptr 形式的程序计数器，在渲染时（LogValue/TraceString）才转为文件名和行号。
+// 这样设计可以延迟路径裁剪和帧解析开销，只在真正需要展示时才进行耗时的 runtime.CallersFrames 操作。
 type stackTrace []uintptr
 
 // LogValue 实现 slog.LogValuer 接口，用于 slog 结构化输出。
@@ -30,14 +30,30 @@ type stackTrace []uintptr
 //
 // 返回值：slog.Value，包含所有栈帧的属性组
 func (st stackTrace) LogValue() slog.Value {
-	attrs := make([]slog.Attr, 0, len(st))
-	frames := runtime.CallersFrames(st)
-	for i := range len(st) {
+	attrs := make([]slog.Attr, 0, len(st)) // attrs 预分配为原始栈深度，避免项目帧全部命中时扩容。
+	root := projectRoot()                  // root 是当前业务项目根目录，用于把 runtime/testing 等框架帧挡在输出外。
+	if root == "" || len(st) == 0 {
+		return slog.GroupValue(appendRawFrameAttrs(attrs, st)...)
+	}
+
+	// slog 渲染时边解析边裁剪项目帧，避免先生成 runtime.Frame 再二次遍历带来的额外开销。
+	frames := runtime.CallersFrames(st) // frames 从原始 PC 懒解析得到，只有日志真正输出时才产生。
+	started := false                    // started 标记已进入第一段连续项目帧，遇到后续非项目帧立即停止。
+	for range len(st) {
 		frame, more := frames.Next()
-		attrs = append(attrs, slog.String(strconv.Itoa(i), frameString(frame)))
+		if isWithinRoot(frame.File, root) {
+			started = true
+			attrs = append(attrs, slog.String(strconv.Itoa(len(attrs)), frameString(frame)))
+		} else if started {
+			break
+		}
 		if !more {
 			break
 		}
+	}
+	if !started {
+		// 找不到项目帧时回退原始栈，避免依赖库或非模块运行环境下丢失诊断信息。
+		attrs = appendRawFrameAttrs(attrs[:0], st)
 	}
 	return slog.GroupValue(attrs...)
 }
@@ -58,7 +74,7 @@ type stackError struct {
 }
 
 // newStackError 内部构造函数，创建带栈追踪的错误。
-// 调用 runtime.Callers 采集调用栈，过滤掉项目外的 runtime 帧。
+// 调用 runtime.Callers 采集原始 PC；项目帧裁剪推迟到渲染阶段，降低错误创建路径开销。
 //
 // 参数说明：
 //   - msg：错误消息
@@ -138,15 +154,22 @@ func (e *stackError) MarshalText() ([]byte, error) {
 
 // callers 采集调用栈的程序计数器。
 // 跳过 skip 指定的帧数，通常用于忽略错误库自身的栈帧。
+// 这里只保存原始 PC，不在创建阶段解析 runtime.Frame 或裁剪项目路径，降低错误热路径开销。
 //
 // 参数说明：
 //   - skip：跳过的栈帧数
 //
-// 返回值：采集到的程序计数器数组
+// 返回值：采集到的程序计数器数组；为空表示 runtime 未返回可用帧
 func callers(skip int) stackTrace {
-	var pcs [maxStackDepth]uintptr
-	n := runtime.Callers(skip+2, pcs[:StackDepth()])
-	return trimProjectFrames(pcs[:n])
+	var pcs [maxStackDepth]uintptr                   // pcs 是栈上临时缓冲，只承接本次 runtime.Callers 的原始 PC。
+	n := runtime.Callers(skip+2, pcs[:StackDepth()]) // n 是实际采集到的帧数，受 StackDepth 全局配置约束。
+	if n == 0 {
+		return nil
+	}
+	// 只复制实际采集到的 PC，避免返回局部数组切片导致保留 maxStackDepth 的完整底层数组。
+	trace := make(stackTrace, n)
+	copy(trace, pcs[:n])
+	return trace
 }
 
 // ============================ 栈帧渲染工具 ============================
@@ -171,42 +194,24 @@ func frameString(frame runtime.Frame) string {
 	return b.String()
 }
 
-// ============================ 项目路径裁剪 ============================
-
-// trimProjectFrames 裁剪栈帧，只保留项目内的栈帧。
-// 从首个项目帧开始连续保留，碰到非项目帧即停止，
-// 避免把 runtime/testing 等框架链路打进日志。
+// appendRawFrameAttrs 将原始 PC 栈渲染为 slog 属性。
+// 仅在找不到项目根或没有项目帧时作为降级路径使用，保证异常运行环境下仍能看到完整诊断栈。
 //
 // 参数说明：
-//   - st：原始栈追踪
+//   - attrs：待追加的 slog 属性数组
+//   - st：原始 PC 栈追踪，数据来自 runtime.Callers
 //
-// 返回值：裁剪后的栈追踪
-func trimProjectFrames(st stackTrace) stackTrace {
-	root := projectRoot()
-	if root == "" || len(st) == 0 {
-		return st
-	}
+// 返回值：追加栈帧后的 slog 属性数组
+func appendRawFrameAttrs(attrs []slog.Attr, st stackTrace) []slog.Attr {
 	frames := runtime.CallersFrames(st)
-	start := -1
-	end := -1
 	for i := range len(st) {
 		frame, more := frames.Next()
-		if isWithinRoot(frame.File, root) {
-			if start < 0 {
-				start = i
-			}
-			end = i + 1
-		} else if start >= 0 {
-			break
-		}
+		attrs = append(attrs, slog.String(strconv.Itoa(i), frameString(frame)))
 		if !more {
 			break
 		}
 	}
-	if start < 0 || end <= start {
-		return st
-	}
-	return st[start:end]
+	return attrs
 }
 
 // relativeProjectPath 将绝对路径转换为相对于项目根目录的路径。
@@ -217,9 +222,12 @@ func trimProjectFrames(st stackTrace) stackTrace {
 //
 // 返回值：相对于项目根目录的路径，使用正斜杠
 func relativeProjectPath(file string) string {
-	root := projectRoot()
+	root := projectRoot() // root 来自 go.mod 向上查找结果，用于把源码绝对路径转成项目相对路径。
 	if root == "" || file == "" {
 		return filepath.ToSlash(file)
+	}
+	if rel, ok := relativeProjectPathFast(file, root); ok {
+		return rel
 	}
 	rel, err := filepath.Rel(root, file)
 	if err != nil {
@@ -229,6 +237,26 @@ func relativeProjectPath(file string) string {
 		return filepath.ToSlash(file)
 	}
 	return filepath.ToSlash(rel)
+}
+
+// relativeProjectPathFast 使用字符串前缀快速计算项目相对路径。
+// runtime.Frame.File 通常是项目根下的绝对路径，命中该分支可避开 filepath.Rel 的清理和分配成本。
+//
+// 参数说明：
+//   - file：runtime 提供的源码文件绝对路径
+//   - root：projectRoot 缓存的项目根绝对路径
+//
+// 返回值：
+//   - string：项目相对路径，统一使用正斜杠
+//   - bool：true 表示已命中安全快路径；false 表示需要回退 filepath.Rel 处理边界路径
+func relativeProjectPathFast(file, root string) (string, bool) {
+	if len(file) <= len(root) || !strings.HasPrefix(file, root) {
+		return "", false
+	}
+	if file[len(root)] != os.PathSeparator {
+		return "", false
+	}
+	return filepath.ToSlash(file[len(root)+1:]), true
 }
 
 // projectRoot 获取项目根目录路径。
@@ -268,6 +296,13 @@ func projectRoot() string {
 func isWithinRoot(file, root string) bool {
 	if file == "" || root == "" {
 		return false
+	}
+	if file == root {
+		return true
+	}
+	// 常见情况下 frame.File 是 root 下的绝对路径，前缀快路径可以避开 filepath.Rel 的分配。
+	if len(file) > len(root) && strings.HasPrefix(file, root) && file[len(root)] == os.PathSeparator {
+		return true
 	}
 	rel, err := filepath.Rel(root, file)
 	if err != nil {

@@ -3,11 +3,47 @@ package utils
 import (
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
-
-	"github.com/Is999/go-utils/errors"
 )
+
+// regexpQQ 校验 QQ 号格式，来源于原始 QQ 正则规则：非 0 开头且总长度为 5-12 位数字。
+var regexpQQ = regexp.MustCompile(`^[1-9][0-9]{4,11}$`)
+
+// regexpEmail 校验邮箱格式，保持历史规则：本地部分允许字母数字以及 -_. 分隔，域名后缀限制 1-2 段。
+var regexpEmail = regexp.MustCompile(`^[a-z0-9A-Z]+([-_.][a-z0-9A-Z]+)*@[a-z0-9A-Z]+([-_][a-z0-9A-Z]+)*(\.[a-zA-Z]{2,4}){1,2}$`)
+
+// regexpMobile 校验中国大陆手机号格式，来源于当前号段边界：1 开头，第二位为 3-9，总长度 11 位。
+var regexpMobile = regexp.MustCompile(`^1[3-9]\d{9}$`)
+
+// regexpPhone 校验中国大陆固定电话或服务号码格式，兼容 3/4 位区号加横线以及 5-11 位纯数字。
+var regexpPhone = regexp.MustCompile(`^(\d{3}-\d{8}|\d{4}-\d{7}|\d{5,11})$`)
+
+// regexpAlpha 校验纯英文字母，限定为 ASCII 字母以保持与历史正则一致。
+var regexpAlpha = regexp.MustCompile(`^[a-zA-Z]+$`)
+
+// regexpZh 校验纯中文汉字，使用 Unicode Han 字符类，标点和数字不允许通过。
+var regexpZh = regexp.MustCompile(`^\p{Han}+$`)
+
+// regexpMixStr 校验英文、数字和常见中英文符号，业务意图是允许展示文本但拒绝中文汉字和换行。
+var regexpMixStr = regexp.MustCompile("^[A-Za-z0-9~!@#$%^&*()_+{}|:\"<>?\\-=\\[\\]\\\\;',./ \\t！￥…（）—「」：“”《》？【】、；‘’，。`]+$")
+
+// regexpAlnum 校验纯英文字母与数字，限定 ASCII 范围以避免 Unicode 数字扩大历史行为。
+var regexpAlnum = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
+
+// regexpDomain 校验不含路径参数的域名或 http(s) URL，保持历史顶级域长度 2-6 的边界。
+var regexpDomain = regexp.MustCompile(`^(http(s)?://)?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}(/)?$`)
+
+// regexpTimeMonth 校验 yyyy-MM、yyyy/MM、yyyy.MM 的月份格式，后续不再做日期语义校验。
+var regexpTimeMonth = regexp.MustCompile(`^[123]\d{3}[-/.](0?[1-9]|1[0-2])$`)
+
+// regexpTimeDay 校验 yyyy-MM-dd、yyyy/MM/dd、yyyy.MM.dd 的日期外形，真实日期和分隔符一致性由代码补充校验。
+var regexpTimeDay = regexp.MustCompile(`^[123]\d{3}[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12][0-9]|3[01])$`)
+
+// regexpTimestamp 校验日期时间外形，真实日期与分隔符一致性由代码补充校验。
+var regexpTimestamp = regexp.MustCompile(`^[123]\d{3}[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12][0-9]|3[01]) (\d|[01]\d|2[0-3])(:(\d|[0-5]\d)){2}$`)
+
+// regexpSymbols 校验空白分隔符、符号或标点，业务上用于判断字符串是否包含特殊符号。
+var regexpSymbols = regexp.MustCompile(`\p{Z}|\p{S}|\p{P}`)
 
 // ValidationReason 表示校验失败原因。
 // 业务侧可根据该字段决定最终提示文案、错误码或国际化文案键。
@@ -104,59 +140,47 @@ func defaultValidationMessage(e *ValidationError) string {
 
 // Empty 空字符串验证
 func Empty(value string) bool {
-	if strings.TrimSpace(value) == "" {
-		return true
-	}
-	return false
+	return strings.TrimSpace(value) == ""
 }
 
 // QQ QQ号验证
 func QQ(value string) bool {
-	matched, _ := regexp.MatchString(`^[1-9][0-9]{4,11}$`, value)
-	return matched
+	return regexpQQ.MatchString(value)
 }
 
 // Email 电子邮件验证
 func Email(value string) bool {
-	matched, _ := regexp.MatchString(`^[a-z0-9A-Z]+([-_.][a-z0-9A-Z]+)*@[a-z0-9A-Z]+([-_][a-z0-9A-Z]+)*(\.[a-zA-Z]{2,4}){1,2}$`, value)
-	return matched
+	return regexpEmail.MatchString(value)
 }
 
 // Mobile 中国大陆手机号码验证
 func Mobile(value string) bool {
-	matched, _ := regexp.MatchString(`^1[3-9]\d{9}$`, value)
-	return matched
+	return regexpMobile.MatchString(value)
 }
 
 // Phone 中国大陆电话号码验证
 func Phone(value string) bool {
-	matched, _ := regexp.MatchString(`^(\d{3}-\d{8}|\d{4}-\d{7}|\d{5,11})$`, value)
-	return matched
+	return regexpPhone.MatchString(value)
 }
 
 // Numeric 有符号数字验证
 func Numeric(value string) bool {
-	// /\pN/u
-	matched, _ := regexp.MatchString(`^([+-])?(0|[1-9]\d*)(\.\d+)?$`, value)
-	return matched
+	return validDecimalNumber(value, true, -1)
 }
 
 // UnNumeric 无符号数字验证
 func UnNumeric(value string) bool {
-	matched, _ := regexp.MatchString(`^(0|[1-9]\d*)(\.\d+)?$`, value)
-	return matched
+	return validDecimalNumber(value, false, -1)
 }
 
 // UnInteger 无符号整数(正整数)验证
 func UnInteger(value string) bool {
-	matched, _ := regexp.MatchString(`^([1-9]\d*)$`, value)
-	return matched
+	return validUnsignedInteger(value, false)
 }
 
 // UnIntZero 无符号整数(正整数+0)验证
 func UnIntZero(value string) bool {
-	matched, _ := regexp.MatchString(`^(0|[1-9]\d*)$`, value)
-	return matched
+	return validUnsignedInteger(value, true)
 }
 
 // Amount 金额验证
@@ -165,65 +189,48 @@ func UnIntZero(value string) bool {
 //	decimal 保留小数位长度
 //	signed 带符号的金额: 默认无符号
 func Amount(amount string, decimal uint8, signed ...bool) bool {
-	s := strings.Builder{}
-	s.Grow(31) // 预分配内存
-	s.WriteString(`^`)
-	if len(signed) > 0 && signed[0] {
-		s.WriteString(`[+-]?`)
-	}
-	s.WriteString(`(0|[1-9]\d*)`)
+	allowSign := len(signed) > 0 && signed[0]
+	decimalLimit := 0
 	if decimal > 0 {
-		s.WriteString(`(\.\d{1,` + strconv.Itoa(int(decimal)) + `})?`)
+		decimalLimit = int(decimal)
 	}
-	s.WriteString(`$`)
-
-	// 无小数位: `^(0|[1-9]\d*)$`
-	// 无符号: `^(0|[1-9]\d*)(?:\.\d{1,2})?$`
-	// 有符号: `^[+-]?(0|[1-9]\d*)(\.\d{1,2})?$`
-	matched, _ := regexp.MatchString(s.String(), amount)
-	return matched
+	return validDecimalNumber(amount, allowSign, decimalLimit)
 }
 
 // Alpha 英文字母验证
 func Alpha(value string) bool {
-	matched, _ := regexp.MatchString(`^[a-zA-Z]+$`, value)
-	return matched
+	return regexpAlpha.MatchString(value)
 }
 
 // Zh 中文字符验证
 func Zh(value string) bool {
-	matched, _ := regexp.MatchString(`^\p{Han}+$`, value)
-	return matched
+	return regexpZh.MatchString(value)
 }
 
 // MixStr 英文、数字、特殊字符(不包含换行符)
 func MixStr(value string) bool {
-	matched, _ := regexp.MatchString("^[A-Za-z0-9~!@#$%^&*()_+{}|:\"<>?\\-=\\[\\]\\\\;',./ \\t！￥…（）—「」：“”《》？【】、；‘’，。`]+$", value)
-	return matched
+	return regexpMixStr.MatchString(value)
 }
 
 // Alnum 英文字母+数字验证
 func Alnum(value string) bool {
-	matched, _ := regexp.MatchString(`^[a-zA-Z0-9]+$`, value)
-	return matched
+	return regexpAlnum.MatchString(value)
 }
 
 // Domain 域名(64位内正确的域名，可包含中文、字母、数字和.-)
 func Domain(value string) bool {
-	matched, _ := regexp.MatchString(`^(http(s)?://)?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}(/)?$`, value)
-	return matched
+	return regexpDomain.MatchString(value)
 }
 
 // TimeMonth 时间格式验证 yyyy-MM yyyy/MM
 func TimeMonth(value string) bool {
-	matched, _ := regexp.MatchString(`^[123]\d{3}[-/.](0?[1-9]|1[0-2])$`, value)
-	return matched
+	return regexpTimeMonth.MatchString(value)
 }
 
 // TimeDay 时间格式验证 yyyy-MM-dd
 func TimeDay(value string) bool {
 	// 不支持的反向引用: `^[123]\d{3}([-/.])(?:0?[1-9]|1[0-2])\1(?:0?[1-9]|[12][0-9]|3[01])$`
-	matched, _ := regexp.MatchString(`^[123]\d{3}[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12][0-9]|3[01])$`, value)
+	matched := regexpTimeDay.MatchString(value)
 
 	if matched {
 		// 验证分割符是否一致
@@ -244,7 +251,7 @@ func TimeDay(value string) bool {
 
 // Timestamp 时间格式验证 yyyy-MM-dd hh:mm:ss
 func Timestamp(value string) bool {
-	matched, _ := regexp.MatchString(`^[123]\d{3}[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12][0-9]|3[01]) (\d|[01]\d|2[0-3])(:(\d|[0-5]\d)){2}$`, value)
+	matched := regexpTimestamp.MatchString(value)
 	if matched {
 		// 验证分割符是否一致
 		if strings.Count(value, string(value[4])) != 2 {
@@ -271,17 +278,11 @@ func Account(value string, min, max uint8) error {
 		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
-	// 不能连续出现下滑线'_'两次或两次以上"
-	reg := regexp.MustCompile(`(_{2,})`)
-	s := reg.FindString(value)
-	if s != "" {
+	// 先检查连续下划线，保持历史错误优先级：即使字符串还存在其它非法字符，也先返回连续下划线原因。
+	if hasConsecutiveUnderscore(value) {
 		return newValidationError(ValidationReasonConsecutiveUnderscore, min, max)
 	}
-	matched, err := regexp.MatchString(fmt.Sprintf(`^[a-zA-Z][a-zA-Z0-9_]{%d,%d}$`, min, max), value)
-	if err != nil {
-		return errors.Tag(err)
-	}
-	if !matched {
+	if !validAccountChars(value) {
 		return newValidationError(ValidationReasonInvalidFormat, min, max)
 	}
 	return nil
@@ -295,11 +296,7 @@ func PassWord(value string, min, max uint8) error {
 		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
-	matched, err := regexp.MatchString(fmt.Sprintf(`^\w{%d,%d}$`, min, max), value)
-	if err != nil {
-		return errors.Tag(err)
-	}
-	if !matched {
+	if !validASCIILetterDigitUnderscore(value) {
 		return newValidationError(ValidationReasonInvalidCharset, min, max)
 	}
 	return nil
@@ -313,33 +310,18 @@ func PassWord2(value string, min, max uint8) error {
 		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
-	// 是否包含小写字母
-	reg := regexp.MustCompile(`([a-z])`)
-	s := reg.FindString(value)
-	if s == "" {
+	// 一次扫描同时收集字符类别和非法字符，减少多次正则匹配产生的 CPU 与分配。
+	hasLower, hasUpper, hasDigit, validCharset := passwordASCIIFlags(value, false)
+	if !hasLower {
 		return newValidationError(ValidationReasonMissingLowercase, min, max)
 	}
-
-	// 是否包含大写字母
-	reg = regexp.MustCompile(`([A-Z])`)
-	s = reg.FindString(value)
-	if s == "" {
+	if !hasUpper {
 		return newValidationError(ValidationReasonMissingUppercase, min, max)
 	}
-
-	// 是否包含数字
-	reg = regexp.MustCompile(`([0-9])`)
-	s = reg.FindString(value)
-	if s == "" {
+	if !hasDigit {
 		return newValidationError(ValidationReasonMissingDigit, min, max)
 	}
-
-	// 匹配表达式
-	matched, err := regexp.MatchString(fmt.Sprintf(`^[a-zA-Z0-9]{%d,%d}$`, min, max), value)
-	if err != nil {
-		return errors.Tag(err)
-	}
-	if !matched {
+	if !validCharset {
 		return newValidationError(ValidationReasonInvalidCharset, min, max)
 	}
 	return nil
@@ -353,33 +335,18 @@ func PassWord3(value string, min, max uint8) error {
 		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
 
-	// 是否包含小写字母
-	reg := regexp.MustCompile(`([a-z])`)
-	s := reg.FindString(value)
-	if s == "" {
+	// 特殊字符允许通过，但仍需收集大小写与数字要求；最终边界沿用历史 `.` 不匹配换行的行为。
+	hasLower, hasUpper, hasDigit, noNewline := passwordASCIIFlags(value, true)
+	if !hasLower {
 		return newValidationError(ValidationReasonMissingLowercase, min, max)
 	}
-
-	// 是否包含大写字母
-	reg = regexp.MustCompile(`([A-Z])`)
-	s = reg.FindString(value)
-	if s == "" {
+	if !hasUpper {
 		return newValidationError(ValidationReasonMissingUppercase, min, max)
 	}
-
-	// 是否包含数字
-	reg = regexp.MustCompile(`([0-9])`)
-	s = reg.FindString(value)
-	if s == "" {
+	if !hasDigit {
 		return newValidationError(ValidationReasonMissingDigit, min, max)
 	}
-
-	// 匹配表达式
-	matched, err := regexp.MatchString(fmt.Sprintf(`^.{%d,%d}$`, min, max), value)
-	if err != nil {
-		return errors.Tag(err)
-	}
-	if !matched {
+	if !noNewline || !runeCountInRange(value, int(min), int(max)) {
 		return newValidationError(ValidationReasonInvalidFormat, min, max)
 	}
 	return nil
@@ -387,6 +354,174 @@ func PassWord3(value string, min, max uint8) error {
 
 // HasSymbols 是否包含符号
 func HasSymbols(value string) bool {
-	matched, _ := regexp.MatchString(`\p{Z}|\p{S}|\p{P}`, value)
-	return matched
+	return regexpSymbols.MatchString(value)
+}
+
+// validDecimalNumber 校验十进制数字字符串，覆盖 Numeric、UnNumeric 和 Amount 的共同边界。
+//
+// 参数说明：
+//   - value：待校验字符串，数据来源通常是用户输入或接口参数。
+//   - allowSign：是否允许首位出现 + 或 -，用于区分有符号和无符号金额。
+//   - maxDecimal：允许的小数位上限；-1 表示不限制小数位，0 表示不允许小数。
+func validDecimalNumber(value string, allowSign bool, maxDecimal int) bool {
+	if value == "" {
+		return false
+	}
+
+	i := 0
+	if value[0] == '+' || value[0] == '-' {
+		if !allowSign || len(value) == 1 {
+			return false
+		}
+		i = 1
+	}
+
+	// 整数部分只允许单个 0 或非 0 开头数字，避免 00、01 这类金额歧义。
+	if i >= len(value) {
+		return false
+	}
+	if value[i] == '0' {
+		i++
+	} else if isASCIIDigitNonZero(value[i]) {
+		for i < len(value) && isASCIIDigit(value[i]) {
+			i++
+		}
+	} else {
+		return false
+	}
+
+	if i == len(value) {
+		return true
+	}
+	if value[i] != '.' || maxDecimal == 0 {
+		return false
+	}
+	i++
+	if i == len(value) {
+		return false
+	}
+
+	decimalLen := 0
+	for i < len(value) {
+		if !isASCIIDigit(value[i]) {
+			return false
+		}
+		decimalLen++
+		if maxDecimal > 0 && decimalLen > maxDecimal {
+			return false
+		}
+		i++
+	}
+	return true
+}
+
+// validUnsignedInteger 校验无符号整数，allowZero 控制是否允许单独的 0 通过。
+func validUnsignedInteger(value string, allowZero bool) bool {
+	if value == "" {
+		return false
+	}
+	if value == "0" {
+		return allowZero
+	}
+	if !isASCIIDigitNonZero(value[0]) {
+		return false
+	}
+	for i := 1; i < len(value); i++ {
+		if !isASCIIDigit(value[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// validAccountChars 校验账号字符边界：必须以 ASCII 字母开头，后续仅允许字母、数字和下划线。
+func validAccountChars(value string) bool {
+	if value == "" || !isASCIILetter(value[0]) {
+		return false
+	}
+	for i := 1; i < len(value); i++ {
+		if !isASCIILetter(value[i]) && !isASCIIDigit(value[i]) && value[i] != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// hasConsecutiveUnderscore 判断是否存在连续下划线，供账号校验维持历史错误分类优先级。
+func hasConsecutiveUnderscore(value string) bool {
+	previousUnderscore := false
+	for i := 0; i < len(value); i++ {
+		if value[i] == '_' {
+			if previousUnderscore {
+				return true
+			}
+			previousUnderscore = true
+			continue
+		}
+		previousUnderscore = false
+	}
+	return false
+}
+
+// validASCIILetterDigitUnderscore 校验密码字符集，保持历史 `\w` 的 ASCII 字母、数字、下划线语义。
+func validASCIILetterDigitUnderscore(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if !isASCIILetter(value[i]) && !isASCIIDigit(value[i]) && value[i] != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// passwordASCIIFlags 一次扫描密码字符类别，allowSpecial 表示是否允许特殊字符参与最终格式校验。
+func passwordASCIIFlags(value string, allowSpecial bool) (hasLower, hasUpper, hasDigit, valid bool) {
+	valid = true
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			hasLower = true
+		case ch >= 'A' && ch <= 'Z':
+			hasUpper = true
+		case isASCIIDigit(ch):
+			hasDigit = true
+		case allowSpecial:
+			if ch == '\n' {
+				valid = false
+			}
+		default:
+			valid = false
+		}
+	}
+	return hasLower, hasUpper, hasDigit, valid
+}
+
+// runeCountInRange 校验字符串的 Unicode 字符数边界，用于模拟历史正则 `.` 按字符计数的行为。
+func runeCountInRange(value string, min, max int) bool {
+	count := 0
+	for range value {
+		count++
+		if count > max {
+			return false
+		}
+	}
+	return count >= min
+}
+
+// isASCIILetter 判断单字节是否为 ASCII 英文字母，避免 Unicode 扩展导致历史校验范围变化。
+func isASCIILetter(ch byte) bool {
+	return ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
+}
+
+// isASCIIDigit 判断单字节是否为 ASCII 数字。
+func isASCIIDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9'
+}
+
+// isASCIIDigitNonZero 判断单字节是否为 1-9，用于拒绝带前导零的数字格式。
+func isASCIIDigitNonZero(ch byte) bool {
+	return ch >= '1' && ch <= '9'
 }

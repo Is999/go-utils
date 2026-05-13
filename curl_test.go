@@ -785,6 +785,34 @@ func TestDebugLoggingPreservesRequestAndResponseBody(t *testing.T) {
 	}
 }
 
+// TestDebugLoggingDoesNotConsumeCustomReadSeekCloser 验证日志预览不会消耗自定义可 Seek 请求体。
+func TestDebugLoggingDoesNotConsumeCustomReadSeekCloser(t *testing.T) {
+	const payload = "seekable-body"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("server ReadAll() error = %v", err)
+		}
+		if string(body) != payload {
+			t.Fatalf("server body = %q, want %q", body, payload)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	body := &trackingReadSeekCloser{Reader: bytes.NewReader([]byte(payload))}
+	err := utils.NewCurl(
+		utils.WithCurlLogger(curlTestLogger{}),
+		utils.WithCurlDefLogOutput(true),
+	).
+		SetBody(body).
+		Post(srv.URL)
+	if err != nil {
+		t.Fatalf("Post() error = %v", err)
+	}
+}
+
 func TestRetryRewindsRequestBody(t *testing.T) {
 	const payload = "retry-body"
 
@@ -844,6 +872,57 @@ func TestBuildURLPreservesExistingQuery(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("utils.BuildUrl() = %q, missing %q", got, want)
 		}
+	}
+}
+
+func TestCurlParamCacheInvalidatesOnMutation(t *testing.T) {
+	// srv 回显 GET 查询串或 POST Form body，用于验证缓存编码结果不会跨参数变更复用旧值。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("server ReadAll() error = %v", err)
+			}
+			_, _ = w.Write(body)
+			return
+		}
+		_, _ = w.Write([]byte(r.URL.Query().Encode()))
+	}))
+	defer srv.Close()
+
+	// gotBody 是客户端 AfterBody 捕获的服务端回显内容，用于断言每次请求的实际参数。
+	var gotBody string
+	curl := utils.NewCurl().
+		SetParam("page", "1").
+		AfterBody(func(body []byte) error {
+			gotBody = string(body)
+			return nil
+		})
+
+	if err := curl.Get(srv.URL); err != nil {
+		t.Fatalf("first Get() error = %v", err)
+	}
+	if values, err := url.ParseQuery(gotBody); err != nil || values.Get("page") != "1" {
+		t.Fatalf("first query = %q, values=%v, err=%v", gotBody, values, err)
+	}
+
+	curl.SetParam("page", "2")
+	if err := curl.Get(srv.URL); err != nil {
+		t.Fatalf("second Get() error = %v", err)
+	}
+	if values, err := url.ParseQuery(gotBody); err != nil || values.Get("page") != "2" {
+		t.Fatalf("second query = %q, values=%v, err=%v", gotBody, values, err)
+	}
+
+	// params 是 GetParams 暴露给调用方的可变 map，直接修改后也必须让缓存失效。
+	params := curl.GetParams()
+	params.Set("page", "3")
+	params.Set("q", "中文 空格")
+	if err := curl.PostForm(srv.URL); err != nil {
+		t.Fatalf("PostForm() error = %v", err)
+	}
+	if values, err := url.ParseQuery(gotBody); err != nil || values.Get("page") != "3" || values.Get("q") != "中文 空格" {
+		t.Fatalf("form body = %q, values=%v, err=%v", gotBody, values, err)
 	}
 }
 
@@ -1175,6 +1254,18 @@ type trackingReadCloser struct {
 }
 
 func (r *trackingReadCloser) Close() error {
+	r.closed.Store(true)
+	return nil
+}
+
+// trackingReadSeekCloser 是测试用可读、可 Seek、可关闭请求体，用于覆盖日志预览对读取游标的影响。
+type trackingReadSeekCloser struct {
+	*bytes.Reader             // 内存请求体数据源，模拟业务侧传入的可回放 body。
+	closed        atomic.Bool // 记录 Close 是否被调用，便于后续扩展资源释放断言。
+}
+
+// Close 记录关闭状态，模拟真实请求体资源释放。
+func (r *trackingReadSeekCloser) Close() error {
 	r.closed.Store(true)
 	return nil
 }

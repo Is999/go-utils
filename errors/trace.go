@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // ============================ 链路追踪 API ============================
@@ -340,6 +341,12 @@ func writeJoinedText(b *strings.Builder, children []error, depth int, withTrace 
 
 // ============================ JSON 追踪渲染 ============================
 
+const (
+	// traceJSONHex 是 TraceJSON 字符串转义使用的十六进制表。
+	// 业务意图：错误消息和上下文值可能来自外部输入，必须按 JSON 规则转义控制字符，避免日志落盘后无法解析。
+	traceJSONHex = "0123456789abcdef"
+)
+
 // writeJSONTrace 渲染 JSON 格式的错误追踪。
 // 结构为：{"code":xxx,"msg":"xxx","ctx":{"k":"v"},"trace":["loc1","loc2"],"err":{...}}
 // Join 场景下使用 "errs" 数组扁平化输出，避免嵌套。
@@ -549,7 +556,56 @@ func writeTraceFrames(b *strings.Builder, st stackTrace) {
 		b.WriteByte(']')
 		return
 	}
-	frames := runtime.CallersFrames(st)
+	if !writeProjectTraceFrames(b, st) {
+		writeRawTraceFrames(b, st)
+	}
+	b.WriteByte(']')
+}
+
+// writeProjectTraceFrames 将项目内连续栈帧渲染为 JSON 数组元素。
+// 数据来源是 runtime.Callers 捕获的原始 PC；渲染时才解析 runtime.Frame 并裁剪项目边界，避免创建错误时承担路径处理成本。
+//
+// 参数说明：
+//   - b：字符串构建器
+//   - st：原始 PC 栈追踪
+//
+// 返回值：true 表示已找到并写入项目帧；false 表示需要调用方降级输出原始栈
+func writeProjectTraceFrames(b *strings.Builder, st stackTrace) bool {
+	root := projectRoot() // root 是项目边界，命中后只输出第一段连续业务栈帧。
+	if root == "" || len(st) == 0 {
+		return false
+	}
+
+	frames := runtime.CallersFrames(st) // frames 从原始 PC 懒解析，避免错误创建时承担 JSON 输出成本。
+	started := false                    // started 表示已进入项目帧区间，后续遇到非项目帧即完成裁剪。
+	wrote := false                      // wrote 标记 JSON 数组是否已有元素，用于安全写入逗号分隔符。
+	for range len(st) {
+		frame, more := frames.Next()
+		if isWithinRoot(frame.File, root) {
+			started = true
+			if wrote {
+				b.WriteByte(',')
+			}
+			writeQuotedFrame(b, frame)
+			wrote = true
+		} else if started {
+			break
+		}
+		if !more {
+			break
+		}
+	}
+	return started
+}
+
+// writeRawTraceFrames 将原始 PC 栈帧渲染为 JSON 数组元素。
+// 这是找不到项目根或项目帧时的降级策略，宁可保留完整诊断信息，也不静默输出空 trace。
+//
+// 参数说明：
+//   - b：字符串构建器
+//   - st：原始 PC 栈追踪
+func writeRawTraceFrames(b *strings.Builder, st stackTrace) {
+	frames := runtime.CallersFrames(st) // frames 是降级输出使用的原始调用栈，可能包含框架帧但不丢诊断信息。
 	for i := range len(st) {
 		frame, more := frames.Next()
 		if i > 0 {
@@ -560,19 +616,18 @@ func writeTraceFrames(b *strings.Builder, st stackTrace) {
 			break
 		}
 	}
-	b.WriteByte(']')
 }
 
 // writeQuotedString 将字符串写入 Builder 并进行 JSON 转义。
-// 使用栈上 512 字节缓冲区避免堆分配。
+// 业务意图：TraceJSON 可能承载外部错误消息和 context 值，必须输出严格 JSON 字符串而不是 Go 字符串字面量。
 //
 // 参数说明：
 //   - b：字符串构建器
 //   - s：要写入的字符串
 func writeQuotedString(b *strings.Builder, s string) {
-	var buf [512]byte
-	quoted := strconv.AppendQuote(buf[:0], s)
-	_, _ = b.Write(quoted)
+	b.WriteByte('"')
+	writeJSONEscapedContent(b, s)
+	b.WriteByte('"')
 }
 
 // writeInt 将整数写入 Builder，使用栈缓冲区避免分配。
@@ -593,6 +648,46 @@ func writeFirstFrameLocation(b *strings.Builder, st stackTrace) {
 	if len(st) == 0 {
 		return
 	}
+	if writeFirstProjectFrameLocation(b, st) {
+		return
+	}
+	writeFirstRawFrameLocation(b, st)
+}
+
+// writeFirstProjectFrameLocation 写入首个项目内栈帧的位置。
+// TraceString 只展示首个业务失败位置，因此找到第一帧项目路径后即可停止，避免解析完整调用栈。
+//
+// 参数说明：
+//   - b：字符串构建器
+//   - st：原始 PC 栈追踪
+//
+// 返回值：true 表示已写入项目内位置；false 表示调用方需要降级使用原始首帧
+func writeFirstProjectFrameLocation(b *strings.Builder, st stackTrace) bool {
+	root := projectRoot() // root 用来跳过错误库外层框架帧，优先定位第一帧业务代码。
+	if root == "" || len(st) == 0 {
+		return false
+	}
+	frames := runtime.CallersFrames(st) // frames 按需解析到第一帧项目路径后即停止，保护文本日志性能。
+	for range len(st) {
+		frame, more := frames.Next()
+		if isWithinRoot(frame.File, root) {
+			writeFrameLocation(b, frame)
+			return true
+		}
+		if !more {
+			break
+		}
+	}
+	return false
+}
+
+// writeFirstRawFrameLocation 写入原始栈的首帧位置。
+// 这是项目根不可用或没有项目帧时的降级策略，确保 TraceString 仍然给出可定位的失败位置。
+//
+// 参数说明：
+//   - b：字符串构建器
+//   - st：原始 PC 栈追踪
+func writeFirstRawFrameLocation(b *strings.Builder, st stackTrace) {
 	frame, _ := runtime.CallersFrames(st).Next()
 	writeFrameLocation(b, frame)
 }
@@ -606,7 +701,13 @@ func writeFirstFrameLocation(b *strings.Builder, st stackTrace) {
 func writeQuotedFrame(b *strings.Builder, frame runtime.Frame) {
 	file := relativeProjectPath(frame.File)
 	if needsJSONEscape(frame.Function) || needsJSONEscape(file) {
-		writeQuotedString(b, buildFrameString(frame.Function, file, frame.Line))
+		b.WriteByte('"')
+		writeJSONEscapedContent(b, frame.Function)
+		b.WriteString(" (")
+		writeJSONEscapedContent(b, file)
+		b.WriteByte(':')
+		writeInt(b, frame.Line)
+		b.WriteString(`)"`)
 		return
 	}
 	b.WriteByte('"')
@@ -614,25 +715,65 @@ func writeQuotedFrame(b *strings.Builder, frame runtime.Frame) {
 	b.WriteByte('"')
 }
 
-// buildFrameString 构建帧的完整字符串表示。
-// 格式为：function (file:line)
+// writeJSONEscapedContent 写入 JSON 字符串内部内容，不包含外层引号。
+// 业务意图：栈帧函数名或路径偶发包含引号、反斜杠、控制字符时直接转义片段，避免先拼接完整帧字符串再二次转义。
 //
 // 参数说明：
-//   - function：函数名
-//   - file：文件路径
-//   - line：行号
-//
-// 返回值：格式化后的帧字符串
-func buildFrameString(function, file string, line int) string {
-	var b strings.Builder
-	b.Grow(len(function) + len(file) + 16)
-	b.WriteString(function)
-	b.WriteString(" (")
-	b.WriteString(file)
-	b.WriteByte(':')
-	writeInt(&b, line)
-	b.WriteByte(')')
-	return b.String()
+//   - b：字符串构建器
+//   - s：待写入的字符串片段，数据来源为 runtime.Frame.Function 或裁剪后的文件路径
+func writeJSONEscapedContent(b *strings.Builder, s string) {
+	start := 0 // start 是尚未写入的安全片段起点，用于批量写出普通字符减少 Write 调用。
+	for i := 0; i < len(s); {
+		if c := s[i]; c < utf8.RuneSelf {
+			if c >= 0x20 && c != '\\' && c != '"' {
+				i++
+				continue
+			}
+			b.WriteString(s[start:i])
+			switch c {
+			case '\\', '"':
+				b.WriteByte('\\')
+				b.WriteByte(c)
+			case '\b':
+				b.WriteString(`\b`)
+			case '\f':
+				b.WriteString(`\f`)
+			case '\n':
+				b.WriteString(`\n`)
+			case '\r':
+				b.WriteString(`\r`)
+			case '\t':
+				b.WriteString(`\t`)
+			default:
+				// 其他控制字符必须写成 \u00xx；\xNN 是 Go 字符串语法，不是合法 JSON。
+				b.WriteString(`\u00`)
+				b.WriteByte(traceJSONHex[c>>4])
+				b.WriteByte(traceJSONHex[c&0x0f])
+			}
+			i++
+			start = i
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(s[i:]) // r 是当前 UTF-8 字符；非法字节需要按 JSON 兼容方式降级。
+		if r == utf8.RuneError && size == 1 {
+			b.WriteString(s[start:i])
+			b.WriteString(`\ufffd`)
+			i++
+			start = i
+			continue
+		}
+		if r == '\u2028' || r == '\u2029' {
+			b.WriteString(s[start:i])
+			b.WriteString(`\u202`)
+			b.WriteByte(traceJSONHex[r&0x0f])
+			i += size
+			start = i
+			continue
+		}
+		i += size
+	}
+	b.WriteString(s[start:])
 }
 
 // writeFrameLocation 将帧位置写入 Builder。

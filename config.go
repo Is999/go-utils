@@ -23,6 +23,9 @@ type _json struct {
 	encode Encode
 	// 对数据进行 JSON 解码
 	decode Decode
+	// useStandard 表示当前是否仍使用标准库 JSON 编解码。
+	// 业务意图：响应体可在标准库语义下走手写包壳快路径；用户注入第三方 JSON 时必须回退到自定义实现。
+	useStandard bool
 }
 
 // options 保存全局配置快照。
@@ -44,8 +47,9 @@ func defaultOptions() *options {
 	return &options{
 		// 设置 json 编解码方法(三方开源库)，若未设置则默认使用 encoding/json(标准库)。
 		json: _json{
-			encode: json.Marshal,
-			decode: json.Unmarshal,
+			encode:      json.Marshal,
+			decode:      json.Unmarshal,
+			useStandard: true,
 		},
 		// 设置日志(三方日志库)，若未设置则默认使用 log/slog(标准库)。
 		logger: newSlogLogger(),
@@ -73,6 +77,7 @@ func WithJSON(encode Encode, decode Decode) Option {
 		}
 		o.json.encode = encode
 		o.json.decode = decode
+		o.json.useStandard = false
 	}
 }
 

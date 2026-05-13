@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"io"
 	"mime"
@@ -9,19 +10,24 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Response 默认值与响应头常量。
 const (
-	defaultResponseStatus      = http.StatusOK
-	defaultJSONContentType     = "application/json; charset=utf-8"
-	defaultSuccessMessage      = "SUCCESS"
-	headerContentType          = "Content-Type"
-	headerContentLength        = "Content-Length"
-	headerContentDisposition   = "Content-Disposition"
-	headerContentTypeOptions   = "X-Content-Type-Options"
-	headerLocation             = "Location"
-	responseFallbackAttachment = "download"
+	defaultResponseStatus      = http.StatusOK                     // 默认 HTTP 状态码，调用方未显式设置时按成功响应处理
+	defaultJSONContentType     = "application/json; charset=utf-8" // JSON 响应默认 Content-Type，包含 UTF-8 字符集
+	defaultTextContentType     = "text/plain; charset=utf-8"       // 纯文本响应默认 Content-Type，避免每次 Text 调用重复规范化
+	defaultHTMLContentType     = "text/html; charset=utf-8"        // HTML 响应默认 Content-Type，避免每次 Html 调用重复规范化
+	defaultXMLContentType      = "application/xml; charset=utf-8"  // XML 响应默认 Content-Type，避免每次 Xml 调用重复规范化
+	defaultSuccessMessage      = "SUCCESS"                         // JSON 成功响应默认业务消息
+	headerContentType          = "Content-Type"                    // Content-Type 响应头名，用于声明 body 媒体类型
+	headerContentLength        = "Content-Length"                  // Content-Length 响应头名，用于文件手动输出时声明长度
+	headerContentDisposition   = "Content-Disposition"             // Content-Disposition 响应头名，用于下载文件名
+	headerContentTypeOptions   = "X-Content-Type-Options"          // X-Content-Type-Options 响应头名，用于禁止浏览器类型嗅探
+	headerLocation             = "Location"                        // Location 响应头名，用于重定向目标地址
+	responseFallbackAttachment = "download"                        // 下载文件名清洗为空时的兜底名称
+	responseJSONHex            = "0123456789abcdef"                // JSON 字符串控制字符转义使用的小写十六进制表，与 encoding/json 输出保持一致
 )
 
 // Response HTTP 响应构造器。
@@ -133,7 +139,7 @@ func (r *Response) Text(data string) {
 	if r == nil {
 		return
 	}
-	r.ContentType("text/plain")
+	r.setContentType(defaultTextContentType)
 	r.writeString(data)
 }
 
@@ -142,7 +148,7 @@ func (r *Response) Html(data string) {
 	if r == nil {
 		return
 	}
-	r.ContentType("text/html")
+	r.setContentType(defaultHTMLContentType)
 	r.writeString(data)
 }
 
@@ -158,7 +164,7 @@ func (r *Response) Xml(data any) {
 		r.serverError("Xml xml.Marshal", err, "data", data)
 		return
 	}
-	r.ContentType("application/xml")
+	r.setContentType(defaultXMLContentType)
 
 	body := make([]byte, 0, len(xml.Header)+len(xmlData))
 	body = append(body, xml.Header...)
@@ -250,7 +256,7 @@ func (r *Response) ContentType(contentType string) *Response {
 		return r
 	}
 	if ct := normalizeContentType(contentType); ct != "" {
-		r.writer.Header().Set(headerContentType, ct)
+		r.setContentType(ct)
 	}
 	return r
 }
@@ -261,7 +267,9 @@ func (r *Response) ensureContentType(contentType string) *Response {
 		return r
 	}
 	if r.writer.Header().Get(headerContentType) == "" {
-		r.ContentType(contentType)
+		if ct := normalizeContentType(contentType); ct != "" {
+			r.setContentType(ct)
+		}
 	}
 	return r
 }
@@ -276,7 +284,11 @@ func (r *Response) Header(f func(header http.Header)) *Response {
 }
 
 // Encode 对 JSON 响应体编码。
+// 使用默认标准库 JSON 时走手写响应包壳快路径；配置第三方 JSON 后回退到自定义编码器，避免改变调用方语义。
 func (r *Response) Encode() ([]byte, error) {
+	if currentConfig().json.useStandard {
+		return encodeResponseBody(r.Body)
+	}
 	return Marshal(r.Body)
 }
 
@@ -324,6 +336,86 @@ func newResponse(w http.ResponseWriter, statusCode int, opts ...ResponseOption) 
 	return resp
 }
 
+// encodeResponseBody 编码统一 JSON 响应包壳。
+// 业务意图：success/code/message 四个固定字段不再走反射；data 仍交给 encoding/json，保持任意业务数据的标准库语义。
+func encodeResponseBody(body Body) ([]byte, error) {
+	// dataJSON 是业务数据的 JSON 片段，数据来源为 Body.Data；nil 会按标准库语义输出 null。
+	dataJSON, err := json.Marshal(body.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	// out 预估固定字段与业务数据容量，减少 append 扩容；message 可能包含转义字符，容量只做保守估计。
+	out := make([]byte, 0, len(dataJSON)+len(body.Message)+64)
+	out = append(out, `{"success":`...)
+	out = strconv.AppendBool(out, body.Success)
+	out = append(out, `,"code":`...)
+	out = strconv.AppendInt(out, int64(body.Code), 10)
+	out = append(out, `,"message":`...)
+	out = appendJSONQuotedString(out, body.Message)
+	out = append(out, `,"data":`...)
+	out = append(out, dataJSON...)
+	out = append(out, '}')
+	return out, nil
+}
+
+// appendJSONQuotedString 按 encoding/json 的默认 escapeHTML 规则追加 JSON 字符串。
+// 业务边界：Response 快路径只用于标准库配置，因此必须转义 <、>、&、U+2028、U+2029 与非法 UTF-8，确保输出与 json.Marshal 语义一致。
+func appendJSONQuotedString(dst []byte, s string) []byte {
+	dst = append(dst, '"')
+	start := 0
+	for i := 0; i < len(s); {
+		if b := s[i]; b < utf8.RuneSelf {
+			if b >= 0x20 && b != '\\' && b != '"' && b != '<' && b != '>' && b != '&' {
+				i++
+				continue
+			}
+			dst = append(dst, s[start:i]...)
+			switch b {
+			case '\\', '"':
+				dst = append(dst, '\\', b)
+			case '\b':
+				dst = append(dst, '\\', 'b')
+			case '\f':
+				dst = append(dst, '\\', 'f')
+			case '\n':
+				dst = append(dst, '\\', 'n')
+			case '\r':
+				dst = append(dst, '\\', 'r')
+			case '\t':
+				dst = append(dst, '\\', 't')
+			default:
+				// 控制字符和 HTML 敏感字符统一写成 \u00xx，保持标准库 json.Marshal 的默认转义策略。
+				dst = append(dst, '\\', 'u', '0', '0', responseJSONHex[b>>4], responseJSONHex[b&0x0f])
+			}
+			i++
+			start = i
+			continue
+		}
+
+		// r 是当前 UTF-8 字符；非法编码按标准库语义降级为 \ufffd，避免写出非 JSON 文本。
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			dst = append(dst, s[start:i]...)
+			dst = append(dst, `\ufffd`...)
+			i++
+			start = i
+			continue
+		}
+		if r == '\u2028' || r == '\u2029' {
+			dst = append(dst, s[start:i]...)
+			dst = append(dst, '\\', 'u', '2', '0', '2', responseJSONHex[r&0x0f])
+			i += size
+			start = i
+			continue
+		}
+		i += size
+	}
+	dst = append(dst, s[start:]...)
+	dst = append(dst, '"')
+	return dst
+}
+
 // setStatusCode 校验并记录 HTTP 状态码。
 func (r *Response) setStatusCode(statusCode int) {
 	if validHTTPStatus(statusCode) {
@@ -335,6 +427,37 @@ func (r *Response) setStatusCode(statusCode int) {
 // validHTTPStatus 判断状态码是否在 net/http 支持范围内。
 func validHTTPStatus(statusCode int) bool {
 	return statusCode >= 100 && statusCode <= 599
+}
+
+// setContentType 写入已规范化的 Content-Type。
+// 调用方负责传入业务需要的 charset；该方法不再重复 normalize，服务于 Text/Html/Xml/Json 热路径。
+//
+// 参数说明：
+//   - contentType：已规范化的响应 Content-Type，空字符串会被忽略
+func (r *Response) setContentType(contentType string) {
+	if r == nil || r.writer == nil || contentType == "" {
+		return
+	}
+	setHeaderValue(r.writer.Header(), headerContentType, contentType)
+}
+
+// setHeaderValue 覆盖单值响应头。
+// key 来自本包常量，已经是标准 HTTP Header 形式；直接写 map 可避开 Header.Set 的重复规范化开销。
+//
+// 参数说明：
+//   - header：响应头映射，来源于 http.ResponseWriter.Header()
+//   - key：响应头名称，必须使用规范化后的常量
+//   - value：响应头单值内容
+func setHeaderValue(header http.Header, key, value string) {
+	if header == nil {
+		return
+	}
+	values := header[key] // values 是当前 header 已有的同名值列表，复用其底层数组可减少重复设置时的分配。
+	if len(values) == 0 {
+		header[key] = []string{value}
+		return
+	}
+	header[key] = append(values[:0], value)
 }
 
 // writeJSON 将当前 Body 编码为 JSON 并写出。

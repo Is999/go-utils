@@ -10,11 +10,93 @@ import (
 
 // ============================ 请求构建方法 ============================
 
+// ensureHeader 返回可写请求头映射。
+// Header 只有在构造默认头、用户设置头或发送请求时才需要分配；懒初始化可降低 NewCurl 热路径开销。
+//
+// 返回值：http.Header，可直接写入请求头键值。
+func (c *Curl) ensureHeader() http.Header {
+	if c.header == nil {
+		c.header = make(http.Header, 2)
+	}
+	return c.header
+}
+
+// ensureDefaultContentType 返回已补齐默认 Content-Type 的请求头映射。
+// 默认值只在读取 Header 或发送请求前写入，避免只创建 Curl 模板时分配 Header map。
+//
+// 返回值：http.Header，至少包含默认或用户自定义的 Content-Type。
+func (c *Curl) ensureDefaultContentType() http.Header {
+	header := c.ensureHeader()
+	if header.Get(curlHeaderContentType) == "" {
+		header.Set(curlHeaderContentType, defaultCurlContentType)
+	}
+	return header
+}
+
+// ensureParams 返回可写查询参数映射。
+// 参数数据来源于 SetParam/AddParam/PostForm 等调用；未使用参数能力时保持 nil，避免空 map 分配。
+//
+// 返回值：url.Values，可直接写入查询参数。
+func (c *Curl) ensureParams() url.Values {
+	if c.params == nil {
+		c.params = make(url.Values)
+	}
+	return c.params
+}
+
+// markParamsDirty 标记参数编码缓存失效。
+// 业务意图：params 是可变 map，任意 Set/Add/Del 或暴露给调用方修改后，都必须让下次请求重新 Encode。
+func (c *Curl) markParamsDirty() {
+	c.paramsDirty = true
+	c.encodedParams = ""
+}
+
+// encodedQueryParams 返回当前参数的 URL 编码结果。
+// 缓存数据来源于 url.Values.Encode；参数未变更时复用上次结果，避免重复请求时反复排序与拼接。
+func (c *Curl) encodedQueryParams() string {
+	if c.params == nil || len(c.params) == 0 {
+		c.encodedParams = ""
+		c.paramsDirty = false
+		return ""
+	}
+	if !c.paramsDirty {
+		return c.encodedParams
+	}
+
+	// encoded 是本次请求使用的稳定查询串；Encode 内部会按 key 排序，缓存后可保护重复请求热路径。
+	encoded := c.params.Encode()
+	c.encodedParams = encoded
+	c.paramsDirty = false
+	return encoded
+}
+
+// ensureCookies 返回可写 Cookie 映射。
+// Cookie 数据来源于 SetCookies/AddCookies；capacity 用于批量设置时预留容量，减少扩容。
+//
+// 参数说明：
+//   - capacity：预估 Cookie 数量，小于等于 0 时按默认容量创建。
+//
+// 返回值：Cookie 名称到 Cookie 对象的映射。
+func (c *Curl) ensureCookies(capacity int) map[string]*http.Cookie {
+	if c.cookies == nil {
+		if capacity > 0 {
+			c.cookies = make(map[string]*http.Cookie, capacity)
+		} else {
+			c.cookies = make(map[string]*http.Cookie)
+		}
+	}
+	return c.cookies
+}
+
 // GetHeader 获取当前请求头配置。
 //
 // 返回值：http.Header 请求头映射
 func (c *Curl) GetHeader() http.Header {
-	return c.header
+	// 调用方读取完整 Header 时补齐懒生成的请求 ID，保持构造后可观察到链路头的兼容行为。
+	if c.requestID == "" {
+		c.SetRequestID()
+	}
+	return c.ensureDefaultContentType()
 }
 
 // GetHeaderValues 获取请求头中指定键的所有值。
@@ -45,7 +127,7 @@ func (c *Curl) HasHeader(key string) bool {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetHeader(key, value string) *Curl {
-	c.header.Set(key, value)
+	c.ensureHeader().Set(key, value)
 	return c
 }
 
@@ -70,8 +152,9 @@ func (c *Curl) SetHeaders(headers map[string]string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) AddHeader(key string, values ...string) *Curl {
+	header := c.ensureHeader()
 	for _, value := range values {
-		c.header.Add(key, value)
+		header.Add(key, value)
 	}
 	return c
 }
@@ -98,6 +181,9 @@ func (c *Curl) AddHeaders(headers map[string][]string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) DelHeaders(keys ...string) *Curl {
+	if c.header == nil {
+		return c
+	}
 	for _, key := range keys {
 		c.header.Del(key)
 	}
@@ -113,6 +199,9 @@ func (c *Curl) DelHeaders(keys ...string) *Curl {
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) ReSetHeader(header http.Header) *Curl {
 	if header == nil {
+		if c.header == nil {
+			return c
+		}
 		for key := range c.header {
 			c.header.Del(key)
 		}
@@ -126,7 +215,9 @@ func (c *Curl) ReSetHeader(header http.Header) *Curl {
 //
 // 返回值：url.Values 查询参数映射
 func (c *Curl) GetParams() url.Values {
-	return c.params
+	// 返回内部 map 后调用方可能直接修改，提前标脏以保证下一次发送请求不会复用旧编码结果。
+	c.markParamsDirty()
+	return c.ensureParams()
 }
 
 // GetParamValues 获取查询参数中指定键的值。
@@ -157,7 +248,8 @@ func (c *Curl) HasParam(key string) bool {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetParam(key, value string) *Curl {
-	c.params.Set(key, value)
+	c.ensureParams().Set(key, value)
+	c.markParamsDirty()
 	return c
 }
 
@@ -168,9 +260,14 @@ func (c *Curl) SetParam(key, value string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetParams(params map[string]string) *Curl {
-	for key, value := range params {
-		c.SetParam(key, value)
+	if len(params) == 0 {
+		return c
 	}
+	values := c.ensureParams()
+	for key, value := range params {
+		values.Set(key, value)
+	}
+	c.markParamsDirty()
 	return c
 }
 
@@ -182,8 +279,12 @@ func (c *Curl) SetParams(params map[string]string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) AddParam(key string, values ...string) *Curl {
+	params := c.ensureParams()
 	for _, value := range values {
-		c.params.Add(key, value)
+		params.Add(key, value)
+	}
+	if len(values) > 0 {
+		c.markParamsDirty()
 	}
 	return c
 }
@@ -195,10 +296,21 @@ func (c *Curl) AddParam(key string, values ...string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) AddParams(params map[string][]string) *Curl {
-	for key, values := range params {
-		if values != nil && len(values) > 0 {
-			c.AddParam(key, values...)
+	if len(params) == 0 {
+		return c
+	}
+	paramsValues := c.ensureParams()
+	changed := false
+	for key, list := range params {
+		if list != nil && len(list) > 0 {
+			for _, value := range list {
+				paramsValues.Add(key, value)
+			}
+			changed = true
 		}
+	}
+	if changed {
+		c.markParamsDirty()
 	}
 	return c
 }
@@ -210,9 +322,13 @@ func (c *Curl) AddParams(params map[string][]string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) DelParams(keys ...string) *Curl {
+	if c.params == nil || len(keys) == 0 {
+		return c
+	}
 	for _, key := range keys {
 		c.params.Del(key)
 	}
+	c.markParamsDirty()
 	return c
 }
 
@@ -225,12 +341,17 @@ func (c *Curl) DelParams(keys ...string) *Curl {
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) ReSetParams(params url.Values) *Curl {
 	if params == nil {
+		if c.params == nil {
+			return c
+		}
 		for key := range c.params {
 			c.params.Del(key)
 		}
+		c.markParamsDirty()
 		return c
 	}
 	c.params = params
+	c.markParamsDirty()
 	return c
 }
 
@@ -299,9 +420,13 @@ func (c *Curl) SetCookies(cookies ...*http.Cookie) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) AddCookies(cookies ...*http.Cookie) *Curl {
+	var cookieMap map[string]*http.Cookie
 	for _, cookie := range cookies {
 		if cookie != nil {
-			c.cookies[cookie.Name] = cookie
+			if cookieMap == nil {
+				cookieMap = c.ensureCookies(len(cookies))
+			}
+			cookieMap[cookie.Name] = cookie
 		}
 	}
 	return c
@@ -353,7 +478,7 @@ func (c *Curl) SetTimeout(timeout uint16) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetContentType(contentType string) *Curl {
-	c.header.Set("Content-Type", contentType)
+	c.ensureHeader().Set(curlHeaderContentType, contentType)
 	return c
 }
 
@@ -364,7 +489,7 @@ func (c *Curl) SetContentType(contentType string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) SetUserAgent(userAgent string) *Curl {
-	c.header.Set("User-Agent", userAgent)
+	c.ensureHeader().Set("User-Agent", userAgent)
 	return c
 }
 

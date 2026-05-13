@@ -132,6 +132,24 @@ func TestUnique(t *testing.T) {
 	}
 }
 
+func TestUniqueIntoAndInPlace(t *testing.T) {
+	// src 是模拟业务标签列表的数据源，用于验证去重后仍保留首次出现顺序。
+	src := []string{"red", "green", "red", "blue", "green"}
+	// dst 是调用方循环复用的结果缓冲区，用于验证 Into 入口不会保留历史脏数据。
+	dst := []string{"stale"}
+	want := []string{"red", "green", "blue"}
+
+	if got := utils.UniqueInto(dst, src); !reflect.DeepEqual(got, want) {
+		t.Fatalf("UniqueInto() = %v, want %v", got, want)
+	}
+
+	// inPlace 是允许被覆盖的源数据，用于验证原地去重入口的边界行为。
+	inPlace := append([]string(nil), src...)
+	if got := utils.UniqueInPlace(inPlace); !reflect.DeepEqual(got, want) {
+		t.Fatalf("UniqueInPlace() = %v, want %v", got, want)
+	}
+}
+
 // go test -bench=Unique$ -run ^$  -count 5 -benchmem
 func BenchmarkUnique(t *testing.B) {
 	var l = 200
@@ -145,6 +163,24 @@ func BenchmarkUnique(t *testing.B) {
 		utils.Unique(s1)
 	}
 	t.StopTimer()
+}
+
+// go test -bench=UniqueInto$ -run ^$  -count 5 -benchmem
+func BenchmarkUniqueInto(t *testing.B) {
+	// l 是基准输入规模，覆盖中等长度业务列表，能触发 map 去重路径。
+	var l = 200
+	// s1 是待去重的数据源，重复值比例来自固定区间随机数。
+	var s1 = make([]int64, 0, l)
+	// dst 是循环复用的结果缓冲区，用于衡量 Into 入口减少分配的收益。
+	var dst = make([]int64, 0, l)
+	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
+	for i := 0; i < l; i++ {
+		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
+	}
+	t.ResetTimer()
+	for i := 0; i < t.N; i++ {
+		dst = utils.UniqueInto(dst, s1)
+	}
 }
 
 func TestDiff(t *testing.T) {
@@ -181,6 +217,20 @@ func TestDiff(t *testing.T) {
 	}
 }
 
+func TestDiffInto(t *testing.T) {
+	// s1 是保序数据源，重复元素需要按现有 Diff 语义保留。
+	s1 := []int{1, 2, 2, 3, 4, 5}
+	// s2 是排除集合，长度较短时会走线性扫描降级路径。
+	s2 := []int{2, 5}
+	// dst 是复用结果缓冲区，用于验证历史内容不会污染本次结果。
+	dst := []int{99, 100}
+	want := []int{1, 3, 4}
+
+	if got := utils.DiffInto(dst, s1, s2); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DiffInto() = %v, want %v", got, want)
+	}
+}
+
 // go test -bench=Diff$ -run ^$  -count 5 -benchmem
 func BenchmarkDiff(b *testing.B) {
 	var l = 200
@@ -195,6 +245,27 @@ func BenchmarkDiff(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		utils.Diff(s1, s2)
+	}
+}
+
+// go test -bench=DiffInto$ -run ^$  -count 5 -benchmem
+func BenchmarkDiffInto(b *testing.B) {
+	// l 是基准输入规模，覆盖中等长度差集运算的常见调用形态。
+	var l = 200
+	// s1 是主列表数据源，返回结果必须保持该列表顺序。
+	var s1 = make([]int64, 0, l)
+	// s2 是排除集合数据源，重复值不影响差集语义。
+	var s2 = make([]int64, 0, l)
+	// dst 是循环复用的结果缓冲区，用于衡量减少结果切片分配后的性能。
+	var dst = make([]int64, 0, l)
+	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
+	for i := 0; i < 200; i++ {
+		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
+		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		dst = utils.DiffInto(dst, s1, s2)
 	}
 }
 
@@ -228,6 +299,60 @@ func TestIntersect(t *testing.T) {
 				t.Errorf("Intersect() = %v, want %v", got2, tt2.want)
 			}
 		})
+	}
+}
+
+func TestIntersectInto(t *testing.T) {
+	// s1 是保序数据源，重复命中值需要按现有 Intersect 语义保留。
+	s1 := []string{"a", "b", "b", "c", "d"}
+	// s2 是命中集合，长度较短时会走线性扫描降级路径。
+	s2 := []string{"b", "d"}
+	// dst 是复用结果缓冲区，用于验证 Into 入口覆盖历史内容。
+	dst := []string{"stale"}
+	want := []string{"b", "b", "d"}
+
+	if got := utils.IntersectInto(dst, s1, s2); !reflect.DeepEqual(got, want) {
+		t.Fatalf("IntersectInto() = %v, want %v", got, want)
+	}
+}
+
+// go test -bench=Intersect$ -run ^$  -count 5 -benchmem
+func BenchmarkIntersect(b *testing.B) {
+	// l 是基准输入规模，覆盖中等长度交集运算的常见调用形态。
+	var l = 200
+	// s1 是主列表数据源，返回结果必须保持该列表顺序。
+	var s1 = make([]int64, 0, l)
+	// s2 是命中集合数据源，用于构造 membership 查询。
+	var s2 = make([]int64, 0, l)
+	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
+	for i := 0; i < 200; i++ {
+		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
+		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		utils.Intersect(s1, s2)
+	}
+}
+
+// go test -bench=IntersectInto$ -run ^$  -count 5 -benchmem
+func BenchmarkIntersectInto(b *testing.B) {
+	// l 是基准输入规模，覆盖中等长度交集运算的常见调用形态。
+	var l = 200
+	// s1 是主列表数据源，返回结果必须保持该列表顺序。
+	var s1 = make([]int64, 0, l)
+	// s2 是命中集合数据源，用于构造 membership 查询。
+	var s2 = make([]int64, 0, l)
+	// dst 是循环复用的结果缓冲区，用于衡量减少结果切片分配后的性能。
+	var dst = make([]int64, 0, l)
+	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
+	for i := 0; i < 200; i++ {
+		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
+		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		dst = utils.IntersectInto(dst, s1, s2)
 	}
 }
 

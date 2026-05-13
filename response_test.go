@@ -2,6 +2,7 @@ package utils_test
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -232,6 +233,30 @@ func TestResponseFailUsesBadRequestByDefault(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status code = %d, want %d", res.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestResponseJSONFastPathMatchesStandardEscaping(t *testing.T) {
+	// message 是包含 HTML 敏感字符、JS 行分隔符和非法 UTF-8 的业务消息，用于校验快路径与标准库完全一致。
+	message := "bad <>&\u2028" + string([]byte{0xff})
+	// data 是响应业务数据源，map 可覆盖 data 片段仍由 encoding/json 负责编码的边界。
+	data := map[string]string{"name": "<codex>&"}
+	// expectedBody 是标准库对完整 Body 的编码结果，作为兼容性基准。
+	expectedBody, err := json.Marshal(utils.Body{
+		Success: true,
+		Code:    1000,
+		Message: message,
+		Data:    data,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	utils.Json(w).Success(1000, data, message)
+
+	if got := w.Body.String(); got != string(expectedBody) {
+		t.Fatalf("response body = %q, want %q", got, string(expectedBody))
 	}
 }
 
