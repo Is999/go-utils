@@ -68,7 +68,7 @@ func Source(err error) error {
 	last := err
 	for current, depth := err, 0; current != nil && depth < maxChainDepth; depth++ {
 		last = current
-		next, children := unwrapNode(current)
+		children, next := unwrapNode(current)
 		if len(children) > 0 {
 			return sourceMulti(current, children)
 		}
@@ -101,7 +101,7 @@ func Sources(err error) []error {
 		if current == nil {
 			continue
 		}
-		next, children := unwrapNode(current)
+		children, next := unwrapNode(current)
 		switch {
 		case len(children) > 0:
 			before := len(stack)
@@ -139,7 +139,7 @@ func Chain(err error) []error {
 			continue
 		}
 		chain = append(chain, current)
-		next, children := unwrapNode(current)
+		children, next := unwrapNode(current)
 		switch {
 		case len(children) > 0:
 			pushChildren(&stack, children)
@@ -234,7 +234,7 @@ func hasStackMulti(children []error) bool {
 		case *contextError:
 			stack = append(stack, e.err)
 		default:
-			next, children := unwrapNode(current)
+			children, next := unwrapNode(current)
 			switch {
 			case len(children) > 0:
 				pushChildren(&stack, children)
@@ -267,7 +267,7 @@ func sourceMulti(err error, children []error) error {
 			continue
 		}
 		last = current
-		next, children := unwrapNode(current)
+		children, next := unwrapNode(current)
 		switch {
 		case len(children) > 0:
 			pushChildren(&stack, children)
@@ -283,22 +283,22 @@ func sourceMulti(err error, children []error) error {
 // unwrapNode 解析单分支或多分支错误节点。
 //
 // 返回值：
-//   - error：单分支下一个错误节点。
 //   - []error：errors.Join 等多分支错误节点。
-func unwrapNode(err error) (error, []error) {
+//   - error：单分支下一个错误节点。
+func unwrapNode(err error) ([]error, error) {
 	switch e := err.(type) {
 	case *stackError:
-		return e.err, nil
+		return nil, e.err
 	case *messageError:
-		return e.err, nil
+		return nil, e.err
 	case *codeError:
-		return e.err, nil
+		return nil, e.err
 	case *contextError:
-		return e.err, nil
+		return nil, e.err
 	case multiUnwrapper:
-		return nil, e.Unwrap()
-	case unwrapper:
 		return e.Unwrap(), nil
+	case unwrapper:
+		return nil, e.Unwrap()
 	default:
 		return nil, nil
 	}

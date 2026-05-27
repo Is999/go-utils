@@ -101,7 +101,6 @@ func TestAES(t *testing.T) {
 func TestAESRandIV(t *testing.T) {
 	type args struct {
 		key       string
-		iv        string
 		mode      utils.McryptMode
 		encode    utils.EncodeToString
 		decode    utils.DecodeString

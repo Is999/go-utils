@@ -21,7 +21,7 @@ import (
 // utils.Configure(utils.WithLogger(adapter))
 type zapLoggerAdapter struct {
 	// logger *zap.SugaredLogger  // 取消注释以使用 / uncomment to use
-	logger interface{} // 占位符，实际使用时替换为 *zap.SugaredLogger
+	logger any // 占位符，实际使用时替换为 *zap.SugaredLogger
 }
 
 func (z *zapLoggerAdapter) Debug(msg string, args ...any) {
@@ -76,7 +76,7 @@ func (z *zapLoggerAdapter) Enabled(ctx context.Context, level utils.LogLevel) bo
 // utils.Configure(utils.WithLogger(adapter))
 type logrusLoggerAdapter struct {
 	// logger *logrus.Logger  // 取消注释以使用 / uncomment to use
-	logger interface{} // 占位符，实际使用时替换为 *logrus.Logger
+	logger any // 占位符，实际使用时替换为 *logrus.Logger
 }
 
 func (l *logrusLoggerAdapter) Debug(msg string, args ...any) {

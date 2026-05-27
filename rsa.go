@@ -164,7 +164,7 @@ func (r *RSA) Encrypt(data string, encode EncodeToString) (string, error) {
 	keySize := r.pubKey.Size()
 	maxPayload := keySize - 11
 	encrypted, err := rsaEncryptChunks([]byte(data), keySize, maxPayload, func(chunk []byte) ([]byte, error) {
-		return rsa.EncryptPKCS1v15(rand.Reader, r.pubKey, chunk)
+		return rsaEncryptPKCS1v15Legacy(r.pubKey, chunk)
 	})
 	if err != nil {
 		return "", errors.Tag(err)
@@ -186,12 +186,24 @@ func (r *RSA) Decrypt(encrypt string, decode DecodeString) (string, error) {
 		return "", errors.Tag(err)
 	}
 	decrypted, err := rsaDecryptChunks(ciphertext, r.priKey.Size(), func(chunk []byte) ([]byte, error) {
-		return rsa.DecryptPKCS1v15(rand.Reader, r.priKey, chunk)
+		return rsaDecryptPKCS1v15Legacy(r.priKey, chunk)
 	})
 	if err != nil {
 		return "", errors.Tag(err)
 	}
 	return string(decrypted), nil
+}
+
+// rsaEncryptPKCS1v15Legacy 使用 PKCS#1 v1.5 兼容旧密文协议。
+func rsaEncryptPKCS1v15Legacy(pub *rsa.PublicKey, data []byte) ([]byte, error) {
+	//lint:ignore SA1019 PKCS#1 v1.5 加密仅保留为历史协议兼容，新协议应使用 OAEP。
+	return rsa.EncryptPKCS1v15(rand.Reader, pub, data)
+}
+
+// rsaDecryptPKCS1v15Legacy 使用 PKCS#1 v1.5 兼容旧密文协议。
+func rsaDecryptPKCS1v15Legacy(pri *rsa.PrivateKey, data []byte) ([]byte, error) {
+	//lint:ignore SA1019 PKCS#1 v1.5 解密仅保留为历史协议兼容，新协议应使用 OAEP。
+	return rsa.DecryptPKCS1v15(rand.Reader, pri, data)
 }
 
 // Sign 使用私钥生成 PKCS#1 v1.5 签名。
@@ -461,7 +473,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 func RemovePEMHeaders(pemText string) string {
 	var b strings.Builder
 	b.Grow(len(pemText))
-	for _, line := range strings.Split(pemText, "\n") {
+	for line := range strings.SplitSeq(pemText, "\n") {
 		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
 		upper := strings.ToUpper(line)
 		if strings.HasPrefix(upper, "-----BEGIN ") || strings.HasPrefix(upper, "-----END ") {
@@ -493,10 +505,7 @@ func AddPEMHeaders(key, keyType string) (string, error) {
 	b.Grow(len(body) + len(header) + len(footer) + len(body)/64 + 4)
 	b.WriteString(header)
 	for i := 0; i < len(body); i += 64 {
-		end := i + 64
-		if end > len(body) {
-			end = len(body)
-		}
+		end := min(i+64, len(body))
 		b.WriteByte('\n')
 		b.WriteString(body[i:end])
 	}
@@ -638,10 +647,7 @@ func rsaEncryptChunks(data []byte, keySize, maxPayload int, encrypt func([]byte)
 	chunks := (len(data) + maxPayload - 1) / maxPayload
 	out := make([]byte, 0, chunks*keySize)
 	for start := 0; start < len(data); start += maxPayload {
-		end := start + maxPayload
-		if end > len(data) {
-			end = len(data)
-		}
+		end := min(start+maxPayload, len(data))
 		encrypted, err := encrypt(data[start:end])
 		if err != nil {
 			return nil, errors.Tag(err)

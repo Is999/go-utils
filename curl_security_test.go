@@ -140,13 +140,13 @@ func TestRootCAsAppendsSystemPool(t *testing.T) {
 	if err != nil || systemPool == nil {
 		t.Skipf("SystemCertPool() unavailable: %v", err)
 	}
-	before := len(systemPool.Subjects())
-	if before == 0 {
+	if systemPool.Equal(x509.NewCertPool()) {
 		t.Skip("system cert pool is empty")
 	}
 
+	caPEM := buildTestCAPEM(t)
 	certPath := filepath.Join(t.TempDir(), "root-ca.pem")
-	if err := os.WriteFile(certPath, buildTestCAPEM(t), 0o644); err != nil {
+	if err := os.WriteFile(certPath, caPEM, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -154,9 +154,18 @@ func TestRootCAsAppendsSystemPool(t *testing.T) {
 	if err := utils.RootCAs(config, certPath); err != nil {
 		t.Fatalf("RootCAs() error = %v", err)
 	}
-	after := len(config.RootCAs.Subjects())
-	if after <= before {
-		t.Fatalf("RootCAs() subjects = %d, want > %d", after, before)
+	if config.RootCAs == nil {
+		t.Fatal("RootCAs() RootCAs = nil")
+	}
+	customOnly := x509.NewCertPool()
+	if !customOnly.AppendCertsFromPEM(caPEM) {
+		t.Fatal("test CA PEM invalid")
+	}
+	if config.RootCAs.Equal(systemPool) {
+		t.Fatal("RootCAs() should append custom CA")
+	}
+	if config.RootCAs.Equal(customOnly) {
+		t.Fatal("RootCAs() should retain system pool")
 	}
 }
 

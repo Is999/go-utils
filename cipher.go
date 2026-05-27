@@ -21,7 +21,7 @@ type Cipher struct {
 	isRandIV              bool         // true 表示每次加密生成随机 IV，并把 IV 放在密文头部。
 	allowUnsafeECB        bool         // true 表示允许使用 ECB 模式，仅兼容旧系统时开启。
 	allowUnsafeKeyIV      bool         // true 表示允许未设置 IV 时退回到 key 派生 IV，仅兼容旧系统时开启。
-	allowUnsafeStreamMode bool         // true 表示允许使用 CFB/OFB 等非认证流模式，仅兼容旧系统时开启。
+	allowUnsafeStreamMode bool         // true 表示允许使用 CTR/CFB/OFB 等非认证流模式，仅兼容旧系统时开启。
 	block                 cipher.Block // Go 标准库分组密码实现。
 }
 
@@ -325,7 +325,7 @@ func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("CFB"); err != nil {
 		return nil, errors.Tag(err)
 	}
-	return c.encryptStream(data, padding, cipher.NewCFBEncrypter)
+	return c.encryptStream(data, padding, newLegacyCFBEncrypter)
 }
 
 // DecryptCFB 使用 CFB 模式解密。
@@ -339,7 +339,7 @@ func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("CFB"); err != nil {
 		return nil, errors.Tag(err)
 	}
-	return c.decryptStream(data, unPadding, cipher.NewCFBDecrypter)
+	return c.decryptStream(data, unPadding, newLegacyCFBDecrypter)
 }
 
 // EncryptOFB 使用 OFB 模式加密。
@@ -353,7 +353,7 @@ func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("OFB"); err != nil {
 		return nil, errors.Tag(err)
 	}
-	return c.encryptStream(data, padding, cipher.NewOFB)
+	return c.encryptStream(data, padding, newLegacyOFBStream)
 }
 
 // DecryptOFB 使用 OFB 模式解密。
@@ -367,7 +367,25 @@ func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("OFB"); err != nil {
 		return nil, errors.Tag(err)
 	}
-	return c.decryptStream(data, unPadding, cipher.NewOFB)
+	return c.decryptStream(data, unPadding, newLegacyOFBStream)
+}
+
+// newLegacyCFBEncrypter 创建兼容旧协议的 CFB 加密流。
+func newLegacyCFBEncrypter(block cipher.Block, iv []byte) cipher.Stream {
+	//lint:ignore SA1019 CFB 仅在 WithAllowUnsafeStreamMode 显式开启后用于兼容旧系统。
+	return cipher.NewCFBEncrypter(block, iv)
+}
+
+// newLegacyCFBDecrypter 创建兼容旧协议的 CFB 解密流。
+func newLegacyCFBDecrypter(block cipher.Block, iv []byte) cipher.Stream {
+	//lint:ignore SA1019 CFB 仅在 WithAllowUnsafeStreamMode 显式开启后用于兼容旧系统。
+	return cipher.NewCFBDecrypter(block, iv)
+}
+
+// newLegacyOFBStream 创建兼容旧协议的 OFB 流。
+func newLegacyOFBStream(block cipher.Block, iv []byte) cipher.Stream {
+	//lint:ignore SA1019 OFB 仅在 WithAllowUnsafeStreamMode 显式开启后用于兼容旧系统。
+	return cipher.NewOFB(block, iv)
 }
 
 // EncryptBytes 加密字节数据并返回原始密文字节。
@@ -443,12 +461,12 @@ func (c *Cipher) EncryptTo(dst, data []byte, mode McryptMode, padding Padding) (
 		if err := c.checkUnsafeStreamMode("CFB"); err != nil {
 			return nil, errors.Tag(err)
 		}
-		return c.encryptStreamTo(dst, data, padding, cipher.NewCFBEncrypter)
+		return c.encryptStreamTo(dst, data, padding, newLegacyCFBEncrypter)
 	case OFB:
 		if err := c.checkUnsafeStreamMode("OFB"); err != nil {
 			return nil, errors.Tag(err)
 		}
-		return c.encryptStreamTo(dst, data, padding, cipher.NewOFB)
+		return c.encryptStreamTo(dst, data, padding, newLegacyOFBStream)
 	default:
 		// 分组模式和自定义 padding 可能改变长度或返回新切片，统一复用现有路径保证兼容性。
 		encrypted, err := c.EncryptBytes(data, mode, padding)
@@ -480,12 +498,12 @@ func (c *Cipher) DecryptTo(dst, data []byte, mode McryptMode, unPadding UnPaddin
 		if err := c.checkUnsafeStreamMode("CFB"); err != nil {
 			return nil, errors.Tag(err)
 		}
-		return c.decryptStreamTo(dst, data, unPadding, cipher.NewCFBDecrypter)
+		return c.decryptStreamTo(dst, data, unPadding, newLegacyCFBDecrypter)
 	case OFB:
 		if err := c.checkUnsafeStreamMode("OFB"); err != nil {
 			return nil, errors.Tag(err)
 		}
-		return c.decryptStreamTo(dst, data, unPadding, cipher.NewOFB)
+		return c.decryptStreamTo(dst, data, unPadding, newLegacyOFBStream)
 	default:
 		// 分组模式和自定义 unPadding 可能改变长度或返回新切片，统一复用现有路径保证兼容性。
 		decrypted, err := c.DecryptBytes(data, mode, unPadding)

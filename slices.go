@@ -8,7 +8,7 @@ const (
 
 // IsHas 检查 s 中是否存在 v。1.21 版本以上推荐使用标准库 slices.Contains(s, v)。
 func IsHas[T comparable](v T, s []T) bool {
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		if v == s[i] {
 			return true
 		}
@@ -18,7 +18,7 @@ func IsHas[T comparable](v T, s []T) bool {
 
 // HasCount 统计v在s中出现次数
 func HasCount[T comparable](v T, s []T) (count int) {
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		if v == s[i] {
 			count++
 		}
@@ -52,7 +52,7 @@ func UniqueInto[T comparable](dst, s []T) []T {
 		return out
 	}
 	if len(s) <= smallSliceLinearThreshold {
-		for i := 0; i < len(s); i++ {
+		for i := range s {
 			if !containsComparable(out, s[i]) {
 				out = append(out, s[i])
 			}
@@ -62,7 +62,7 @@ func UniqueInto[T comparable](dst, s []T) []T {
 
 	// seen 记录已经输出过的元素；只在中大切片启用，避免短切片为了 map 付出固定分配成本。
 	seen := make(map[T]struct{}, len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		if _, exists := seen[s[i]]; exists {
 			continue
 		}
@@ -99,7 +99,7 @@ func DiffInto[T comparable](dst, s1, s2 []T) []T {
 		return append(out, s1...)
 	}
 	if len(s2) <= smallSliceLinearThreshold {
-		for i := 0; i < len(s1); i++ {
+		for i := range s1 {
 			if !containsComparable(s2, s1[i]) {
 				out = append(out, s1[i])
 			}
@@ -109,10 +109,10 @@ func DiffInto[T comparable](dst, s1, s2 []T) []T {
 
 	// excluded 记录 s2 中需要剔除的值；只在排除集合足够大时构建，避免短集合固定分配拖慢热路径。
 	excluded := make(map[T]struct{}, len(s2))
-	for i := 0; i < len(s2); i++ {
+	for i := range s2 {
 		excluded[s2[i]] = struct{}{}
 	}
-	for i := 0; i < len(s1); i++ {
+	for i := range s1 {
 		if _, ok := excluded[s1[i]]; !ok {
 			out = append(out, s1[i])
 		}
@@ -138,7 +138,7 @@ func IntersectInto[T comparable](dst, s1, s2 []T) []T {
 		return out
 	}
 	if len(s2) <= smallSliceLinearThreshold {
-		for i := 0; i < len(s1); i++ {
+		for i := range s1 {
 			if containsComparable(s2, s1[i]) {
 				out = append(out, s1[i])
 			}
@@ -148,10 +148,10 @@ func IntersectInto[T comparable](dst, s1, s2 []T) []T {
 
 	// included 记录 s2 中允许保留的值；只在命中集合较大时构建，降低小集合过滤时的分配压力。
 	included := make(map[T]struct{}, len(s2))
-	for i := 0; i < len(s2); i++ {
+	for i := range s2 {
 		included[s2[i]] = struct{}{}
 	}
-	for i := 0; i < len(s1); i++ {
+	for i := range s1 {
 		if _, ok := included[s1[i]]; ok {
 			out = append(out, s1[i])
 		}
@@ -162,7 +162,7 @@ func IntersectInto[T comparable](dst, s1, s2 []T) []T {
 // containsComparable 在线性集合中查找 target。
 // 该方法仅服务短切片降级路径，业务边界是 smallSliceLinearThreshold 内避免创建 map。
 func containsComparable[T comparable](s []T, target T) bool {
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		if s[i] == target {
 			return true
 		}

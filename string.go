@@ -254,14 +254,14 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string {
 	l := len(alpha)
 	s := make([]byte, n)
 	if len(r) == 0 || r[0] == nil {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			s[i] = alpha[rand.IntN(l)]
 		}
 		return string(s)
 	}
 
 	randSourceMu.Lock()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s[i] = alpha[r[0].IntN(l)]
 	}
 	randSourceMu.Unlock()
@@ -347,10 +347,8 @@ func UniqID(l uint8, r ...*rand.Rand) string {
 
 	for i := 0; i <= n && total > 0; i++ {
 		// 计算随机生成最小值(min)和最大值(max), 并重新计算total值
-		num := 12 // 最大随机值长度(int64转换36位字符串 最大值可转换12个长度的'z')
-		if total < num {
-			num = total
-		}
+		// 最大随机值长度(int64转换36位字符串 最大值可转换12个长度的'z')
+		num := min(total, 12)
 		total -= num
 
 		// 复用预计算的 base36 边界，避免在高频 ID 生成路径里重复 strings.Repeat 和 ParseInt。
@@ -450,10 +448,7 @@ func secureRandBytes(dst []byte, alpha string) error {
 	var randomBuf [256]byte
 	for written < len(dst) {
 		need := len(dst) - written
-		readSize := need + need/4 + 1
-		if readSize > len(randomBuf) {
-			readSize = len(randomBuf)
-		}
+		readSize := min(need+need/4+1, len(randomBuf))
 		if _, err := io.ReadFull(crand.Reader, randomBuf[:readSize]); err != nil {
 			return errors.Tag(err)
 		}

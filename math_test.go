@@ -36,11 +36,11 @@ func TestRand(t *testing.T) {
 				minInt, maxInt = maxInt, minInt
 			}
 			var wg = &sync.WaitGroup{}
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				wg.Add(1)
 				go func(min, max int64, i int, tt testCase) {
 					defer wg.Done()
-					for j := 0; j < 10; j++ {
+					for j := range 10 {
 						if got := utils.Rand(tt.args.min, tt.args.max, r); !(got >= min && got <= max) {
 							t.Errorf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.min, tt.args.max)
 							break

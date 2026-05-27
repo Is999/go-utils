@@ -54,7 +54,7 @@ func (c *Curl) markParamsDirty() {
 // encodedQueryParams 返回当前参数的 URL 编码结果。
 // 缓存数据来源于 url.Values.Encode；参数未变更时复用上次结果，避免重复请求时反复排序与拼接。
 func (c *Curl) encodedQueryParams() string {
-	if c.params == nil || len(c.params) == 0 {
+	if len(c.params) == 0 {
 		c.encodedParams = ""
 		c.paramsDirty = false
 		return ""
@@ -167,7 +167,7 @@ func (c *Curl) AddHeader(key string, values ...string) *Curl {
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) AddHeaders(headers map[string][]string) *Curl {
 	for key, values := range headers {
-		if values != nil && len(values) > 0 {
+		if len(values) > 0 {
 			c.AddHeader(key, values...)
 		}
 	}
@@ -302,7 +302,7 @@ func (c *Curl) AddParams(params map[string][]string) *Curl {
 	paramsValues := c.ensureParams()
 	changed := false
 	for key, list := range params {
-		if list != nil && len(list) > 0 {
+		if len(list) > 0 {
 			for _, value := range list {
 				paramsValues.Add(key, value)
 			}
@@ -322,7 +322,7 @@ func (c *Curl) AddParams(params map[string][]string) *Curl {
 //
 // 返回值：Curl 指针，支持链式调用
 func (c *Curl) DelParams(keys ...string) *Curl {
-	if c.params == nil || len(keys) == 0 {
+	if len(c.params) == 0 || len(keys) == 0 {
 		return c
 	}
 	for _, key := range keys {

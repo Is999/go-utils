@@ -660,16 +660,9 @@ func cloneReadSeeker(reader io.ReadSeeker) (io.Reader, error) {
 	return bytes.NewReader(data), nil
 }
 
-// generateUniqId 生成指定长度的请求唯一 ID。
-//
-// Deprecated: 请使用 generateUniqID。
-func generateUniqId(length int) string {
-	return generateUniqID(length)
-}
-
 // buildURL 构建完整的 URL，将 params 追加为查询参数。
 func buildURL(baseURL string, params url.Values) (string, error) {
-	if params == nil || len(params) == 0 {
+	if len(params) == 0 {
 		return baseURL, nil
 	}
 	return buildURLWithEncodedParams(baseURL, params.Encode())
@@ -712,11 +705,4 @@ func appendEncodedQuery(baseURL, encodedParams string) string {
 		}
 	}
 	return queryTarget + separator + encodedParams + fragment
-}
-
-// buildUrl 构建完整的 URL，将 params 追加为查询参数。
-//
-// Deprecated: 请使用 buildURL。
-func buildUrl(baseUrl string, params url.Values) (string, error) {
-	return buildURL(baseUrl, params)
 }

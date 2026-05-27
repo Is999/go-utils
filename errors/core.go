@@ -515,7 +515,7 @@ func Type[T error](err error) (T, bool) {
 		if aser, ok := current.(interface{ As(any) bool }); ok && aser.As(&target) {
 			return target, true
 		}
-		next, children := unwrapNode(current)
+		children, next := unwrapNode(current)
 		if len(children) > 0 {
 			return typeFromChildren[T](children)
 		}
@@ -546,7 +546,7 @@ func typeFromChildren[T error](children []error) (T, bool) {
 		if aser, ok := current.(interface{ As(any) bool }); ok && aser.As(&target) {
 			return target, true
 		}
-		next, children := unwrapNode(current)
+		children, next := unwrapNode(current)
 		switch {
 		case len(children) > 0:
 			pushChildren(&stack, children)

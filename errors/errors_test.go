@@ -881,11 +881,9 @@ func TestConcurrentSafe(t *testing.T) {
 
 	var wg sync.WaitGroup
 	var failed atomic.Bool
-	for i := 0; i < 32; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 200; j++ {
+	for range 32 {
+		wg.Go(func() {
+			for range 200 {
 				_ = err.Error()
 				_ = fmt.Sprintf("%s", err)
 				_ = fmt.Sprintf("%+v", err)
@@ -899,7 +897,7 @@ func TestConcurrentSafe(t *testing.T) {
 					failed.Store(true)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

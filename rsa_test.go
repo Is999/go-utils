@@ -105,9 +105,9 @@ func TestRSA(t *testing.T) {
 			}
 
 			// 源数据
-			marshal, err := json.Marshal(map[string]interface{}{
-				"Title": tt.name,
-				"Content": strings.Repeat(`运行此代码时，当你在输入框中输入文本并点击㰆凭棥`, 131) + tt.name,
+			marshal, err := json.Marshal(map[string]any{
+				"Title":   tt.name,
+				"Content": strings.Repeat("运行此代码时，当你在输入框中输入文本并点击提交按钮", 131) + tt.name,
 			})
 			if err != nil {
 				t.Errorf("json.Marshal() WrapError = %v", err)
@@ -131,6 +131,9 @@ func TestRSA(t *testing.T) {
 				return
 			}
 			//t.Logf("Decrypt() = %v\n", decryptString)
+			if !reflect.DeepEqual(decryptString, string(marshal)) {
+				t.Errorf("PKCS1v15 解密后数据不等于加密前数据 got = %v, want %v", decryptString, string(marshal))
+			}
 
 			// 公钥加密 OAEP
 			encodeString, err = r.EncryptOAEP(string(marshal), tt.args.encodeToString, sha256.New())
@@ -224,7 +227,7 @@ func TestRSA_SignAndVerify(t *testing.T) {
 			}
 
 			// 源数据
-			marshal, err := json.Marshal(map[string]interface{}{
+			marshal, err := json.Marshal(map[string]any{
 				"Title":   tt.name,
 				"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
 			})

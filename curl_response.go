@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"strings"
 	"time"
 
@@ -101,7 +102,7 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 	}
 
 	// 设置 Cookie
-	if c.cookies != nil && len(c.cookies) > 0 {
+	if len(c.cookies) > 0 {
 		if c.defLogOutput {
 			c.Logger.Debug("AddCookie()")
 		}
@@ -451,7 +452,7 @@ func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
 		b.WriteString("Response Status: ")
 		b.WriteString(resp.Status)
 		b.WriteByte('\n')
-		if resp != nil && resp.Body != nil && resp.Body != http.NoBody && c.logBodyLimit > 0 {
+		if resp.Body != nil && resp.Body != http.NoBody && c.logBodyLimit > 0 {
 			b.WriteString("Response Body Preview:\n")
 			var truncated bool
 			var err error
@@ -634,12 +635,7 @@ func requestBodyPreview(req *http.Request, limit int64) ([]byte, bool, error) {
 //
 // 返回值：true 表示在列表中
 func containsStatusCode(code int, list []int) bool {
-	for _, v := range list {
-		if v == code {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, code)
 }
 
 // dumpRequestSafe 安全地获取请求详情预览。

@@ -174,27 +174,6 @@ func ClientIPWithTrustedProxies(r *http.Request, trustedProxies *TrustedProxies)
 	})
 }
 
-// isPrivateIP 检查 IP 地址是否为私有地址或回环地址。
-//
-// 参数说明：
-//   - ip：IP 地址字符串
-//
-// 返回值：true 表示是私有地址或回环地址
-func isPrivateIP(ip string) bool {
-	parsedIP := net.ParseIP(ip)
-	return parsedIP != nil && (parsedIP.IsLoopback() || parsedIP.IsPrivate())
-}
-
-// parseRequestIP 从请求相关字符串中解析 IP。
-// 支持 RemoteAddr、X-Real-IP 以及单个 IP 字符串。
-func parseRequestIP(raw string) net.IP {
-	addr, ok := parseRequestAddr(raw)
-	if !ok {
-		return nil
-	}
-	return ipFromAddr(addr)
-}
-
 // parseRequestAddr 从请求相关字符串中解析值类型 IP 地址。
 // 支持 RemoteAddr、X-Real-IP、X-Forwarded-For 单节点以及错误多值头；返回 netip.Addr 以减少热路径分配。
 //
@@ -345,39 +324,6 @@ func addrFromIP(ip net.IP) (netip.Addr, bool) {
 		ipv6[8], ipv6[9], ipv6[10], ipv6[11],
 		ipv6[12], ipv6[13], ipv6[14], ipv6[15],
 	}), true
-}
-
-// ipFromAddr 将 netip.Addr 转成标准库 net.IP。
-// 仅用于兼容旧内部函数和全部代理可信时的历史回退语义，不参与常规 ClientIP 热路径返回。
-//
-// 参数说明：
-//   - addr：值类型 IP 地址。
-//
-// 返回值：标准库 net.IP；无效地址返回 nil。
-func ipFromAddr(addr netip.Addr) net.IP {
-	if !addr.IsValid() {
-		return nil
-	}
-	if addr.Is4() {
-		ipv4 := addr.As4()
-		return net.IPv4(ipv4[0], ipv4[1], ipv4[2], ipv4[3])
-	}
-	ipv6 := addr.As16()
-	return net.IP{
-		ipv6[0], ipv6[1], ipv6[2], ipv6[3],
-		ipv6[4], ipv6[5], ipv6[6], ipv6[7],
-		ipv6[8], ipv6[9], ipv6[10], ipv6[11],
-		ipv6[12], ipv6[13], ipv6[14], ipv6[15],
-	}
-}
-
-// isTrustedProxyIP 判断来源地址是否可被视为可信代理。
-// 默认仅信任回环地址，避免把所有私网来源都视为可信代理。
-func isTrustedProxyIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback()
 }
 
 // isTrustedProxyAddr 判断来源地址是否可被视为默认可信代理。

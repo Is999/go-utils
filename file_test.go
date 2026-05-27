@@ -441,7 +441,6 @@ func BenchmarkLine(t *testing.B) {
 			if err := open.Close(); err != nil {
 				t.Errorf("Close() WrapError %v", err)
 			}
-			return
 		}()
 
 		// 处理读取的数据
@@ -613,8 +612,8 @@ func TestWrite(t *testing.T) {
 				go func(g *sync.WaitGroup, i int, t *testing.T) {
 					defer g.Done()
 					if i%3 == 0 {
-						for j := 0; j < 10; j++ {
-							_, err := w.Write([]byte(fmt.Sprintf("Write %d-%d Name %v; 太液仙舟迥，西园引上才。未晓征车度，鸡鸣关早开。\n", i, j, tt.name)))
+						for j := range 10 {
+							_, err := w.Write(fmt.Appendf(nil, "Write %d-%d Name %v; 太液仙舟迥，西园引上才。未晓征车度，鸡鸣关早开。\n", i, j, tt.name))
 							if err != nil {
 								t.Errorf("Write() error = %v", err)
 								return
@@ -622,7 +621,7 @@ func TestWrite(t *testing.T) {
 							// t.Logf("Write content size = %v", size)
 						}
 					} else if i%3 == 1 {
-						for j := 0; j < 10; j++ {
+						for j := range 10 {
 							_, err := w.WriteString(fmt.Sprintf("WriteString %d-%d Name %v; 隔户杨柳弱袅袅，恰似十五女儿腰。谁谓朝来不作意，狂风挽断最长条。\n", i, j, tt.name))
 							if err != nil {
 								t.Errorf("WriteString() error = %v", err)
@@ -633,7 +632,7 @@ func TestWrite(t *testing.T) {
 
 					} else {
 						_, err := w.WriteBuf(func(write *bufio.Writer) (int, error) {
-							for j := 0; j < 10000; j++ {
+							for j := range 10000 {
 								_, err := write.WriteString(fmt.Sprintf("WriteBuf %d-%d Name %v; 红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n", i, j, tt.name))
 								if err != nil {
 									return 0, err
@@ -949,7 +948,7 @@ func BenchmarkWrite(t *testing.B) {
 			for i := 0; i <= t.N; i++ {
 				// 写入带缓存(测试结果速度最快)
 				_, err := w.WriteBuf(func(write *bufio.Writer) (int, error) {
-					for j := 0; j < 10; j++ {
+					for range 10 {
 						_, err := write.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
 						if err != nil {
 							return 0, err

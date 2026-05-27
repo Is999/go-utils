@@ -35,7 +35,7 @@ func RuntimeInfo(skip int) *Frame {
 }
 
 // GetFunctionName 获取函数名（普通函数、结构体方法或匿名函数）
-func GetFunctionName(i interface{}) string {
+func GetFunctionName(i any) string {
 	if i == nil {
 		return "Unknown Function"
 	}

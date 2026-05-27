@@ -110,7 +110,7 @@ func (f *Form) AddParam(key string, values ...string) *Form {
 // 返回值：Form 指针，支持链式调用
 func (f *Form) AddParams(params map[string][]string) *Form {
 	for key, values := range params {
-		if values != nil && len(values) > 0 {
+		if len(values) > 0 {
 			f.AddParam(key, values...)
 		}
 	}
@@ -174,7 +174,7 @@ func (f *Form) AddFile(fieldName string, filePath ...string) *Form {
 // 返回值：Form 指针，支持链式调用
 func (f *Form) AddFiles(files map[string][]string) *Form {
 	for name, paths := range files {
-		if paths != nil && len(paths) > 0 {
+		if len(paths) > 0 {
 			f.AddFile(name, paths...)
 		}
 	}
@@ -203,7 +203,7 @@ func (f *Form) DelFiles(fieldNames ...string) {
 //   - err：错误信息
 func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 	// 无文件时返回 URL 编码格式
-	if f.Files == nil || len(f.Files) == 0 {
+	if len(f.Files) == 0 {
 		return strings.NewReader(f.Params.Encode()), "application/x-www-form-urlencoded", nil
 	}
 

@@ -69,7 +69,7 @@ func TestDateInfo(t *testing.T) {
 				t.Errorf("DateInfo() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			utils.MapRange(utils.DateInfo(got), func(key string, value interface{}) bool {
+			utils.MapRange(utils.DateInfo(got), func(key string, value any) bool {
 				//t.Logf("%v %v\n", key, value)
 				return true
 			})

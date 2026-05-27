@@ -40,7 +40,7 @@ func httpServer(addr string, header http.Handler, exit chan os.Signal) {
 
 	// 启动 HTTP 服务器。部分测试复用固定端口，race 模式下前一个 server
 	// 刚 Shutdown 时端口可能短暂未释放，这里做有限重试，避免测试偶发失败。
-	for i := 0; i < 40; i++ {
+	for range 40 {
 		err := srv.ListenAndServe()
 		if err == nil || err == http.ErrServerClosed {
 			return

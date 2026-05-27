@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"maps"
 	"net/url"
 
 	"github.com/Is999/go-utils/errors"
@@ -18,15 +19,13 @@ import (
 //
 // 返回值：完整 URL 字符串，错误信息
 func URLPath(urlPath string, params url.Values) (string, error) {
-	if params != nil && len(params) > 0 {
+	if len(params) > 0 {
 		u, err := url.Parse(urlPath)
 		if err != nil {
 			return "", errors.Tag(err)
 		}
 		query := u.Query()
-		for key, val := range params {
-			query[key] = val
-		}
+		maps.Copy(query, params)
 		u.RawQuery = query.Encode()
 		return u.String(), nil
 	}

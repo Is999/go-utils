@@ -205,11 +205,10 @@ func TestGet(t *testing.T) {
 			// 添加请求参数
 			curl.SetParam("success", fmt.Sprint(tt.args.wantSuccess))
 
-			userType := reflect.TypeOf(tt.args.user)
+			userType := reflect.TypeFor[User]()
 			userValue := reflect.ValueOf(tt.args.user)
-			for i := 0; i < userType.NumField(); i++ {
+			for field := range userType.Fields() {
 				// 获取每个成员的结构体字段类型
-				field := userType.Field(i)
 				value := userValue.FieldByName(field.Name)
 				curl.SetParam(field.Name, fmt.Sprint(value))
 			}
@@ -877,7 +876,7 @@ func TestCurlBytesBufferBodyCanBeSentRepeatedly(t *testing.T) {
 	defer srv.Close()
 
 	curl := utils.NewCurl().SetBody(bytes.NewBufferString(payload))
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := curl.Post(srv.URL); err != nil {
 			t.Fatalf("Post(%d) error = %v", i, err)
 		}
@@ -1099,7 +1098,7 @@ func TestCurlTemplateReuseWithNewRequest(t *testing.T) {
 		SetParam("base", "1")
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

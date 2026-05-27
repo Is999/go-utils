@@ -212,8 +212,8 @@ func AddTime(t time.Time, addTimes ...string) (time.Time, error) {
 //   - yearDay: 一年中第几天
 //   - date: 格式化日期 "2006-01-02 15:04:05"
 //   - dateNs: 格式化日期（纳秒精度）"2006-01-02T15:04:05.999999999Z07:00"
-func DateInfo(t time.Time) map[string]interface{} {
-	param := make(map[string]interface{})
+func DateInfo(t time.Time) map[string]any {
+	param := make(map[string]any)
 
 	param["year"] = t.Year()
 	param["monthEn"] = t.Month().String()

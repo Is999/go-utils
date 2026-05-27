@@ -203,17 +203,19 @@ func BenchmarkConcurrentRead(b *testing.B) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	b.ResetTimer()
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			var localErr error
 			var localBool bool
 			var localText string
+			var localCode int
 			for j := 0; j < b.N/8; j++ {
 				localText = err.Error()
+				localCode += len(localText)
 				localText = fmt.Sprintf("%+v", err)
+				localCode += len(localText)
 				localText = errutils.TraceString(err)
+				localCode += len(localText)
 				localBool = errutils.Is(err, source)
 				localErr = errutils.Source(err)
 			}
@@ -221,8 +223,9 @@ func BenchmarkConcurrentRead(b *testing.B) {
 			benchErr = localErr
 			benchBool = localBool
 			benchText = localText
+			benchCode = localCode
 			mu.Unlock()
-		}()
+		})
 	}
 	wg.Wait()
 }

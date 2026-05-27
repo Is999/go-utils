@@ -42,7 +42,7 @@ func NewPool[T any](newFn func() *T, opts ...PoolOption[T]) *Pool[T] {
 
 	p := &Pool[T]{
 		pool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return newFn()
 			},
 		},

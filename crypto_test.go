@@ -20,11 +20,9 @@ func TestCipherConcurrentRandIV(t *testing.T) {
 
 	const data = "concurrent payload"
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 64; j++ {
+	for range 32 {
+		wg.Go(func() {
+			for range 64 {
 				encrypted, err := c.Encrypt(data, utils.CBC, base64.StdEncoding.EncodeToString, utils.Pkcs7Padding)
 				if err != nil {
 					t.Errorf("Encrypt() error = %v", err)
@@ -40,7 +38,7 @@ func TestCipherConcurrentRandIV(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
