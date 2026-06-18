@@ -20,9 +20,9 @@ func BenchmarkNew(b *testing.B) {
 	}
 }
 
-func BenchmarkGenerateUniqID(b *testing.B) {
+func BenchmarkGenerateUniqueID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		benchID = utils.GenerateUniqID(16)
+		benchID = utils.GenerateUniqueID(16)
 	}
 }
 

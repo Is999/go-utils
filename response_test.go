@@ -1,105 +1,76 @@
 package utils_test
 
 import (
-	"context"
 	"encoding/json"
-	"net"
+	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"testing"
-	"time"
 
 	"github.com/Is999/go-utils"
 )
 
-var serveMux = http.NewServeMux()
-
-func httpServer(addr string, header http.Handler, exit chan os.Signal) {
-	//使用默认路由创建 http server
-	srv := http.Server{
-		Addr:    addr,
-		Handler: header,
-	}
-
-	//监听 Ctrl+C 信号
-	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		timer := time.NewTimer(10 * time.Second)
-		defer timer.Stop()
-		select {
-		case <-exit:
-		case <-timer.C:
-		}
-		_ = srv.Shutdown(context.Background())
-	}()
-
-	// 启动 HTTP 服务器。部分测试复用固定端口，race 模式下前一个 server
-	// 刚 Shutdown 时端口可能短暂未释放，这里做有限重试，避免测试偶发失败。
-	for range 40 {
-		err := srv.ListenAndServe()
-		if err == nil || err == http.ErrServerClosed {
-			return
-		}
-		if !strings.Contains(err.Error(), "address already in use") {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-}
-
-func waitHTTPServer(t *testing.T, addr string) {
-	t.Helper()
-	if strings.HasPrefix(addr, ":") {
-		addr = "127.0.0.1" + addr
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	t.Fatalf("HTTP server %s did not start", addr)
-}
-
 func TestResponse(t *testing.T) {
-	// 退出
-	exit := make(chan os.Signal)
+	mux := http.NewServeMux()
+	registerViewExample(mux)
+	registerJSONExample(mux)
+	registerRedirectExample(mux)
 
-	// 请求该路由退出
-	// http://localhost:54333/response/exit
-	serveMux.HandleFunc("/response/exit", func(w http.ResponseWriter, r *http.Request) {
-		// 退出信号
-		exit <- syscall.Signal(1)
-	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
 
-	// 响应html、xml、text、file、image
-	// http://localhost:54333/response/html
-	// http://localhost:54333/response/xml
-	// http://localhost:54333/response/text
-	// http://localhost:54333/response/show?file=go.mod
-	// http://localhost:54333/response/show?file=resource/golang_icon.png
-	// http://localhost:54333/response/download?file=go.mod
-	// http://localhost:54333/response/download?file=resource/golang_icon.png
-	ExampleView()
+	tests := []struct {
+		name        string
+		path        string
+		statusCode  int
+		contentType string
+	}{
+		{name: "json success", path: "/response/json", statusCode: http.StatusOK, contentType: utils.DefaultJSONContentType},
+		{name: "json fail", path: "/response/json?v=fail", statusCode: http.StatusNotAcceptable, contentType: utils.DefaultJSONContentType},
+		{name: "html", path: "/response/html", statusCode: http.StatusOK, contentType: "text/html; charset=utf-8"},
+		{name: "xml", path: "/response/xml", statusCode: http.StatusOK, contentType: "application/xml; charset=utf-8"},
+		{name: "text", path: "/response/text", statusCode: http.StatusOK, contentType: "text/plain; charset=utf-8"},
+		{name: "show file", path: "/response/show?file=go.mod", statusCode: http.StatusOK},
+		{name: "show missing", path: "/response/show?file=missing.txt", statusCode: http.StatusNotFound, contentType: "text/plain; charset=utf-8"},
+		{name: "download file", path: "/response/download?file=go.mod", statusCode: http.StatusOK},
+	}
 
-	// 响应json
-	// http://localhost:54333/response/json
-	ExampleJson()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := server.Client().Get(server.URL + tt.path)
+			if err != nil {
+				t.Fatalf("GET %s error = %v", tt.path, err)
+			}
+			defer res.Body.Close()
 
-	// 重定向
-	// http://localhost:54333/response/redirect
-	ExampleRedirect()
+			if res.StatusCode != tt.statusCode {
+				t.Fatalf("status code = %d, want %d", res.StatusCode, tt.statusCode)
+			}
+			if tt.contentType != "" {
+				if got := res.Header.Get(utils.HeaderContentType); got != tt.contentType {
+					t.Fatalf("Content-Type = %q, want %q", got, tt.contentType)
+				}
+			}
+		})
+	}
 
-	httpServer(":54333", serveMux, exit)
+	noRedirectClient := server.Client()
+	noRedirectClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	res, err := noRedirectClient.Get(server.URL + "/response/redirect")
+	if err != nil {
+		t.Fatalf("GET /response/redirect error = %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("redirect status code = %d, want %d", res.StatusCode, http.StatusFound)
+	}
+	if got := res.Header.Get(utils.HeaderLocation); got != "/response/json" {
+		t.Fatalf("Location = %q, want /response/json", got)
+	}
 }
 
 func TestResponseWriteHeaderOnce(t *testing.T) {
@@ -168,6 +139,38 @@ func TestResponseContentTypeNormalization(t *testing.T) {
 	}
 }
 
+func TestResponseTextHtmlXMLAndHeader(t *testing.T) {
+	text := httptest.NewRecorder()
+	utils.View(text, utils.WithHeader(func(header http.Header) {
+		header.Set("X-Test", "yes")
+	})).StatusCode(http.StatusAccepted).Text("hello")
+	if text.Code != http.StatusAccepted {
+		t.Fatalf("text status = %d", text.Code)
+	}
+	if text.Body.String() != "hello" {
+		t.Fatalf("text body = %q", text.Body.String())
+	}
+	if got := text.Header().Get("X-Test"); got != "yes" {
+		t.Fatalf("header = %q", got)
+	}
+
+	html := httptest.NewRecorder()
+	utils.View(html).Html("<b>ok</b>")
+	if got := html.Header().Get(utils.HeaderContentType); got != "text/html; charset=utf-8" {
+		t.Fatalf("html content type = %q", got)
+	}
+
+	xmlResp := httptest.NewRecorder()
+	type node struct {
+		XMLName xml.Name `xml:"node"`
+		Name    string   `xml:"name"`
+	}
+	utils.View(xmlResp).Xml(node{Name: "codex"})
+	if !strings.Contains(xmlResp.Body.String(), "<name>codex</name>") {
+		t.Fatalf("xml body = %q", xmlResp.Body.String())
+	}
+}
+
 func TestResponseDownloadSanitizesFilename(t *testing.T) {
 	file, err := os.CreateTemp(t.TempDir(), "response-*.txt")
 	if err != nil {
@@ -194,6 +197,35 @@ func TestResponseDownloadSanitizesFilename(t *testing.T) {
 	}
 	if !strings.Contains(disposition, "attachment") {
 		t.Fatalf("Content-Disposition = %q, want attachment", disposition)
+	}
+}
+
+func TestResponseFileRequestMethods(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "response-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/file", nil)
+
+	download := httptest.NewRecorder()
+	utils.View(download).DownloadRequest(req, file.Name(), "")
+	if download.Code != http.StatusOK {
+		t.Fatalf("download status = %d", download.Code)
+	}
+
+	show := httptest.NewRecorder()
+	utils.View(show).ShowRequest(req, file.Name())
+	if show.Code != http.StatusOK {
+		t.Fatalf("show status = %d", show.Code)
+	}
+	if show.Body.String() != "hello" {
+		t.Fatalf("show body = %q", show.Body.String())
 	}
 }
 

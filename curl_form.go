@@ -32,8 +32,6 @@ type Form struct {
 // ============================ Form 构造方法 ============================
 
 // NewForm 创建一个新的 Form 实例。
-//
-// 返回值：*Form 表单指针
 func NewForm() *Form {
 	return &Form{
 		Params: make(url.Values),
@@ -42,45 +40,24 @@ func NewForm() *Form {
 }
 
 // SetMaxSingleFileSize 设置单个文件大小上限。
-//
-// 参数说明：
-//   - limit：单个文件大小上限，单位：字节；小于等于 0 表示不限制
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) SetMaxSingleFileSize(limit int64) *Form {
 	f.MaxSingleFileSize = limit
 	return f
 }
 
 // SetMaxTotalFileSize 设置所有文件总大小上限。
-//
-// 参数说明：
-//   - limit：所有文件总大小上限，单位：字节；小于等于 0 表示不限制
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) SetMaxTotalFileSize(limit int64) *Form {
 	f.MaxTotalFileSize = limit
 	return f
 }
 
 // SetParam 设置单个表单字段。
-//
-// 参数说明：
-//   - key：字段名
-//   - value：字段值
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) SetParam(key, value string) *Form {
 	f.Params.Set(key, value)
 	return f
 }
 
 // SetParams 批量设置表单字段。
-//
-// 参数说明：
-//   - params：字段字典
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) SetParams(params map[string]string) *Form {
 	for key, value := range params {
 		f.SetParam(key, value)
@@ -89,12 +66,6 @@ func (f *Form) SetParams(params map[string]string) *Form {
 }
 
 // AddParam 对表单字段添加多个值。
-//
-// 参数说明：
-//   - key：字段名
-//   - values：多个值
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) AddParam(key string, values ...string) *Form {
 	for _, value := range values {
 		f.Params.Add(key, value)
@@ -103,11 +74,6 @@ func (f *Form) AddParam(key string, values ...string) *Form {
 }
 
 // AddParams 批量添加表单字段值。
-//
-// 参数说明：
-//   - params：字段字典，值为切片
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) AddParams(params map[string][]string) *Form {
 	for key, values := range params {
 		if len(values) > 0 {
@@ -117,34 +83,20 @@ func (f *Form) AddParams(params map[string][]string) *Form {
 	return f
 }
 
-// DelParams 删除指定的表单字段。
-//
-// 参数说明：
-//   - keys：可变数量的字段名
-func (f *Form) DelParams(keys ...string) {
+// DeleteParams 删除指定的表单字段。
+func (f *Form) DeleteParams(keys ...string) {
 	for _, key := range keys {
 		f.Params.Del(key)
 	}
 }
 
 // SetFile 设置单个文件字段。
-//
-// 参数说明：
-//   - fieldName：表单字段名
-//   - filePath：文件路径
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) SetFile(fieldName, filePath string) *Form {
 	f.Files.Set(fieldName, filePath)
 	return f
 }
 
 // SetFiles 批量设置文件字段。
-//
-// 参数说明：
-//   - files：文件字典（字段名 -> 文件路径）
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) SetFiles(files map[string]string) *Form {
 	for name, path := range files {
 		f.SetFile(name, path)
@@ -153,12 +105,6 @@ func (f *Form) SetFiles(files map[string]string) *Form {
 }
 
 // AddFile 对文件字段添加多个文件路径。
-//
-// 参数说明：
-//   - fieldName：表单字段名
-//   - filePath：可变数量的文件路径
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) AddFile(fieldName string, filePath ...string) *Form {
 	for _, path := range filePath {
 		f.Files.Add(fieldName, path)
@@ -167,11 +113,6 @@ func (f *Form) AddFile(fieldName string, filePath ...string) *Form {
 }
 
 // AddFiles 批量添加文件字段。
-//
-// 参数说明：
-//   - files：文件字典，值为切片
-//
-// 返回值：Form 指针，支持链式调用
 func (f *Form) AddFiles(files map[string][]string) *Form {
 	for name, paths := range files {
 		if len(paths) > 0 {
@@ -181,11 +122,8 @@ func (f *Form) AddFiles(files map[string][]string) *Form {
 	return f
 }
 
-// DelFiles 删除指定的文件字段。
-//
-// 参数说明：
-//   - fieldNames：可变数量的字段名
-func (f *Form) DelFiles(fieldNames ...string) {
+// DeleteFiles 删除指定的文件字段。
+func (f *Form) DeleteFiles(fieldNames ...string) {
 	for _, name := range fieldNames {
 		f.Files.Del(name)
 	}
@@ -196,11 +134,6 @@ func (f *Form) DelFiles(fieldNames ...string) {
 // Reader 读取 Form 内容，转换为可上传的 body 和 content-type。
 // 如果没有文件，返回 application/x-www-form-urlencoded 格式；
 // 如果有文件，返回 multipart/form-data 格式。
-//
-// 返回值：
-//   - body：io.Reader 请求体
-//   - contentType：Content-Type
-//   - err：错误信息
 func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 	// 无文件时返回 URL 编码格式
 	if len(f.Files) == 0 {
@@ -231,13 +164,6 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 }
 
 // createFormFile 创建表单文件字段。
-//
-// 参数说明：
-//   - writer：multipart.Writer
-//   - fieldName：字段名
-//   - filePath：文件路径
-//
-// 返回值：错误信息
 func (f *Form) createFormFile(writer *multipart.Writer, fieldName, filePath string) error {
 	// 打开文件
 	file, err := os.Open(filePath)

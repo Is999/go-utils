@@ -6,7 +6,7 @@ import (
 	"github.com/Is999/go-utils"
 )
 
-func TestMd5(t *testing.T) {
+func TestMD5(t *testing.T) {
 	type args struct {
 		str string
 	}
@@ -20,8 +20,8 @@ func TestMd5(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.Md5(tt.args.str); got != tt.want {
-				t.Errorf("Md5() = %v, want %v", got, tt.want)
+			if got := utils.MD5(tt.args.str); got != tt.want {
+				t.Errorf("MD5() = %v, want %v", got, tt.want)
 			}
 		})
 	}

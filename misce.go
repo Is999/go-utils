@@ -145,7 +145,7 @@ func retryContext(ctx context.Context, maxRetries uint8, fnName string, fn func(
 
 	if err != nil {
 		// 重试失败，返回错误信息
-		return errors.Tag(errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries))
+		return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries)
 	}
 	return nil
 }

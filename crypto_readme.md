@@ -8,8 +8,8 @@
      IV** 的行为。
 > 3. **兼容旧系统协议**：如需对接历史系统，可通过显式配置 `WithAllowUnsafeECB(true)`、`WithAllowUnsafeStreamMode(true)` 或
      `WithAllowUnsafeKeyIV(true)` 开启兼容。
-> 4. **填充模式选择**：块加密（CBC/ECB）需搭配 `Pkcs7Padding` 或 `ZeroPadding`；旧协议流模式（CTR/CFB/OFB）和 GCM 无需补位，请搭配
-     `NoPadding/NoUnPadding` 避免额外开销。
+> 4. **填充模式选择**：块加密（CBC/ECB）需搭配 `PKCS7Pad` 或 `ZeroPad`；旧协议流模式（CTR/CFB/OFB）和 GCM 无需补位，请搭配
+     `NoPad/NoUnpad` 避免额外开销。
 > 5. **密钥位数要求**：生产环境 RSA 密钥必须至少 **2048** 位，摘要算法推荐 SHA256/SHA384/SHA512。
 
 ---
@@ -19,10 +19,10 @@
 提供基础的单向散列函数，适用于签名或校验文件完整性，不建议用于存储密码（建议使用 bcrypt）。
 
 ```go
-hashMD5 := utils.Md5("data")
-hashSHA1 := utils.Sha1("data")
-hashSHA256 := utils.Sha256("data")
-hashSHA512 := utils.Sha512("data")
+hashMD5 := utils.MD5("data")
+hashSHA1 := utils.SHA1("data")
+hashSHA256 := utils.SHA256("data")
+hashSHA512 := utils.SHA512("data")
 ```
 
 ---
@@ -50,18 +50,18 @@ got, err := a.DecryptGCMString(encryptStr, base64.StdEncoding.DecodeString, []by
 // CTR 不提供完整性校验，仅在兼容旧协议时显式开启
 a, err := utils.AES(key, utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 
-encryptStr, err := a.Encrypt(data, utils.CTR, base64.StdEncoding.EncodeToString, utils.NoPadding)
-got, err := a.Decrypt(encryptStr, utils.CTR, base64.StdEncoding.DecodeString, utils.NoUnPadding)
+encryptStr, err := a.Encrypt(data, utils.CTR, base64.StdEncoding.EncodeToString, utils.NoPad)
+got, err := a.Decrypt(encryptStr, utils.CTR, base64.StdEncoding.DecodeString, utils.NoUnpad)
 ```
 
 #### AES-CBC 块模式与历史系统兼容
 
 ```go
-// CBC 模式搭配固定 IV，使用 Pkcs7Padding 填充
+// CBC 模式搭配固定 IV，使用 PKCS7Pad 填充
 a, err := utils.AES(key, utils.WithIV(iv))
 
-encryptStr, err := a.Encrypt(data, utils.CBC, base64.StdEncoding.EncodeToString, utils.Pkcs7Padding)
-got, err := a.Decrypt(encryptStr, utils.CBC, base64.StdEncoding.DecodeString, utils.Pkcs7UnPadding)
+encryptStr, err := a.Encrypt(data, utils.CBC, base64.StdEncoding.EncodeToString, utils.PKCS7Pad)
+got, err := a.Decrypt(encryptStr, utils.CBC, base64.StdEncoding.DecodeString, utils.PKCS7Unpad)
 ```
 
 #### 开启不安全模式（仅限旧系统兼容）
@@ -73,18 +73,18 @@ utils.WithAllowUnsafeECB(true),
 utils.WithAllowUnsafeKeyIV(true),
 }
 a, err := utils.AES(key, opts...)
-encryptStr, err := a.Encrypt(data, utils.ECB, base64.StdEncoding.EncodeToString, utils.Pkcs7Padding)
+encryptStr, err := a.Encrypt(data, utils.ECB, base64.StdEncoding.EncodeToString, utils.PKCS7Pad)
 ```
 
 ---
 
-### 5.3 数据填充 (Padding)
+### 5.3 数据填充 (Pad)
 
 用于将数据补齐至块加密（如 AES-CBC）所需的分组大小。
 
-- `utils.Pkcs7Padding` / `utils.Pkcs7UnPadding`：标准 PKCS#7 填充方案（推荐块加密使用）。
-- `utils.ZeroPadding` / `utils.ZeroUnPadding`：补 0 填充方案（兼容特定旧协议）。
-- `utils.NoPadding` / `utils.NoUnPadding`：不进行任何填充，无额外内存拷贝（GCM 或旧协议流模式使用；CTR/CFB/OFB 不提供完整性校验）。
+- `utils.PKCS7Pad` / `utils.PKCS7Unpad`：标准 PKCS#7 填充方案（推荐块加密使用）。
+- `utils.ZeroPad` / `utils.ZeroUnpad`：补 0 填充方案（兼容特定旧协议）。
+- `utils.NoPad` / `utils.NoUnpad`：不进行任何填充，无额外内存拷贝（GCM 或旧协议流模式使用；CTR/CFB/OFB 不提供完整性校验）。
 
 ---
 
@@ -130,7 +130,7 @@ err = pubRsa.VerifyPSS(data, sign, crypto.SHA256, base64.StdEncoding.DecodeStrin
 
 ```bash
 # 对称加密基准测试（对比 CBC、CTR 兼容模式与 GCM）
-go test -run '^$' -bench 'BenchmarkCipherAES(CBCEncrypt|CBCDecrypt|CTRNoPaddingEncrypt|CTRNoPaddingDecrypt|GCMEncrypt|GCMDecrypt)$' -benchmem ./...
+go test -run '^$' -bench 'BenchmarkCipherAES(CBCEncrypt|CBCDecrypt|CTRNoPadEncrypt|CTRNoPadDecrypt|GCMEncrypt|GCMDecrypt)$' -benchmem ./...
 
 # RSA 基准测试（对比 OAEP 与 PSS）
 go test -run '^$' -bench 'BenchmarkRSA(EncryptOAEP|DecryptOAEP|SignPSS|VerifyPSS)$' -benchmem ./...

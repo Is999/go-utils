@@ -14,8 +14,6 @@ import (
 
 // initTransport 初始化 HTTP Transport。
 // 配置代理、TLS 证书、不安全验证等传输层选项。
-//
-// 返回值：错误信息
 func (c *Curl) initTransport() error {
 	// 确保 Client 已初始化
 	if c.cli == nil {
@@ -43,56 +41,54 @@ func (c *Curl) initTransport() error {
 		return errors.Tag(err)
 	}
 
-	// 配置代理
-	if len(c.proxyURL) > 0 {
-		if c.defLogOutput {
-			c.Logger.Debug("ProxyURL()")
-		}
-		if err := ProxyURL(tr, c.proxyURL); err != nil {
-			return errors.Tag(err)
-		}
+	if err = c.applyTransportProxy(tr); err != nil {
+		return errors.Tag(err)
 	}
-
-	// 配置 HTTPS 不安全验证
-	if c.insecureSkipVerify {
-		if c.defLogOutput {
-			c.Logger.Debug("InsecureSkipVerify")
-		}
-		if tr.TLSClientConfig == nil {
-			tr.TLSClientConfig = defaultTLSConfig()
-		}
-		tr.TLSClientConfig.InsecureSkipVerify = true
-	}
-
-	// 配置根证书
-	if len(c.rootCAs) > 0 {
-		if c.defLogOutput {
-			c.Logger.Debug("RootCAs()")
-		}
-		if tr.TLSClientConfig == nil {
-			tr.TLSClientConfig = defaultTLSConfig()
-		}
-		if err := RootCAs(tr.TLSClientConfig, c.rootCAs); err != nil {
-			return errors.Tag(err)
-		}
-	}
-
-	// 配置客户端证书
-	if len(c.cert) > 0 && len(c.key) > 0 {
-		if c.defLogOutput {
-			c.Logger.Debug("Certificate()")
-		}
-		if tr.TLSClientConfig == nil {
-			tr.TLSClientConfig = defaultTLSConfig()
-		}
-		if err := Certificate(tr.TLSClientConfig, c.cert, c.key); err != nil {
-			return errors.Tag(err)
-		}
+	if err = c.applyTransportTLS(tr); err != nil {
+		return errors.Tag(err)
 	}
 
 	// 设置 Transport
 	c.cli.Transport = tr
 	c.transportDirty = false
+	return nil
+}
+
+// applyTransportProxy 应用 HTTP 代理配置。
+func (c *Curl) applyTransportProxy(tr *http.Transport) error {
+	if len(c.proxyURL) == 0 {
+		return nil
+	}
+	if c.defLogOutput {
+		c.Logger.Debug("ProxyURL()")
+	}
+	return ProxyURL(tr, c.proxyURL)
+}
+
+// applyTransportTLS 应用 TLS 验证、根证书和客户端证书配置。
+func (c *Curl) applyTransportTLS(tr *http.Transport) error {
+	if c.insecureSkipVerify {
+		if c.defLogOutput {
+			c.Logger.Debug("InsecureSkipVerify")
+		}
+		ensureTLSConfig(tr).InsecureSkipVerify = true
+	}
+	if len(c.rootCAs) > 0 {
+		if c.defLogOutput {
+			c.Logger.Debug("RootCAs()")
+		}
+		if err := RootCAs(ensureTLSConfig(tr), c.rootCAs); err != nil {
+			return errors.Tag(err)
+		}
+	}
+	if len(c.cert) > 0 && len(c.key) > 0 {
+		if c.defLogOutput {
+			c.Logger.Debug("Certificate()")
+		}
+		if err := Certificate(ensureTLSConfig(tr), c.cert, c.key); err != nil {
+			return errors.Tag(err)
+		}
+	}
 	return nil
 }
 
@@ -105,8 +101,6 @@ func (c *Curl) markTransportDirty() {
 }
 
 // defaultHTTPTransport 返回标准库默认 Transport 的可修改副本。
-//
-// 返回值：HTTP Transport、错误信息。
 func defaultHTTPTransport() (*http.Transport, error) {
 	tr, ok := http.DefaultTransport.(*http.Transport)
 	if !ok || tr == nil {
@@ -120,21 +114,21 @@ func defaultHTTPTransport() (*http.Transport, error) {
 }
 
 // defaultTLSConfig 返回生产默认 TLS 配置。
-//
-// 返回值：TLS 配置指针。
 func defaultTLSConfig() *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12}
+}
+
+// ensureTLSConfig 返回可写 TLS 配置，缺失时使用生产默认配置。
+func ensureTLSConfig(transport *http.Transport) *tls.Config {
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = defaultTLSConfig()
+	}
+	return transport.TLSClientConfig
 }
 
 // ============================ 证书配置函数 ============================
 
 // ProxyURL 设置 HTTP 代理。
-//
-// 参数说明：
-//   - transport：HTTP Transport
-//   - proxyURL：代理地址
-//
-// 返回值：错误信息
 func ProxyURL(transport *http.Transport, proxyURL string) error {
 	if transport == nil {
 		return errors.New("http.Transport 不能为空")
@@ -149,12 +143,6 @@ func ProxyURL(transport *http.Transport, proxyURL string) error {
 
 // RootCAs 设置根证书池。
 // 默认会在系统根证书池基础上追加自定义根证书，避免误把系统根证书整体替换掉。
-//
-// 参数说明：
-//   - config：TLS 配置
-//   - rootCAs：根证书文件路径
-//
-// 返回值：错误信息
 func RootCAs(config *tls.Config, rootCAs string) error {
 	if config == nil {
 		return errors.New("tls.Config 不能为空")
@@ -179,13 +167,6 @@ func RootCAs(config *tls.Config, rootCAs string) error {
 }
 
 // Certificate 设置客户端证书。
-//
-// 参数说明：
-//   - config：TLS 配置
-//   - certFile：证书文件路径
-//   - keyFile：私钥文件路径
-//
-// 返回值：错误信息
 func Certificate(config *tls.Config, certFile, keyFile string) error {
 	if config == nil {
 		return errors.New("tls.Config 不能为空")

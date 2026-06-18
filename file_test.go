@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
@@ -45,6 +46,43 @@ func TestFindFiles(t *testing.T) {
 			//for i, info := range got {
 			//	t.Logf("FindFiles() i = %v, path = %v, info.name = %+v", i, info.Path, info.FileInfo.Name())
 			//}
+		})
+	}
+}
+
+func TestFindFilesMatcherModes(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"alpha.txt", "beta.log", "app.yaml"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", name, err)
+		}
+	}
+
+	tests := []struct {
+		name  string
+		match []string
+		want  []string
+	}{
+		{name: "all", match: nil, want: []string{"alpha.txt", "app.yaml", "beta.log"}},
+		{name: "prefix", match: []string{"p", "a"}, want: []string{"alpha.txt", "app.yaml"}},
+		{name: "suffix", match: []string{"s", ".log"}, want: []string{"beta.log"}},
+		{name: "exact", match: []string{"e", "app.yaml"}, want: []string{"app.yaml"}},
+		{name: "regexp", match: []string{"r", `^a.*\.txt$`}, want: []string{"alpha.txt"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := utils.FindFiles(dir, false, tt.match...)
+			if err != nil {
+				t.Fatalf("FindFiles() error = %v", err)
+			}
+			names := make([]string, 0, len(got))
+			for _, file := range got {
+				names = append(names, file.Name())
+			}
+			if !slices.Equal(names, tt.want) {
+				t.Fatalf("FindFiles() names = %#v, want %#v", names, tt.want)
+			}
 		})
 	}
 }
@@ -799,6 +837,25 @@ func TestWriteFileAtomicReplacesWholeFile(t *testing.T) {
 	}
 	if string(got) != "new-content" {
 		t.Fatalf("file content = %q, want %q", got, "new-content")
+	}
+}
+
+func TestWriteStringAtomicReplacesWholeFile(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "atomic-string.txt")
+	if err := os.WriteFile(fileName, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := utils.WriteStringAtomic(fileName, "new-string", 0644); err != nil {
+		t.Fatalf("WriteStringAtomic() error = %v", err)
+	}
+
+	got, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new-string" {
+		t.Fatalf("file content = %q, want %q", got, "new-string")
 	}
 }
 

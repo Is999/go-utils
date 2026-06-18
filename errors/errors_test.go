@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -334,6 +335,65 @@ func TestIs(t *testing.T) {
 	}
 }
 
+func TestWrappingPreservesSentinelForIs(t *testing.T) {
+	thirdPartyNil := stderrors.New("redis: nil")
+	tests := []struct {
+		name   string
+		source error
+	}{
+		{name: "stdlib eof", source: io.EOF},
+		{name: "third party sentinel", source: thirdPartyNil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := errors.WithContextErr(context.Background(), "request_id", "r-1")
+			err := errors.Wrap(tt.source, "repository read failed")
+			err = errors.WithMessage(err, "service failed")
+			err = errors.WithCode(err, 50001)
+			err = errors.WithContext(ctx, err)
+			err = errors.Wrapf(err, "handler %s", "failed")
+			err = errors.Tag(err)
+
+			if !errors.Is(err, tt.source) {
+				t.Fatalf("errors.Is() should match source sentinel %v after wrapping", tt.source)
+			}
+			if !stderrors.Is(err, tt.source) {
+				t.Fatalf("stdlib errors.Is() should match source sentinel %v after wrapping", tt.source)
+			}
+			if !errors.HasCode(err, 50001) {
+				t.Fatal("HasCode() should keep outer business code")
+			}
+			if !errors.HasMsg(err, "handler failed") || !errors.HasMsg(err, "repository read failed") {
+				t.Fatalf("HasMsg() should traverse wrapped messages, got %s", errors.TraceString(err))
+			}
+		})
+	}
+}
+
+func TestJoinWrappingPreservesAllSentinelsForIs(t *testing.T) {
+	thirdPartyNil := stderrors.New("redis: nil")
+	err := errors.WithCode(
+		errors.WithMessage(
+			errors.Join(
+				errors.Wrap(io.EOF, "profile read failed"),
+				errors.Wrap(thirdPartyNil, "cache read failed"),
+			),
+			"submit failed",
+		),
+		42201,
+	)
+
+	for _, target := range []error{io.EOF, thirdPartyNil} {
+		if !errors.Is(err, target) {
+			t.Fatalf("errors.Is() should match joined source %v", target)
+		}
+		if !stderrors.Is(err, target) {
+			t.Fatalf("stdlib errors.Is() should match joined source %v", target)
+		}
+	}
+}
+
 func TestUnwrap(t *testing.T) {
 	err := fmt.Errorf("原始测试错误")
 	type args struct {
@@ -396,16 +456,34 @@ func TestSourceSourcesAndChain(t *testing.T) {
 	}
 }
 
-func TestType(t *testing.T) {
+func TestAsType(t *testing.T) {
 	source := &typedError{msg: "typed"}
 	err := errors.Wrapf(fmt.Errorf("standard wrap: %w", source), "custom wrap")
 
-	got, ok := errors.Type[*typedError](err)
+	got, ok := errors.AsType[*typedError](err)
 	if !ok {
-		t.Fatal("Type() should find typed source error")
+		t.Fatal("AsType() should find typed source error")
 	}
 	if got != source {
-		t.Fatalf("Type() = %v, want %v", got, source)
+		t.Fatalf("AsType() = %v, want %v", got, source)
+	}
+}
+
+func TestAsTypeDepthFirst(t *testing.T) {
+	left := &typedError{msg: "left"}
+	right := &typedError{msg: "right"}
+	err := errors.Join(errors.Wrap(left, "left wrap"), errors.Wrap(right, "right wrap"))
+
+	got, ok := errors.AsType[*typedError](err)
+	if !ok {
+		t.Fatal("AsType() should find typed error in joined chain")
+	}
+	if got != left {
+		t.Fatalf("AsType() = %v, want first depth-first match %v", got, left)
+	}
+	stdGot, stdOK := stderrors.AsType[*typedError](err)
+	if stdOK != ok || stdGot != got {
+		t.Fatalf("AsType() = (%v, %v), std errors.AsType() = (%v, %v)", got, ok, stdGot, stdOK)
 	}
 }
 
@@ -428,6 +506,89 @@ func TestTraceJSONEscapesControlAndInvalidUTF8(t *testing.T) {
 	trace := errors.TraceJSON(err)
 	if !json.Valid([]byte(trace)) {
 		t.Fatalf("TraceJSON() returned invalid JSON: %s", trace)
+	}
+}
+
+func TestTraceOutputKeepsWrappedMetadataAndSource(t *testing.T) {
+	old := errors.TraceEnabled()
+	defer errors.SetTraceEnabled(old)
+	errors.SetTraceEnabled(false)
+
+	ctx := errors.WithContextErr(context.Background(), "request_id", "r-1")
+	err := errors.WithContext(ctx, errors.WithCode(errors.WithMessage(errors.Wrap(io.EOF, "read failed"), "service failed"), 50001))
+
+	if !errors.Is(err, io.EOF) {
+		t.Fatal("Is() should match io.EOF before trace rendering")
+	}
+
+	traceText := errors.TraceString(err)
+	for _, want := range []string{"code=50001", "service failed", "read failed", "EOF"} {
+		if !strings.Contains(traceText, want) {
+			t.Fatalf("TraceString() missing %q, got %s", want, traceText)
+		}
+	}
+
+	traceJSON := errors.TraceJSON(err)
+	if !json.Valid([]byte(traceJSON)) {
+		t.Fatalf("TraceJSON() returned invalid JSON: %s", traceJSON)
+	}
+	for _, want := range []string{`"code":50001`, `"request_id":"r-1"`, `"msg":"service failed"`, `"msg":"read failed"`, `"msg":"EOF"`} {
+		if !strings.Contains(traceJSON, want) {
+			t.Fatalf("TraceJSON() missing %q, got %s", want, traceJSON)
+		}
+	}
+
+	if !errors.Is(err, io.EOF) {
+		t.Fatal("Is() should still match io.EOF after trace rendering")
+	}
+}
+
+func TestWrappedErrorsFormatAndMarshal(t *testing.T) {
+	ctx := errors.WithContextErr(context.Background(), "request_id", "r-1")
+	wrapped := []error{
+		errors.New("stack failed"),
+		errors.WithMessagef(io.EOF, "message %s", "failed"),
+		errors.WithContext(ctx, io.EOF),
+	}
+
+	for _, err := range wrapped {
+		if err == nil {
+			t.Fatal("wrapped error = nil")
+		}
+		if strings.TrimSpace(err.Error()) == "" {
+			t.Fatalf("Error() returned empty output for %T", err)
+		}
+		if strings.TrimSpace(fmt.Sprintf("%v", err)) == "" {
+			t.Fatalf("fmt %%v returned empty output for %T", err)
+		}
+		if strings.TrimSpace(fmt.Sprintf("%+v", err)) == "" {
+			t.Fatalf("fmt %%+v returned empty output for %T", err)
+		}
+		if strings.TrimSpace(fmt.Sprintf("%#v", err)) == "" {
+			t.Fatalf("fmt %%#v returned empty output for %T", err)
+		}
+		if stringer, ok := err.(interface{ String() string }); ok && stringer.String() == "" {
+			t.Fatalf("String() returned empty output for %T", err)
+		}
+		if goStringer, ok := err.(interface{ GoString() string }); ok && goStringer.GoString() == "" {
+			t.Fatalf("GoString() returned empty output for %T", err)
+		}
+		if data, marshalErr := json.Marshal(err); marshalErr != nil || !json.Valid(data) {
+			t.Fatalf("json.Marshal(%T) = %q, err=%v", err, data, marshalErr)
+		}
+		if textMarshaler, ok := err.(interface{ MarshalText() ([]byte, error) }); ok {
+			text, marshalErr := textMarshaler.MarshalText()
+			if marshalErr != nil || len(text) == 0 {
+				t.Fatalf("MarshalText(%T) = %q, err=%v", err, text, marshalErr)
+			}
+		}
+	}
+
+	if !errors.Is(wrapped[1], io.EOF) || !errors.Is(wrapped[2], io.EOF) {
+		t.Fatal("wrapped formatted errors should still match io.EOF")
+	}
+	if !errors.HasMsg(wrapped[1], "message failed") {
+		t.Fatal("WithMessagef() message should be visible in chain")
 	}
 }
 

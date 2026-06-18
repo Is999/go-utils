@@ -7,7 +7,7 @@ import (
 	"github.com/Is999/go-utils"
 )
 
-func TestPkcs7Padding(t *testing.T) {
+func TestPKCS7Pad(t *testing.T) {
 	type args struct {
 		data      []byte
 		blockSize int
@@ -26,14 +26,14 @@ func TestPkcs7Padding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.Pkcs7Padding(tt.args.data, tt.args.blockSize); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Pkcs7Padding() = %v, want %v", got, tt.want)
+			if got := utils.PKCS7Pad(tt.args.data, tt.args.blockSize); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("PKCS7Pad() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestPkcs7UnPadding(t *testing.T) {
+func TestPKCS7Unpad(t *testing.T) {
 	type args struct {
 		data []byte
 	}
@@ -52,13 +52,13 @@ func TestPkcs7UnPadding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := utils.Pkcs7UnPadding(tt.args.data)
+			got, err := utils.PKCS7Unpad(tt.args.data)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Pkcs7UnPadding() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PKCS7Unpad() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Pkcs7UnPadding() got = %v, want %v", got, tt.want)
+				t.Errorf("PKCS7Unpad() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

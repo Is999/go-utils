@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Is999/go-utils/errors"
 )
 
 // Response 默认值与响应头常量。
@@ -337,12 +339,12 @@ func newResponse(w http.ResponseWriter, statusCode int, opts ...ResponseOption) 
 }
 
 // encodeResponseBody 编码统一 JSON 响应包壳。
-// 业务意图：success/code/message 四个固定字段不再走反射；data 仍交给 encoding/json，保持任意业务数据的标准库语义。
+// success/code/message 四个固定字段不走反射；data 仍交给 encoding/json，保持任意业务数据的标准库语义。
 func encodeResponseBody(body Body) ([]byte, error) {
 	// dataJSON 是业务数据的 JSON 片段，数据来源为 Body.Data；nil 会按标准库语义输出 null。
 	dataJSON, err := json.Marshal(body.Data)
 	if err != nil {
-		return nil, err
+		return nil, errors.Tag(err)
 	}
 
 	// out 预估固定字段与业务数据容量，减少 append 扩容；message 可能包含转义字符，容量只做保守估计。
@@ -431,9 +433,6 @@ func validHTTPStatus(statusCode int) bool {
 
 // setContentType 写入已规范化的 Content-Type。
 // 调用方负责传入业务需要的 charset；该方法不再重复 normalize，服务于 Text/Html/Xml/Json 热路径。
-//
-// 参数说明：
-//   - contentType：已规范化的响应 Content-Type，空字符串会被忽略
 func (r *Response) setContentType(contentType string) {
 	if r == nil || r.writer == nil || contentType == "" {
 		return
@@ -443,11 +442,6 @@ func (r *Response) setContentType(contentType string) {
 
 // setHeaderValue 覆盖单值响应头。
 // key 来自本包常量，已经是标准 HTTP Header 形式；直接写 map 可避开 Header.Set 的重复规范化开销。
-//
-// 参数说明：
-//   - header：响应头映射，来源于 http.ResponseWriter.Header()
-//   - key：响应头名称，必须使用规范化后的常量
-//   - value：响应头单值内容
 func setHeaderValue(header http.Header, key, value string) {
 	if header == nil {
 		return
@@ -606,7 +600,7 @@ func (r *Response) writeHTTPError(statusCode int, message string) {
 
 // logError 记录错误并返回可暴露给调用方的追踪 ID。
 func (r *Response) logError(desc string, err error, args ...any) string {
-	id := UniqID(16)
+	id := UniqueID(16)
 	if err == nil {
 		return id
 	}

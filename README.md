@@ -13,35 +13,57 @@ golang 帮助函数
 ### 使用说明
 
 1. utils 包已按“生产默认安全、历史兼容显式开启”的原则整理；落地生产前仍需结合业务协议、密钥管理、日志合规和调用方并发模型做最终评审。
-2. 版本要求golang 1.22
+2. 版本要求 Go 1.26。
+3. 本版本按 Go 命名规范做破坏性改名，不保留旧名 wrapper；调用方请按下方迁移表替换。
 
 ------
 
-### 最终交付说明
+### 破坏性 API 迁移表
 
-本次交付保留原 README 既有标准库与工具函数说明，并在代码实现侧完成安全性、并发性、性能边界和文档一致性整改。核心结论如下：
+| 旧 API | 新 API | 说明 |
+| --- | --- | --- |
+| `errors.Type[T]` | `errors.AsType[T]` | 对齐 Go 1.26 `errors.AsType` 泛型语义。 |
+| `PassWord` | `Password` | 基础密码格式校验。 |
+| `PassWord2` | `StrongPassword` | 强密码校验，不允许特殊符号。 |
+| `PassWord3` | `StrongPasswordWithSymbols` | 强密码校验，允许特殊符号。 |
+| `UniqID` / `UniqId` | `UniqueID` | 使用完整单词，保留 ID initialism。 |
+| `SecureUniqID` | `SecureUniqueID` | 密码学安全随机 ID。 |
+| `RandStr` | `RandomLetters` | 使用英文字母字符集。 |
+| `RandStr2` | `RandomID` | 首字符为字母，后续为字母数字。 |
+| `RandStr3` | `RandomString` | 自定义字符集随机字符串。 |
+| `SecureRandStr*` | `SecureRandomLetters` / `SecureRandomID` / `SecureRandomString` | 密码学安全随机字符串。 |
+| `McryptMode` | `CipherMode` | 加密模式类型。 |
+| `Padding` / `UnPadding` | `Pad` / `Unpad` | 填充和去填充函数类型。 |
+| `NoPadding` / `NoUnPadding` | `NoPad` / `NoUnpad` | 不填充策略。 |
+| `Pkcs7Padding` / `Pkcs7UnPadding` | `PKCS7Pad` / `PKCS7Unpad` | Go initialism 规范。 |
+| `ZeroPadding` / `ZeroUnPadding` | `ZeroPad` / `ZeroUnpad` | 零填充策略。 |
+| `DES3` | `TripleDES` | 语义更明确。 |
+| `UrlPath` | `URLPath` | URL initialism 规范；旧名已删除。 |
+| `*RequestId` | `*RequestID` | ID initialism 规范；旧名已删除。 |
+| `ReSetHeader` / `ReSetParams` | `ResetHeader` / `ResetParams` | 动词拼写规范。 |
+| `DelHeaders` / `DelParams` / `DelCookies` / `DelFiles` | `DeleteHeaders` / `DeleteParams` / `DeleteCookies` / `DeleteFiles` | 动词完整清晰。 |
+| `Md5` / `Sha1` / `Sha256` / `Sha512` | `MD5` / `SHA1` / `SHA256` / `SHA512` | 摘要算法 initialism 规范。 |
+| `Str2Int` / `Str2Int64` / `Str2Float` | `ToInt` / `ToInt64` / `ToFloat64` | 简洁转换命名。 |
+| `StrRev` | `ReverseString` | 语义明确。 |
+| `Strtotime` | `ParseTime` | 与标准库 parse 语境一致。 |
+
+### 模块结论
+
+本版本保留官方标准库快捷概览，并在工具函数侧按安全性、并发性、性能边界和文档一致性整理。核心结论如下：
 
 | 模块                    | 生产级结论                                                                                                                       |
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------------|
 | AES / DES             | AES 推荐 `GCM`；`CBC` 必须显式 `WithIV(...)` 或 `WithRandIV(true)`；`CTR/CFB/OFB`、`ECB`、默认 key 派生 IV 默认禁用。DES/3DES 仅保留历史兼容，不建议新系统使用。 |
 | RSA                   | 生成和导入密钥均要求至少 2048 位；推荐 `EncryptOAEP/DecryptOAEP` 与 `SignPSS/VerifyPSS`；`PKCS#1 v1.5` 仅用于旧协议兼容；签名拒绝 MD5/SHA1。                |
-| PKCS7 / Zero          | `Pkcs7UnPadding` 严格校验填充字节；`ZeroPadding` 仅适合能接受尾部 0 歧义的旧协议。                                                                  |
+| PKCS7 / Zero          | `PKCS7Unpad` 严格校验填充字节；`ZeroPad` 仅适合能接受尾部 0 歧义的旧协议。                                                                  |
 | Pool / Once           | `Pool[T]` 基于 `sync.Pool`，支持归还前 reset；`Once` 并发安全，失败按有限指数退避重试，结果会缓存，需重新执行时调用 `Reset`。                                        |
 | Retry                 | `Retry` 使用 capped exponential backoff + jitter：第一次失败后约 100ms~200ms，最多 3s；`maxRetries=0` 时只执行 1 次。                           |
 | IP / Logger           | `ClientIP` 仅在远端为可信代理时读取转发头；生产建议使用 `ClientIPWithTrustedProxies`。默认 logger 基于 `log/slog` 并发安全，自定义 logger 也应保证并发安全。            |
-| slices / string / map | 常用函数无共享可变全局状态；传入的 slice/map 若被外部并发修改，调用方需自行加锁。                                                                              |
+| slices / string / map | 常用函数无共享可变全局状态；传入的 slice/map 若被外部并发修改，调用方需自行加锁。循环热路径优先使用 `UniqueInto/DiffInto/IntersectInto` 和 `NewReplacer` 复用分配。              |
 | tar / zip             | 解压防 Zip Slip/Tar Slip，拒绝绝对路径、目录穿越、空字符、符号链接和特殊文件；限制条目数、单文件大小和总展开大小。                                                          |
 | errors                | 支持栈追踪、错误码、上下文键值、`errors.Join`、文本/JSON/slog 输出；全局配置使用原子变量并发安全。                                                               |
-| curl                  | 继承标准库默认 Transport 连接池/TLS 行为；Header 按请求克隆；可回放 body 才会重试；默认日志 body 为预览上限；支持 `Clone/NewRequest` 派生独立请求实例并复用连接池。               |
+| curl                  | 继承标准库默认 Transport 连接池/TLS 行为；Header 按请求克隆；可回放 body 才会重试；默认日志 body 为预览上限并读取后恢复；支持 `Clone/NewRequest` 派生独立请求实例并复用连接池。         |
 | response              | 状态码只写一次；Content-Type 自动规范化；下载文件名清洗 CR/LF 和路径；文件输出拒绝目录。                                                                      |
-
-本次验证命令：
-
-```bash
-go test ./...
-go vet ./...
-go test -race ./...
-```
 
 ### 全局配置 Configure
 
@@ -51,10 +73,10 @@ go test -race ./...
 import utils "github.com/Is999/go-utils"
 
 func main() {
-utils.Configure(
-utils.WithJSON(json.Marshal, json.Unmarshal), // 可选：自定义 JSON 编解码器
-utils.WithLogger(yourLogger), // 可选：自定义 Logger
-)
+	utils.Configure(
+		utils.WithJSON(json.Marshal, json.Unmarshal), // 可选：自定义 JSON 编解码器
+		utils.WithLogger(yourLogger),                // 可选：自定义 Logger
+	)
 }
 ```
 
@@ -80,12 +102,12 @@ Logger 接口定义如下，实现 6 个方法即可集成任何第三方日志�
 
 ```go
 type Logger interface {
-Debug(msg string, args ...any)
-Info(msg string, args ...any)
-Warn(msg string, args ...any)
-Error(msg string, args ...any)
-With(args ...any) Logger
-Enabled(ctx context.Context, level LogLevel) bool
+	Debug(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+	With(args ...any) Logger
+	Enabled(ctx context.Context, level LogLevel) bool
 }
 ```
 
@@ -93,10 +115,10 @@ Enabled(ctx context.Context, level LogLevel) bool
 
 ```go
 const (
-LevelDebug LogLevel = -4
-LevelInfo  LogLevel = 0
-LevelWarn  LogLevel = 4
-LevelError LogLevel = 8
+	LevelDebug LogLevel = -4
+	LevelInfo  LogLevel = 0
+	LevelWarn  LogLevel = 4
+	LevelError LogLevel = 8
 )
 ```
 
@@ -252,7 +274,7 @@ fmt.Sprintf("%#v", err) // 等同于 TraceJSON
 
 ### 历史变更
 
-1. 版本要求golang 1.18变更为1.22
+1. 版本要求 Go 1.26
 2. 移除了1.21 版本前的Max、Min 两个函数，推荐使用golang 内置函数 max、min
 3. 移除了1.21 版本前的Logger 文件，使用标准库中 log/slog
 4. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
@@ -260,7 +282,7 @@ fmt.Sprintf("%#v", err) // 等同于 TraceJSON
 6. utils中返回的error 统一使用了WrapError, 支持error记录追踪
 7. RSA加密解密增加了对长文本的支持，增加了对PEM key 去除头尾标记和还原头尾标记方法
 8. math/rand 改1.22版本 math/rand/v2, 部分函数形参 rand.Source 改为*rand.Rand
-9. Strtotime函数增强，支持更多时间格式自动解析（毫秒、微秒、纳秒格式）
+9. ParseTime函数增强，支持更多时间格式自动解析（毫秒、微秒、纳秒格式）
 10. Response模块使用 Header 方法（修复 Herder 拼写错误，当前仅保留 Header 方法）
 11. 修复types.go中"有符合"拼写错误，更正为"有符号"
 12. 新增 Retry 函数，支持带指数退避的重试机制
@@ -280,7 +302,7 @@ fmt.Sprintf("%#v", err) // 等同于 TraceJSON
 
 >
 开发中使用频率较高的Go标准库中的方法及utils包中的帮助方法。utils包中的方法都可以在单元测试中找到使用方法示例。版本要求 >=
-1.22版本。
+1.26版本。
 
 > 注意：utils包中代码仅供参考，不建议用于商业生产，造成损失概不负责。
 
@@ -310,7 +332,7 @@ string[start: end]
 
 ------
 
-#### func    [utils.Substr](https://github.com/Is999/go-utils/blob/master/string.go#L47)
+#### func [utils.Substr](https://github.com/Is999/go-utils/blob/master/string.go#L116)
 
 ```go
 func Substr(str string, start, length int) string
@@ -1040,7 +1062,7 @@ strings.NewReplacer(oldnew...).Replace(s)
 
 ------
 
-#### func    [utils.Replace](https://github.com/Is999/go-utils/blob/master/string.go#L26)
+#### func [utils.Replace](https://github.com/Is999/go-utils/blob/master/string.go#L99)
 
 ```go
 func Replace(s string, oldnew map[string]string) string 
@@ -1051,7 +1073,7 @@ func Replace(s string, oldnew map[string]string) string
 | *s*      | 原字符串。                                     |
 | *oldnew* | 替换规则，map类型， map的键为要替换的字符串，map的值为替换成什么字符串。 |
 
-备注：内部会先按 key 排序再调用 strings.NewReplacer，保证 map 遍历无序时替换规则仍稳定；使用 map 类型传参更加直观。
+备注：内部会先按 key 排序再调用 strings.NewReplacer，保证 map 遍历无序时替换规则仍稳定；少量一次性替换可直接使用。循环或高频替换应优先使用 `NewReplacer` 复用已排序规则和标准库 replacer。
 
 ------
 
@@ -1073,10 +1095,10 @@ func Clone(s string) string
 
 ------
 
-#### func    [utils.StrRev](https://github.com/Is999/go-utils/blob/master/string.go#L87)
+#### func [utils.ReverseString](https://github.com/Is999/go-utils/blob/master/string.go#L197)
 
 ```go
-func StrRev(str string) string
+func ReverseString(str string) string
 ```
 
 备注：将字符串 str 反转。
@@ -1087,11 +1109,10 @@ func StrRev(str string) string
 
 ------
 
-#### func    [utils.UniqID / utils.UniqId](https://github.com/Is999/go-utils/blob/master/string.go#L138)
+#### func [utils.UniqueID](https://github.com/Is999/go-utils/blob/master/string.go#L303)
 
 ```go
-func UniqID(l uint8, r ...*rand.Rand) string
-func UniqId(l uint8, r ...*rand.Rand) string
+func UniqueID(l uint8, r ...*rand.Rand) string
 ```
 
 | 参数  | 描述                                          |
@@ -1099,16 +1120,14 @@ func UniqId(l uint8, r ...*rand.Rand) string
 | *l* | 生成字符串的长度。                                   |
 | *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
-备注：生成一个长度范围16-32位的唯一ID字符串(可排序的字符串)，UniqID函数生成字符串并不保证全局强唯一性；UniqId
-为历史兼容名称，新代码建议使用 UniqID。该函数基于 `math/rand`，仅适用于非安全场景；token、验证码、重置链接等安全用途请使用
-`SecureUniqID`。
+备注：生成一个长度范围16-32位的唯一ID字符串(可排序的字符串)。UniqueID 生成字符串并不保证全局强唯一性；该函数基于 `math/rand`，仅适用于非安全场景；token、验证码、重置链接等安全用途请使用 `SecureUniqueID`。
 
 ------
 
-#### func    [utils.RandStr](https://github.com/Is999/go-utils/blob/master/string.go#L95)
+#### func [utils.RandomLetters](https://github.com/Is999/go-utils/blob/master/string.go#L207)
 
 ```go
-func RandStr(n int, r ...*rand.Rand) string
+func RandomLetters(n int, r ...*rand.Rand) string
 ```
 
 | 参数  | 描述                                          |
@@ -1117,14 +1136,14 @@ func RandStr(n int, r ...*rand.Rand) string
 | *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：随机生成字符串 ALPHA。ALPHA 值为：A-Za-z。该函数基于 `math/rand`，仅适用于测试数据、临时标识等非安全场景；安全用途请使用
-`SecureRandStr`。
+`SecureRandomLetters`。
 
 ------
 
-#### func    [utils.RandStr2](https://github.com/Is999/go-utils/blob/master/string.go#L103)
+#### func [utils.RandomID](https://github.com/Is999/go-utils/blob/master/string.go#L218)
 
 ```go
-func RandStr2(n int, r ...*rand.Rand) string
+func RandomID(n int, r ...*rand.Rand) string
 ```
 
 | 参数  | 描述                                          |
@@ -1133,14 +1152,14 @@ func RandStr2(n int, r ...*rand.Rand) string
 | *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：随机生成字符串 ALNUM。ALNUM 值为：A-Za-z0-9；为兼容旧行为，首字符固定为字母，不会以数字开头。该函数基于 `math/rand`，
-仅适用于非安全场景；安全用途请使用 `SecureRandStr2`。
+仅适用于非安全场景；安全用途请使用 `SecureRandomID`。
 
 ------
 
-#### func    [utils.RandStr3](https://github.com/Is999/go-utils/blob/master/string.go#L118)
+#### func [utils.RandomString](https://github.com/Is999/go-utils/blob/master/string.go#L247)
 
 ```go
-func RandStr3(n int, alpha string, r ...*rand.Rand) string
+func RandomString(n int, alpha string, r ...*rand.Rand) string
 ```
 
 | 参数      | 描述                                          |
@@ -1150,7 +1169,7 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string
 | *r*     | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
 
 备注：随机生成字符串。alpha 指定生成随机字符串的种子。该函数基于 `math/rand`，仅适用于非安全场景；安全用途请使用
-`SecureRandStr3`。
+`SecureRandomString`。
 
 ------
 
@@ -1212,11 +1231,10 @@ func QueryUnescape(s string) (string, error)
 
 ------
 
-#### func    [utils.URLPath / utils.UrlPath](https://github.com/Is999/go-utils/blob/master/url.go#L20)
+#### func [utils.URLPath](https://github.com/Is999/go-utils/blob/master/url.go#L15)
 
 ```go
 func URLPath(urlPath string, params url.Values) (string, error)
-func UrlPath(urlPath string, params url.Values) (string, error)
 ```
 
 | 参数      | 描述         |
@@ -1224,7 +1242,7 @@ func UrlPath(urlPath string, params url.Values) (string, error)
 | urlPath | 基础 URL 路径。 |
 | params  | 查询参数键值对。   |
 
-备注：将 params 合并到 urlPath 的查询字符串中，并保留原有查询参数；UrlPath 为历史兼容名称，新代码建议使用 URLPath。
+备注：将 params 合并到 urlPath 的查询字符串中，并保留原有查询参数。
 
 ------
 
@@ -1378,7 +1396,7 @@ func Min(x, y float64) float64
 
 ------
 
-#### func    [utils.Rand](https://github.com/Is999/go-utils/blob/master/math.go#L13)
+#### func [utils.Rand](https://github.com/Is999/go-utils/blob/master/math.go#L13)
 
 ```go
 func Rand(minInt, maxInt int64, r ...*rand.Rand) int64
@@ -1394,7 +1412,7 @@ func Rand(minInt, maxInt int64, r ...*rand.Rand) int64
 
 ------
 
-#### func    [utils.Round](https://github.com/Is999/go-utils/blob/master/math.go#L29)
+#### func [utils.Round](https://github.com/Is999/go-utils/blob/master/math.go#L54)
 
 ```go
 func Round(num float64, precision int) float64
@@ -1651,7 +1669,7 @@ func Clean(path string) string
 
 ------
 
-#### func    [utils.IsDir](https://github.com/Is999/go-utils/blob/master/file.go#L23)
+#### func [utils.IsDir](https://github.com/Is999/go-utils/blob/master/file.go#L23)
 
 ```go
 func IsDir(path string) bool
@@ -1661,7 +1679,7 @@ func IsDir(path string) bool
 
 ------
 
-#### func    [utils.IsFile](https://github.com/Is999/go-utils/blob/master/file.go#L32)
+#### func [utils.IsFile](https://github.com/Is999/go-utils/blob/master/file.go#L32)
 
 ```go
 func IsFile(filepath string) bool
@@ -1671,7 +1689,7 @@ func IsFile(filepath string) bool
 
 ------
 
-#### func    [utils.IsExist](https://github.com/Is999/go-utils/blob/master/file.go#L41)
+#### func [utils.IsExist](https://github.com/Is999/go-utils/blob/master/file.go#L41)
 
 ```go
 func IsExist(path string) bool
@@ -1685,7 +1703,7 @@ func IsExist(path string) bool
 
 ------
 
-#### func    [utils.Size](https://github.com/Is999/go-utils/blob/master/file.go#L47)
+#### func [utils.Size](https://github.com/Is999/go-utils/blob/master/file.go#L47)
 
 ```go
 func Size(filepath string) (int64, error) 
@@ -1695,7 +1713,7 @@ func Size(filepath string) (int64, error)
 
 ------
 
-#### func    [utils.SizeFormat](https://github.com/Is999/go-utils/blob/master/file.go#L428)
+#### func [utils.SizeFormat](https://github.com/Is999/go-utils/blob/master/file.go#L584)
 
 ```go
 func SizeFormat(size int64, decimals uint) string 
@@ -1714,7 +1732,7 @@ func SizeFormat(size int64, decimals uint) string
 
 ------
 
-#### func    [utils.Copy](https://github.com/Is999/go-utils/blob/master/file.go#L59)
+#### func [utils.Copy](https://github.com/Is999/go-utils/blob/master/file.go#L59)
 
 ```go
 func Copy(src, dst string) error
@@ -1733,7 +1751,7 @@ func Copy(src, dst string) error
 
 ------
 
-#### func    [utils.FindFiles](https://github.com/Is999/go-utils/blob/master/file.go#L106)
+#### func [utils.FindFiles](https://github.com/Is999/go-utils/blob/master/file.go#L175)
 
 ```go
 func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err error)
@@ -1745,7 +1763,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 | *depth* | 深度查找: true 采用filepath.WalkDir遍历; false 只在当前目录查找。                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | *match* | 匹配规则:<br />   - `无参` : 匹配所有文件名 FindFiles(path, depth)<br />   - `*`   : 匹配所有文件名 FindFiles(path, depth, `*`) <br />  - `文件完整名`      : 精准匹配文件名 FindFiles(path, depth, fullFileName) <br />  - `e`, `文件完整名` : 精准匹配文件名 FindFiles(path, depth, `e`, fullFileName) <br />  - `p`, `文件前缀名` : 匹配前缀文件名 FindFiles(path, depth, `p`, fileNamePrefix)<br />  - `s`, `文件后缀名` : 匹配后缀文件名 FindFiles(path, depth, `s`, fileNameSuffix) <br />  - `r`, `正则表达式` : 正则匹配文件名 FindFiles(path, depth, `r`, fileNameReg) |
 
-备注：获取目录下所有匹配文件。
+备注：获取目录下所有匹配文件；匹配规则会在遍历前编译成 matcher，正则只编译一次，适合目录文件较多的场景。
 
 ------
 
@@ -1753,7 +1771,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 
 ------
 
-#### func    [utils.Scan](https://github.com/Is999/go-utils/blob/master/file.go#L231)
+#### func [utils.Scan](https://github.com/Is999/go-utils/blob/master/file.go#L313)
 
 ```go
 func Scan(r io.Reader, handle ReadScan, size ...int) error
@@ -1769,7 +1787,7 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error
 
 ------
 
-#### func    [utils.Line](https://github.com/Is999/go-utils/blob/master/file.go#L257)
+#### func [utils.Line](https://github.com/Is999/go-utils/blob/master/file.go#L339)
 
 ```go
 func Line(r io.Reader, handle ReadLine) error
@@ -1784,7 +1802,7 @@ func Line(r io.Reader, handle ReadLine) error
 
 ------
 
-#### func    [utils.Read](https://github.com/Is999/go-utils/blob/master/file.go#L287)
+#### func [utils.Read](https://github.com/Is999/go-utils/blob/master/file.go#L369)
 
 ```go
 func Read(r io.Reader, handle ReadBlock) error
@@ -1803,7 +1821,7 @@ func Read(r io.Reader, handle ReadBlock) error
 
 ------
 
-#### func    [utils.WriteFile](https://github.com/Is999/go-utils/blob/master/file.go#L338)
+#### func [utils.NewWrite](https://github.com/Is999/go-utils/blob/master/file.go#L439)
 
 ```go
 func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error)
@@ -1824,24 +1842,24 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error)
 - `NewWrite` 会拒绝目标文件为符号链接，降低通过通用写入口写穿到其它路径的风险。
 
 ```go
-// 实例化一个WriteFile（追加写入）
-w, err := NewWrite(fileName, WithWriteAppend(true))
+// 实例化一个 WriteFile（追加写入）
+w, err := utils.NewWrite(fileName, utils.WithWriteAppend(true))
 if err != nil {
-fmt.Errorf("Write() error = %v", err)
-return
+	fmt.Errorf("NewWrite() error = %v", err)
+	return
 }
 
 // 关闭文件
-defer func () {
-if err := w.Close(); err != nil {
-fmt.Errorf("Close() err %v", err)
-}
+defer func() {
+	if err := w.Close(); err != nil {
+		fmt.Errorf("Close() err %v", err)
+	}
 }()
-
+```
 
 ------
 
-#### func    [utils.WriteFileAtomic / utils.WriteStringAtomic](https://github.com/Is999/go-utils/blob/master/file.go)
+#### func [utils.WriteFileAtomic](https://github.com/Is999/go-utils/blob/master/file.go#L420) / [utils.WriteStringAtomic](https://github.com/Is999/go-utils/blob/master/file.go#L431)
 
 ```go
 func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error
@@ -1864,7 +1882,6 @@ if err != nil {
 }
 ```
 
-```
 备注：适合一次性覆盖完整文件内容；若需要持续写入、追加写入或 `bufio.Writer` 批量写入，继续使用 `NewWrite`。
 
 ------
@@ -1873,7 +1890,7 @@ if err != nil {
 
 ------
 
-#### func    [utils.FileType](https://github.com/Is999/go-utils/blob/master/file.go#L462)
+#### func [utils.FileType](https://github.com/Is999/go-utils/blob/master/file.go#L604)
 
 ```go
 func FileType(f *os.File) (string, error)
@@ -1891,10 +1908,10 @@ func FileType(f *os.File) (string, error)
 
 ------
 
-#### func    [utils.Md5](https://github.com/Is999/go-utils/blob/master/md5.go#L9)
+#### func [utils.MD5](https://github.com/Is999/go-utils/blob/master/md5.go#L12)
 
 ```go
-func Md5(str string) string
+func MD5(str string) string
 ```
 
 备注：返回 MD5 十六进制摘要。MD5 已不适合密码存储、签名、完整性安全校验等安全场景，仅用于历史协议兼容或非安全哈希标识。
@@ -1905,30 +1922,30 @@ func Md5(str string) string
 
 ------
 
-#### func    [utils.Sha1](https://github.com/Is999/go-utils/blob/master/sha.go#L11)
+#### func [utils.SHA1](https://github.com/Is999/go-utils/blob/master/sha.go#L14)
 
 ```go
-func Sha1(str string) string
+func SHA1(str string) string
 ```
 
 备注：返回 SHA-1 十六进制摘要。SHA-1 已不适合签名、证书、密码存储等安全场景，仅用于历史协议兼容或非安全哈希标识。
 
 ------
 
-#### func    [utils.Sha256](https://github.com/Is999/go-utils/blob/master/sha.go#L17)
+#### func [utils.SHA256](https://github.com/Is999/go-utils/blob/master/sha.go#L21)
 
 ```go
-func Sha256(str string) string
+func SHA256(str string) string
 ```
 
 备注：返回 SHA-256 十六进制摘要。普通摘要场景可使用；密码存储仍应使用 bcrypt/argon2/scrypt 等专用算法。
 
 ------
 
-#### func    [utils.Sha512](https://github.com/Is999/go-utils/blob/master/sha.go#L23)
+#### func [utils.SHA512](https://github.com/Is999/go-utils/blob/master/sha.go#L28)
 
 ```go
-func Sha512(str string) string
+func SHA512(str string) string
 ```
 
 备注：返回 SHA-512 十六进制摘要。普通摘要场景可使用；密码存储仍应使用 bcrypt/argon2/scrypt 等专用算法。
@@ -1939,7 +1956,7 @@ func Sha512(str string) string
 
 ------
 
-#### func    [utils.GenerateKeyRSA](https://github.com/Is999/go-utils/blob/master/rsa.go#L420)
+#### func [utils.GenerateKeyRSA](https://github.com/Is999/go-utils/blob/master/rsa.go#L413)
 
 ```go
 func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error)
@@ -1956,7 +1973,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error)
 
 ------
 
-#### RSA [加密与解密](https://github.com/Is999/go-utils/blob/master/rsa.go#L199)
+#### RSA 加密与解密：[utils.NewRSA](https://github.com/Is999/go-utils/blob/master/rsa.go#L54) / [(*RSA).Encrypt](https://github.com/Is999/go-utils/blob/master/rsa.go#L156) / [(*RSA).Decrypt](https://github.com/Is999/go-utils/blob/master/rsa.go#L176) / [(*RSA).EncryptOAEP](https://github.com/Is999/go-utils/blob/master/rsa.go#L256) / [(*RSA).DecryptOAEP](https://github.com/Is999/go-utils/blob/master/rsa.go#L282)
 
 ```go
 // 实例化RSA，并设置key
@@ -2005,7 +2022,7 @@ return
 
 ------
 
-#### RSA [签名与验签](https://github.com/Is999/go-utils/blob/master/rsa.go#L265)
+#### RSA 签名与验签：[(*RSA).Sign](https://github.com/Is999/go-utils/blob/master/rsa.go#L210) / [(*RSA).Verify](https://github.com/Is999/go-utils/blob/master/rsa.go#L232) / [(*RSA).SignPSS](https://github.com/Is999/go-utils/blob/master/rsa.go#L366) / [(*RSA).VerifyPSS](https://github.com/Is999/go-utils/blob/master/rsa.go#L388)
 
 ```go
 // 实例化RSA，并设置key
@@ -2075,7 +2092,7 @@ fmt.Log("Verify() = 验证成功")
 
 ------
 
-#### RSA [秘钥格式转换](https://github.com/Is999/go-utils/blob/master/rsa.go#L523)
+#### RSA 密钥格式转换：[utils.RemovePEMHeaders](https://github.com/Is999/go-utils/blob/master/rsa.go#L495) / [utils.AddPEMHeaders](https://github.com/Is999/go-utils/blob/master/rsa.go#L512)
 
 ```go
 // 读取公钥文件内容
@@ -2125,14 +2142,14 @@ return
 }
 
 // 加密数据
-encryptStr, err := a.Encrypt(data, CBC, base64.StdEncoding.EncodeToString, Pkcs7Padding)
+encryptStr, err := a.Encrypt(data, CBC, base64.StdEncoding.EncodeToString, PKCS7Pad)
 if err != nil {
 fmt.Errorf("Encrypt() mode = %v error = %v", CBC, err)
 return
 }
 
 // 解密数据
-got, err := a.Decrypt(encryptStr, CBC, base64.StdEncoding.DecodeString, Pkcs7UnPadding)
+got, err := a.Decrypt(encryptStr, CBC, base64.StdEncoding.DecodeString, PKCS7Unpad)
 if err != nil {
 fmt.Errorf("Decrypt() mode = %v error = %v", CBC, err)
 return
@@ -2144,7 +2161,7 @@ return
 默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
 IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `WithAllowUnsafeKeyIV(true)`。
 
-补充：`CTR/CFB/OFB` 若用于旧协议兼容且无需补位，建议配合 `NoPadding` / `NoUnPadding` 使用，避免多余填充和块长度约束。
+补充：`CTR/CFB/OFB` 若用于旧协议兼容且无需补位，建议配合 `NoPad` / `NoUnpad` 使用，避免多余填充和块长度约束。
 
 ------
 
@@ -2152,7 +2169,7 @@ IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `With
 
 ------
 
-#### DES [加密与解密](https://github.com/Is999/go-utils/blob/master/des.go#L12)
+#### DES 加密与解密：[utils.DES](https://github.com/Is999/go-utils/blob/master/des.go#L15) / [utils.TripleDES](https://github.com/Is999/go-utils/blob/master/des.go#L32)
 
 ```go
 // 实例化DES，并设置key和iv
@@ -2163,14 +2180,14 @@ return
 }
 
 // 加密数据
-encryptStr, err := a.Encrypt(data, CBC, base64.StdEncoding.EncodeToString, Pkcs7Padding)
+encryptStr, err := a.Encrypt(data, CBC, base64.StdEncoding.EncodeToString, PKCS7Pad)
 if err != nil {
 fmt.Errorf("Encrypt() mode = %v error = %v", CBC, err)
 return
 }
 
 // 解密数据
-got, err := a.Decrypt(encryptStr, CBC, base64.StdEncoding.DecodeString, Pkcs7UnPadding)
+got, err := a.Decrypt(encryptStr, CBC, base64.StdEncoding.DecodeString, PKCS7Unpad)
 if err != nil {
 fmt.Errorf("Decrypt() mode = %v error = %v", CBC, err)
 return
@@ -2183,7 +2200,7 @@ return
 `ECB` 默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
 IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `WithAllowUnsafeKeyIV(true)`。
 
-补充：`CTR/CFB/OFB` 若用于旧协议兼容且无需补位，建议配合 `NoPadding` / `NoUnPadding` 使用，避免多余填充和块长度约束。
+补充：`CTR/CFB/OFB` 若用于旧协议兼容且无需补位，建议配合 `NoPad` / `NoUnpad` 使用，避免多余填充和块长度约束。
 
 ------
 
@@ -2220,7 +2237,7 @@ return
 
 ------
 
-#### NoPadding / NoUnPadding
+#### NoPad / NoUnpad
 
 ```go
 // CTR 模式下直接关闭补位。CTR 不提供完整性校验，仅用于旧协议兼容。
@@ -2229,18 +2246,18 @@ if err != nil {
 return
 }
 
-encryptStr, err := a.Encrypt(data, CTR, base64.StdEncoding.EncodeToString, NoPadding)
+encryptStr, err := a.Encrypt(data, CTR, base64.StdEncoding.EncodeToString, NoPad)
 if err != nil {
 return
 }
 
-got, err := a.Decrypt(encryptStr, CTR, base64.StdEncoding.DecodeString, NoUnPadding)
+got, err := a.Decrypt(encryptStr, CTR, base64.StdEncoding.DecodeString, NoUnpad)
 if err != nil {
 return
 }
 ```
 
-备注：`NoPadding` / `NoUnPadding` 适合 `CTR/CFB/OFB/GCM` 这类不依赖块补位的模式；其中 `CTR/CFB/OFB`
+备注：`NoPad` / `NoUnpad` 适合 `CTR/CFB/OFB/GCM` 这类不依赖块补位的模式；其中 `CTR/CFB/OFB`
 不提供完整性校验，默认禁用，不建议用于新协议。
 
 ------
@@ -2249,7 +2266,7 @@ return
 
 ```bash
 # 对称加密基准
-go test -run '^$' -bench 'BenchmarkCipherAES(CBCEncrypt|CBCDecrypt|CTRNoPaddingEncrypt|CTRNoPaddingDecrypt|GCMEncrypt|GCMDecrypt)$' -benchmem ./...
+go test -run '^$' -bench 'BenchmarkCipherAES(CBCEncrypt|CBCDecrypt|CTRNoPadEncrypt|CTRNoPadDecrypt|GCMEncrypt|GCMDecrypt)$' -benchmem ./...
 
 # RSA 基准
 go test -run '^$' -bench 'BenchmarkRSA(EncryptOAEP|DecryptOAEP|SignPSS|VerifyPSS)$' -benchmem ./...
@@ -2262,24 +2279,24 @@ go test -race ./...
 
 - 基准数据受 CPU、系统负载、Go 版本影响较大，建议关注相对变化而不是绝对数值。
 - `RSA` 私钥解密/签名天然比公钥加密/验签更重，属于算法特性，不是实现异常。
-- 对称加密建议把 `CBC`、`CTR-NoPadding`、`GCM` 分开观察，分别对应兼容分组模式、旧协议流模式和认证加密模式。
+- 对称加密建议把 `CBC`、`CTR-NoPad`、`GCM` 分开观察，分别对应兼容分组模式、旧协议流模式和认证加密模式。
 
 ------
 
-#### func    [utils.Pkcs7Padding](https://github.com/Is999/go-utils/blob/master/pkcs7.go#L9)
+#### func [utils.PKCS7Pad](https://github.com/Is999/go-utils/blob/master/pkcs7.go#L8)
 
 ```go
-func Pkcs7Padding(data []byte, blockSize int) []byte
+func PKCS7Pad(data []byte, blockSize int) []byte
 ```
 
 备注：数据填充。
 
 ------
 
-#### func    [utils.Pkcs7UnPadding](https://github.com/Is999/go-utils/blob/master/pkcs7.go#L18)
+#### func [utils.PKCS7Unpad](https://github.com/Is999/go-utils/blob/master/pkcs7.go#L24)
 
 ```go
-func Pkcs7UnPadding(data []byte) ([]byte, error) 
+func PKCS7Unpad(data []byte) ([]byte, error)
 ```
 
 备注：数据反填充。
@@ -2290,20 +2307,20 @@ func Pkcs7UnPadding(data []byte) ([]byte, error)
 
 ------
 
-#### func    [utils.ZeroPadding](https://github.com/Is999/go-utils/blob/master/zero.go#L9)
+#### func [utils.ZeroPad](https://github.com/Is999/go-utils/blob/master/zero.go#L8)
 
 ```go
-func ZeroPadding(data []byte, blockSize int) []byte 
+func ZeroPad(data []byte, blockSize int) []byte
 ```
 
 备注：数据填充。
 
 ------
 
-#### func    [utils.ZeroUnPadding](https://github.com/Is999/go-utils/blob/master/zero.go#L18)
+#### func [utils.ZeroUnpad](https://github.com/Is999/go-utils/blob/master/zero.go#L19)
 
 ```go
-func ZeroUnPadding(data []byte) ([]byte, error)
+func ZeroUnpad(data []byte) ([]byte, error)
 ```
 
 备注：数据反填充。
@@ -2338,20 +2355,20 @@ func Atoi(s string) (int, error)
 
 ------
 
-#### func    [utils.Str2Int64](https://github.com/Is999/go-utils/blob/master/strconv.go#L15)
+#### func [utils.ToInt64](https://github.com/Is999/go-utils/blob/master/strconv.go#L16)
 
 ```go
-func Str2Int64(s string) (i int64)
+func ToInt64(s string) (i int64)
 ```
 
 备注：string 转 int64，转换失败返回零值。
 
 ------
 
-#### func    [utils.Str2Int](https://github.com/Is999/go-utils/blob/master/strconv.go#L9)
+#### func [utils.ToInt](https://github.com/Is999/go-utils/blob/master/strconv.go#L10)
 
 ```go
-func Str2Int(s string) (i int) 
+func ToInt(s string) (i int)
 ```
 
 备注：string 转 int，转换失败返回零值。
@@ -2396,10 +2413,10 @@ func ParseFloat(s string, bitSize int) (float64, error)
 
 ------
 
-#### func    [utils.Str2Float](https://github.com/Is999/go-utils/blob/master/strconv.go#L21)
+#### func [utils.ToFloat64](https://github.com/Is999/go-utils/blob/master/strconv.go#L22)
 
 ```go
-func Str2Float(s string) (i float64)
+func ToFloat64(s string) (i float64)
 ```
 
 备注：string 转 float64，失败返回零值。
@@ -2424,7 +2441,7 @@ func FormatFloat(f float64, fmt byte, prec, bitSize int) string
 
 ------
 
-#### func    [utils.NumberFormat](https://github.com/Is999/go-utils/blob/master/misce.go#L27)
+#### func [utils.NumberFormat](https://github.com/Is999/go-utils/blob/master/misce.go#L39)
 
 ```go
 func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) string 
@@ -2445,7 +2462,7 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 
 ------
 
-#### func    [utils.BinOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L27)
+#### func [utils.BinOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L28)
 
 ```go
 func BinOct(str string) (string, error)
@@ -2455,7 +2472,7 @@ func BinOct(str string) (string, error)
 
 ------
 
-#### func    [utils.BinDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L36)
+#### func [utils.BinDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L33)
 
 ```go
 func BinDec(str string) (int64, error)
@@ -2465,7 +2482,7 @@ func BinDec(str string) (int64, error)
 
 ------
 
-#### func    [utils.BinHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L41)
+#### func [utils.BinHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L38)
 
 ```go
 func BinHex(str string) (string, error)
@@ -2475,7 +2492,7 @@ func BinHex(str string) (string, error)
 
 ------
 
-#### func    [utils.OctBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L50)
+#### func [utils.OctBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L43)
 
 ```go
 func OctBin(data string) (string, error)
@@ -2485,7 +2502,7 @@ func OctBin(data string) (string, error)
 
 ------
 
-#### func    [utils.OctDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L59)
+#### func [utils.OctDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L48)
 
 ```go
 func OctDec(str string) (int64, error)
@@ -2495,7 +2512,7 @@ func OctDec(str string) (int64, error)
 
 ------
 
-#### func    [utils.OctHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L64)
+#### func [utils.OctHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L53)
 
 ```go
 func OctHex(data string) (string, error)
@@ -2505,7 +2522,7 @@ func OctHex(data string) (string, error)
 
 ------
 
-#### func    [utils.DecBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L73)
+#### func [utils.DecBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L58)
 
 ```go
 func DecBin(number int64) string
@@ -2515,7 +2532,7 @@ func DecBin(number int64) string
 
 ------
 
-#### func    [utils.DecOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L78)
+#### func [utils.DecOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L63)
 
 ```go
 func DecOct(number int64) string
@@ -2525,7 +2542,7 @@ func DecOct(number int64) string
 
 ------
 
-#### func    [utils.DecHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L83)
+#### func [utils.DecHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L68)
 
 ```go
 func DecHex(number int64) string
@@ -2535,7 +2552,7 @@ func DecHex(number int64) string
 
 ------
 
-#### func    [utils.HexBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L88)
+#### func [utils.HexBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L73)
 
 ```go
 func HexBin(data string) (string, error) 
@@ -2545,7 +2562,7 @@ func HexBin(data string) (string, error)
 
 ------
 
-#### func    [utils.HexOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L97)
+#### func [utils.HexOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L78)
 
 ```go
 func HexOct(str string) (string, error)
@@ -2555,7 +2572,7 @@ func HexOct(str string) (string, error)
 
 ------
 
-#### func    [utils.HexDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L106)
+#### func [utils.HexDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L83)
 
 ```go
 func HexDec(str string) (int64, error)
@@ -2573,7 +2590,7 @@ func HexDec(str string) (int64, error)
 
 ------
 
-#### func    [utils.IsHas](https://github.com/Is999/go-utils/blob/master/slices.go#L4)
+#### func [utils.IsHas](https://github.com/Is999/go-utils/blob/master/slices.go#L10)
 
 ```go
 func IsHas[T comparable](v T, s []T) bool
@@ -2587,7 +2604,7 @@ func IsHas[T comparable](v T, s []T) bool
 
 ------
 
-#### func    [utils.HasCount](https://github.com/Is999/go-utils/blob/master/slices.go#L14)
+#### func [utils.HasCount](https://github.com/Is999/go-utils/blob/master/slices.go#L20)
 
 ```go
 func HasCount[T comparable](v T, s []T) (count int)
@@ -2601,7 +2618,7 @@ func HasCount[T comparable](v T, s []T) (count int)
 
 ------
 
-#### func    [utils.Reverse](https://github.com/Is999/go-utils/blob/master/slices.go#L24)
+#### func [utils.Reverse](https://github.com/Is999/go-utils/blob/master/slices.go#L30)
 
 ```go
 func Reverse[T any](s []T) []T
@@ -2615,7 +2632,7 @@ func Reverse[T any](s []T) []T
 
 ------
 
-#### func    [utils.Unique](https://github.com/Is999/go-utils/blob/master/slices.go#L32)
+#### func [utils.Unique](https://github.com/Is999/go-utils/blob/master/slices.go#L39)
 
 ```go
 func Unique[T comparable](s []T) []T
@@ -2629,7 +2646,7 @@ func Unique[T comparable](s []T) []T
 
 ------
 
-#### func    [utils.Diff](https://github.com/Is999/go-utils/blob/master/slices.go#L46)
+#### func [utils.Diff](https://github.com/Is999/go-utils/blob/master/slices.go#L83)
 
 ```go
 func Diff[T comparable](s1, s2 []T) []T
@@ -2643,7 +2660,7 @@ func Diff[T comparable](s1, s2 []T) []T
 
 ------
 
-#### func    [utils.Intersect](https://github.com/Is999/go-utils/blob/master/slices.go#L61)
+#### func [utils.Intersect](https://github.com/Is999/go-utils/blob/master/slices.go#L125)
 
 ```go
 func Intersect[T comparable](s1, s2 []T) []T
@@ -2657,7 +2674,7 @@ func Intersect[T comparable](s1, s2 []T) []T
 
 ------
 
-#### func    [utils.SumSlice](https://github.com/Is999/go-utils/blob/master/slices.go#L76)
+#### func [utils.SumSlice](https://github.com/Is999/go-utils/blob/master/slices.go#L174)
 
 ```go
 func SumSlice[T Number](nums []T) T
@@ -3102,7 +3119,7 @@ l.Init()
 
 ------
 
-#### func    [utils.MapKeys](https://github.com/Is999/go-utils/blob/master/map.go#L8)
+#### func [utils.MapKeys](https://github.com/Is999/go-utils/blob/master/map.go#L8)
 
 ```go
 func MapKeys[K Ordered, V any](m map[K]V) []K 
@@ -3116,7 +3133,7 @@ func MapKeys[K Ordered, V any](m map[K]V) []K
 
 ------
 
-#### func    [utils.MapValues](https://github.com/Is999/go-utils/blob/master/map.go#L19)
+#### func [utils.MapValues](https://github.com/Is999/go-utils/blob/master/map.go#L19)
 
 ```go
 func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V 
@@ -3135,7 +3152,7 @@ func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V
 
 ------
 
-#### func    [utils.MapRange](https://github.com/Is999/go-utils/blob/master/map.go#L49)
+#### func [utils.MapRange](https://github.com/Is999/go-utils/blob/master/map.go#L49)
 
 ```go
 func MapRange[K Ordered, V any](m map[K]V, f func(key K, value V) bool, isReverse ...bool)
@@ -3155,7 +3172,7 @@ func MapRange[K Ordered, V any](m map[K]V, f func(key K, value V) bool, isRevers
 
 ------
 
-#### func    [utils.MapFilter](https://github.com/Is999/go-utils/blob/master/map.go#L69)
+#### func [utils.MapFilter](https://github.com/Is999/go-utils/blob/master/map.go#L69)
 
 ```go
 func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V
@@ -3174,7 +3191,7 @@ func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V
 
 ------
 
-#### func    [utils.MapDiff](https://github.com/Is999/go-utils/blob/master/map.go#L79)
+#### func [utils.MapDiff](https://github.com/Is999/go-utils/blob/master/map.go#L80)
 
 ```go
 func MapDiff[K comparable, V comparable](m1, m2 map[K]V) []V
@@ -3184,7 +3201,7 @@ func MapDiff[K comparable, V comparable](m1, m2 map[K]V) []V
 
 ------
 
-#### func    [utils.MapDiffKey](https://github.com/Is999/go-utils/blob/master/map.go#L105)
+#### func [utils.MapDiffKey](https://github.com/Is999/go-utils/blob/master/map.go#L113)
 
 ```go
 func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K 
@@ -3198,7 +3215,7 @@ func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K
 
 ------
 
-#### func    [utils.MapIntersect](https://github.com/Is999/go-utils/blob/master/map.go#L92)
+#### func [utils.MapIntersect](https://github.com/Is999/go-utils/blob/master/map.go#L97)
 
 ```go
 func MapIntersect[K comparable, V comparable](m1, m2 map[K]V) []V
@@ -3208,7 +3225,7 @@ func MapIntersect[K comparable, V comparable](m1, m2 map[K]V) []V
 
 ------
 
-#### func    [utils.MapIntersectKey](https://github.com/Is999/go-utils/blob/master/map.go#L116)
+#### func [utils.MapIntersectKey](https://github.com/Is999/go-utils/blob/master/map.go#L124)
 
 ```go
 func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K
@@ -3222,7 +3239,7 @@ func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K
 
 ------
 
-#### func    [utils.SumMap](https://github.com/Is999/go-utils/blob/master/map.go#L127)
+#### func [utils.SumMap](https://github.com/Is999/go-utils/blob/master/map.go#L135)
 
 ```go
 func SumMap[K comparable, V Number](m map[K]V) V
@@ -3315,13 +3332,12 @@ func (m *Map) Range(f func (key, value interface{}) bool)
 
 ------
 
-###        
 
 ### 9.1 时区
 
 ------
 
-#### func    [utils.Local](https://github.com/Is999/go-utils/blob/master/time.go#L12)
+#### func [utils.Local](https://github.com/Is999/go-utils/blob/master/time.go#L14)
 
 ```go
 func Local() *time.Location
@@ -3331,7 +3347,7 @@ func Local() *time.Location
 
 ------
 
-#### func    [utils.CST](https://github.com/Is999/go-utils/blob/master/time.go#L17)
+#### func [utils.CST](https://github.com/Is999/go-utils/blob/master/time.go#L19)
 
 ```go
 func CST() *time.Location 
@@ -3341,7 +3357,7 @@ func CST() *time.Location
 
 ------
 
-#### func    [utils.UTC](https://github.com/Is999/go-utils/blob/master/time.go#L22)
+#### func [utils.UTC](https://github.com/Is999/go-utils/blob/master/time.go#L24)
 
 ```go
 func UTC() *time.Location 
@@ -3355,7 +3371,7 @@ func UTC() *time.Location
 
 ------
 
-#### func    [utils.CheckDate](https://github.com/Is999/go-utils/blob/master/time.go#L85)
+#### func [utils.CheckDate](https://github.com/Is999/go-utils/blob/master/time.go#L95)
 
 ```go
 func CheckDate(year, month, day int) bool
@@ -3367,7 +3383,7 @@ func CheckDate(year, month, day int) bool
 | *month* | 月份。 |
 | day     | 日期。 |
 
-备注：验证日期：年、月、日。
+备注：验证日期：年、月、日；内部复用 `MonthDay` 判断闰年和大小月，边界为 `1 <= year <= 32767`。
 
 ------
 
@@ -3375,7 +3391,7 @@ func CheckDate(year, month, day int) bool
 
 ------
 
-#### func    [utils.MonthDay](https://github.com/Is999/go-utils/blob/master/time.go#L67)
+#### func [utils.MonthDay](https://github.com/Is999/go-utils/blob/master/time.go#L80)
 
 ```go
 func MonthDay(year int, month int) (days int)
@@ -3394,7 +3410,7 @@ func MonthDay(year int, month int) (days int)
 
 ------
 
-#### func    [utils.AddTime](https://github.com/Is999/go-utils/blob/master/time.go#L112)
+#### func [utils.AddTime](https://github.com/Is999/go-utils/blob/master/time.go#L111)
 
 ```go
 func AddTime(t time.Time, addTimes ...string) (time.Time, error)
@@ -3412,7 +3428,7 @@ func AddTime(t time.Time, addTimes ...string) (time.Time, error)
 
 ------
 
-#### func    [utils.DateInfo](https://github.com/Is999/go-utils/blob/master/time.go#L156)
+#### func [utils.DateInfo](https://github.com/Is999/go-utils/blob/master/time.go#L185)
 
 ```go
 func DateInfo(t time.Time) map[string]interface{}
@@ -3437,7 +3453,7 @@ func DateInfo(t time.Time) map[string]interface{}
 
 ------
 
-#### func    [utils.TimeFormat](https://github.com/Is999/go-utils/blob/master/time.go#L205)
+#### func [utils.TimeFormat](https://github.com/Is999/go-utils/blob/master/time.go#L217)
 
 ```go
 func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) string
@@ -3457,7 +3473,7 @@ func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) stri
 
 ------
 
-#### func    [utils.TimeParse](https://github.com/Is999/go-utils/blob/master/time.go#L228)
+#### func [utils.TimeParse](https://github.com/Is999/go-utils/blob/master/time.go#L236)
 
 ```go
 func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, error)
@@ -3477,7 +3493,7 @@ func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, erro
 
 ------
 
-#### func    [utils.Before](https://github.com/Is999/go-utils/blob/master/time.go#L290)
+#### func [utils.Before](https://github.com/Is999/go-utils/blob/master/time.go#L326)
 
 ```go
 func Before(layout string, t1, t2 string) (bool, error) 
@@ -3493,7 +3509,7 @@ func Before(layout string, t1, t2 string) (bool, error)
 
 ------
 
-#### func    [utils.After](https://github.com/Is999/go-utils/blob/master/time.go#L303)
+#### func [utils.After](https://github.com/Is999/go-utils/blob/master/time.go#L335)
 
 ```go
 func After(layout string, t1, t2 string) (bool, error) 
@@ -3509,7 +3525,7 @@ func After(layout string, t1, t2 string) (bool, error)
 
 ------
 
-#### func    [utils.Equal](https://github.com/Is999/go-utils/blob/master/time.go#L316)
+#### func [utils.Equal](https://github.com/Is999/go-utils/blob/master/time.go#L344)
 
 ```go
 func Equal(layout string, t1, t2 string) (bool, error)
@@ -3529,7 +3545,7 @@ func Equal(layout string, t1, t2 string) (bool, error)
 
 ------
 
-#### func    [utils.Sub](https://github.com/Is999/go-utils/blob/master/time.go#L329)
+#### func [utils.Sub](https://github.com/Is999/go-utils/blob/master/time.go#L353)
 
 ```go
 func Sub(layout string, t1, t2 string) (time.Duration, error)
@@ -3573,7 +3589,7 @@ fmt.Printf("运行时间：%v", diff) // 运行时间：1.001284412s
 
 ------
 
-#### func    [utils.Empty](https://github.com/Is999/go-utils/blob/master/regexp.go#L12)
+#### func [utils.Empty](https://github.com/Is999/go-utils/blob/master/regexp.go#L142)
 
 ```go
 func Empty(value string) bool 
@@ -3583,7 +3599,7 @@ func Empty(value string) bool
 
 ------
 
-#### func    [utils.QQ](https://github.com/Is999/go-utils/blob/master/regexp.go#L20)
+#### func [utils.QQ](https://github.com/Is999/go-utils/blob/master/regexp.go#L147)
 
 ```go
 func QQ(value string) bool
@@ -3593,7 +3609,7 @@ func QQ(value string) bool
 
 ------
 
-#### func    [utils.Email](https://github.com/Is999/go-utils/blob/master/regexp.go#L26)
+#### func [utils.Email](https://github.com/Is999/go-utils/blob/master/regexp.go#L152)
 
 ```go
 func Email(value string) bool
@@ -3603,7 +3619,7 @@ func Email(value string) bool
 
 ------
 
-#### func    [utils.Mobile](https://github.com/Is999/go-utils/blob/master/regexp.go#L32)
+#### func [utils.Mobile](https://github.com/Is999/go-utils/blob/master/regexp.go#L157)
 
 ```go
 func Mobile(value string) bool
@@ -3613,7 +3629,7 @@ func Mobile(value string) bool
 
 ------
 
-#### func    [utils.Phone](https://github.com/Is999/go-utils/blob/master/regexp.go#L38)
+#### func [utils.Phone](https://github.com/Is999/go-utils/blob/master/regexp.go#L162)
 
 ```go
 func Phone(value string) bool
@@ -3623,7 +3639,7 @@ func Phone(value string) bool
 
 ------
 
-#### func    [utils.Numeric](https://github.com/Is999/go-utils/blob/master/regexp.go#L44)
+#### func [utils.Numeric](https://github.com/Is999/go-utils/blob/master/regexp.go#L167)
 
 ```go
 func Numeric(value string) bool
@@ -3633,7 +3649,7 @@ func Numeric(value string) bool
 
 ------
 
-#### func    [utils.UnNumeric](https://github.com/Is999/go-utils/blob/master/regexp.go#L51)
+#### func [utils.UnNumeric](https://github.com/Is999/go-utils/blob/master/regexp.go#L172)
 
 ```go
 func UnNumeric(value string) bool
@@ -3643,7 +3659,7 @@ func UnNumeric(value string) bool
 
 ------
 
-#### func    [utils.UnInteger](https://github.com/Is999/go-utils/blob/master/regexp.go#L57)
+#### func [utils.UnInteger](https://github.com/Is999/go-utils/blob/master/regexp.go#L177)
 
 ```go
 func UnInteger(value string) bool
@@ -3653,7 +3669,7 @@ func UnInteger(value string) bool
 
 ------
 
-#### func    [utils.UnIntZero](https://github.com/Is999/go-utils/blob/master/regexp.go#L63)
+#### func [utils.UnIntZero](https://github.com/Is999/go-utils/blob/master/regexp.go#L182)
 
 ```go
 func UnIntZero(value string) bool
@@ -3663,7 +3679,7 @@ func UnIntZero(value string) bool
 
 ------
 
-#### func    [utils.Amount](https://github.com/Is999/go-utils/blob/master/regexp.go#L73)
+#### func [utils.Amount](https://github.com/Is999/go-utils/blob/master/regexp.go#L191)
 
 ```go
 func Amount(amount string, decimal uint8, signed ...bool) bool
@@ -3679,7 +3695,7 @@ func Amount(amount string, decimal uint8, signed ...bool) bool
 
 ------
 
-#### func    [utils.Alpha](https://github.com/Is999/go-utils/blob/master/regexp.go#L94)
+#### func [utils.Alpha](https://github.com/Is999/go-utils/blob/master/regexp.go#L201)
 
 ```go
 func Alpha(value string) bool
@@ -3689,7 +3705,7 @@ func Alpha(value string) bool
 
 ------
 
-#### func    [utils.Zh](https://github.com/Is999/go-utils/blob/master/regexp.go#L100)
+#### func [utils.Zh](https://github.com/Is999/go-utils/blob/master/regexp.go#L206)
 
 ```go
 func Zh(value string) bool
@@ -3699,7 +3715,7 @@ func Zh(value string) bool
 
 ------
 
-#### func    [utils.MixStr](https://github.com/Is999/go-utils/blob/master/regexp.go#L106)
+#### func [utils.MixStr](https://github.com/Is999/go-utils/blob/master/regexp.go#L211)
 
 ```go
 func MixStr(value string) bool 
@@ -3709,7 +3725,7 @@ func MixStr(value string) bool
 
 ------
 
-#### func    [utils.Alnum](https://github.com/Is999/go-utils/blob/master/regexp.go#L112)
+#### func [utils.Alnum](https://github.com/Is999/go-utils/blob/master/regexp.go#L216)
 
 ```go
 func Alnum(value string) bool
@@ -3719,7 +3735,7 @@ func Alnum(value string) bool
 
 ------
 
-#### func    [utils.Domain](https://github.com/Is999/go-utils/blob/master/regexp.go#L118)
+#### func [utils.Domain](https://github.com/Is999/go-utils/blob/master/regexp.go#L221)
 
 ```go
 func Domain(value string) bool
@@ -3729,7 +3745,7 @@ func Domain(value string) bool
 
 ------
 
-#### func    [utils.TimeMonth](https://github.com/Is999/go-utils/blob/master/regexp.go#L124)
+#### func [utils.TimeMonth](https://github.com/Is999/go-utils/blob/master/regexp.go#L226)
 
 ```go
 func TimeMonth(value string) bool
@@ -3739,7 +3755,7 @@ func TimeMonth(value string) bool
 
 ------
 
-#### func    [utils.TimeDay](https://github.com/Is999/go-utils/blob/master/regexp.go#L130)
+#### func [utils.TimeDay](https://github.com/Is999/go-utils/blob/master/regexp.go#L231)
 
 ```go
 func TimeDay(value string) bool
@@ -3749,7 +3765,7 @@ func TimeDay(value string) bool
 
 ------
 
-#### func    [utils.Timestamp](https://github.com/Is999/go-utils/blob/master/regexp.go#L152)
+#### func [utils.Timestamp](https://github.com/Is999/go-utils/blob/master/regexp.go#L253)
 
 ```go
 func Timestamp(value string) bool
@@ -3759,7 +3775,7 @@ func Timestamp(value string) bool
 
 ------
 
-#### func    [utils.Account](https://github.com/Is999/go-utils/blob/master/regexp.go#L173)
+#### func [utils.Account](https://github.com/Is999/go-utils/blob/master/regexp.go#L274)
 
 ```go
 func Account(value string, min, max uint8) error
@@ -3769,37 +3785,37 @@ func Account(value string, min, max uint8) error
 
 ------
 
-#### func    [utils.PassWord](https://github.com/Is999/go-utils/blob/master/regexp.go#L197)
+#### func [utils.Password](https://github.com/Is999/go-utils/blob/master/regexp.go#L292)
 
 ```go
-func PassWord(value string, min, max uint8) error
+func Password(value string, min, max uint8) error
 ```
 
 备注：密码(字母开头，允许字母数字下划线，长度在 min - max之间)。
 
 ------
 
-#### func    [utils.PassWord2](https://github.com/Is999/go-utils/blob/master/regexp.go#L215)
+#### func [utils.StrongPassword](https://github.com/Is999/go-utils/blob/master/regexp.go#L306)
 
 ```go
-func PassWord2(value string, min, max uint8) error
+func StrongPassword(value string, min, max uint8) error
 ```
 
 备注：强密码(必须包含大小写字母和数字的组合，不能使用特殊字符，长度在min-max之间)。
 
 ------
 
-#### func    [utils.PassWord3](https://github.com/Is999/go-utils/blob/master/regexp.go#L255)
+#### func [utils.StrongPasswordWithSymbols](https://github.com/Is999/go-utils/blob/master/regexp.go#L331)
 
 ```go
-func PassWord3(value string, min, max uint8) error
+func StrongPasswordWithSymbols(value string, min, max uint8) error
 ```
 
 备注：强密码(必须包含大小写字母和数字的组合，可以使用特殊字符，长度在min-max之间)。
 
 ------
 
-#### func    [utils.HasSymbols](https://github.com/Is999/go-utils/blob/master/regexp.go#L295)
+#### func [utils.HasSymbols](https://github.com/Is999/go-utils/blob/master/regexp.go#L355)
 
 ```go
 func HasSymbols(value string) bool
@@ -3809,7 +3825,7 @@ func HasSymbols(value string) bool
 
 ------
 
-#### [两个时间字符串判断](https://github.com/Is999/go-utils/blob/master/time.go#L290)
+#### 相关函数：[utils.Before](https://github.com/Is999/go-utils/blob/master/time.go#L326) / [utils.After](https://github.com/Is999/go-utils/blob/master/time.go#L335) / [utils.Equal](https://github.com/Is999/go-utils/blob/master/time.go#L344)
 
 备注：参考9.7 两个时间字符串判断。
 
@@ -3828,6 +3844,8 @@ func HasSymbols(value string) bool
 - `Curl` 适合作为“基础模板配置 + 按请求派生实例”使用。
 - 共享基础配置时，生产环境建议使用 `Clone()` 或 `NewRequest()` 获取独立请求实例，再设置本次请求的 Header / Param / Body。
 - `NewRequest()` 会复用底层 Transport 连接池，同时为新实例生成新的 `X-Request-Id`，更适合并发场景。
+- GET/POST/PUT/PATCH/DELETE/OPTIONS 追加查询参数时只拼接已经编码好的参数串，URL 合法性由发送阶段的 `http.NewRequest` 统一校验。
+- 开启默认日志时，响应 body 只按 `SetLogBodyLimit` / dump 上限读取预览，并恢复 `Body` 供 `AfterResponse` / `AfterBody` 继续消费。
 
 示例：
 
@@ -3853,47 +3871,47 @@ err = reqCurl.
 
 ------
 
-#### [GET 请求方式](https://github.com/Is999/go-utils/blob/master/curl_client.go#L368)
+#### func [(*Curl).Get](https://github.com/Is999/go-utils/blob/master/curl_client.go#L416)
 
 ```go
 func (c *Curl) Get(url string) (err error)
 ```
 
-备注：参考测试用例：[TestGet](https://github.com/Is999/go-utils/blob/master/curl_test.go#L39)
+备注：参考测试用例：[TestGet](https://github.com/Is999/go-utils/blob/master/curl_test.go#L44)
 
 ------
 
-#### [POST 请求方式](https://github.com/Is999/go-utils/blob/master/curl_client.go#L377)
+#### func [(*Curl).Post](https://github.com/Is999/go-utils/blob/master/curl_client.go#L427)
 
 ```go
 func (c *Curl) Post(url string) (err error) 
 ```
 
-备注：参考测试用例：[TestPost](https://github.com/Is999/go-utils/blob/master/curl_test.go#L223)
+备注：参考测试用例：[TestPost](https://github.com/Is999/go-utils/blob/master/curl_test.go#L210)
 
 ------
 
-#### [POST FORM 请求方式](https://github.com/Is999/go-utils/blob/master/curl_client.go#L386)
+#### func [(*Curl).PostForm](https://github.com/Is999/go-utils/blob/master/curl_client.go#L438)
 
 ```go
 func (c *Curl) PostForm(url string) error 
 ```
 
-备注：参考测试用例：[TestPostForm](https://github.com/Is999/go-utils/blob/master/curl_test.go#L417)
+备注：参考测试用例：[TestPostForm](https://github.com/Is999/go-utils/blob/master/curl_test.go#L382)
 
 ------
 
-#### [POST FILE 请求方式](https://github.com/Is999/go-utils/blob/master/curl_client.go#L377)
+#### func [(*Curl).Post](https://github.com/Is999/go-utils/blob/master/curl_client.go#L427)
 
 ```go
 func (c *Curl) Post(url string) (err error) 
 ```
 
-备注：参考测试用例：[TestPostFile](https://github.com/Is999/go-utils/blob/master/curl_test.go#L547)
+备注：参考测试用例：[TestPostFile](https://github.com/Is999/go-utils/blob/master/curl_test.go#L487)
 
 ------
 
-#### [Clone / NewRequest](https://github.com/Is999/go-utils/blob/master/curl_client.go)
+#### func [(*Curl).Clone](https://github.com/Is999/go-utils/blob/master/curl_client.go#L358) / [(*Curl).NewRequest](https://github.com/Is999/go-utils/blob/master/curl_client.go#L405)
 
 ```go
 func (c *Curl) Clone() (*Curl, error)
@@ -3908,9 +3926,9 @@ func (c *Curl) NewRequest() (*Curl, error)
 
 参考测试用例：
 
-- [TestCurlCloneDeepCopiesRequestState](https://github.com/Is999/go-utils/blob/master/curl_test.go#L917)
-- [TestCurlNewRequestGeneratesIndependentRequestID](https://github.com/Is999/go-utils/blob/master/curl_test.go#L955)
-- [TestCurlTemplateReuseWithNewRequest](https://github.com/Is999/go-utils/blob/master/curl_test.go#L973)
+- [TestCurlCloneDeepCopiesRequestState](https://github.com/Is999/go-utils/blob/master/curl_test.go#L934)
+- [TestCurlNewRequestGeneratesIndependentRequestID](https://github.com/Is999/go-utils/blob/master/curl_test.go#L972)
+- [TestCurlTemplateReuseWithNewRequest](https://github.com/Is999/go-utils/blob/master/curl_test.go#L1000)
 
 ------
 
@@ -3922,7 +3940,7 @@ func (c *Curl) NewRequest() (*Curl, error)
 
 ------
 
-#### func    [utils.Redirect](https://github.com/Is999/go-utils/blob/master/response.go#L358)
+#### func [utils.Redirect](https://github.com/Is999/go-utils/blob/master/response.go#L311)
 
 ```go
 func Redirect(w http.ResponseWriter, url string, opts ...ResponseOption)
@@ -3948,7 +3966,7 @@ http.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Reques
 
 ------
 
-#### func    [utils.Json](https://github.com/Is999/go-utils/blob/master/response.go#L325)
+#### func [utils.Json](https://github.com/Is999/go-utils/blob/master/response.go#L298)
 
 ```go
 // Json 响应Json数据
@@ -4109,7 +4127,7 @@ http.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Reques
 
 ------
 
-#### func    [utils.Zip](https://github.com/Is999/go-utils/blob/master/zip.go#L16)
+#### func [utils.Zip](https://github.com/Is999/go-utils/blob/master/zip.go#L17)
 
 ```go
 func Zip(zipFile string, files []string) error
@@ -4124,7 +4142,7 @@ func Zip(zipFile string, files []string) error
 
 ------
 
-#### func    [utils.UnZip](https://github.com/Is999/go-utils/blob/master/zip.go#L144)
+#### func [utils.UnZip](https://github.com/Is999/go-utils/blob/master/zip.go#L157)
 
 ```go
 func UnZip(zipFile, destDir string) error
@@ -4143,7 +4161,7 @@ func UnZip(zipFile, destDir string) error
 
 ------
 
-#### func    [utils.Tar](https://github.com/Is999/go-utils/blob/master/tar.go#L17)
+#### func [utils.Tar](https://github.com/Is999/go-utils/blob/master/tar.go#L18)
 
 ```go
 func Tar(tarFile string, files []string) error 
@@ -4158,7 +4176,7 @@ func Tar(tarFile string, files []string) error
 
 ------
 
-#### func    [utils.TarGz](https://github.com/Is999/go-utils/blob/master/tar.go#L49)
+#### func [utils.TarGz](https://github.com/Is999/go-utils/blob/master/tar.go#L47)
 
 ```go
 func TarGz(tarGzFile string, files []string) error
@@ -4173,7 +4191,7 @@ func TarGz(tarGzFile string, files []string) error
 
 ------
 
-#### func    [utils.UnTar](https://github.com/Is999/go-utils/blob/master/tar.go#L180)
+#### func [utils.UnTar](https://github.com/Is999/go-utils/blob/master/tar.go#L193)
 
 ```go
 func UnTar(tarFile, destDir string) error 
@@ -4227,7 +4245,6 @@ slog.SetDefault(slog.New(handler))
 
 ------
 
-####   
 
 ## 15. 杂项
 
@@ -4247,7 +4264,7 @@ func Getenv(key string) string
 
 ------
 
-#### func    [utils.GetEnv](https://github.com/Is999/go-utils/blob/master/env.go#L12)
+#### func [utils.GetEnv](https://github.com/Is999/go-utils/blob/master/env.go#L13)
 
 ```go
 func GetEnv(key string, defaultVal ...string) string 
@@ -4282,13 +4299,12 @@ func Unsetenv(key string) error
 
 ------
 
-####        
 
 ### 15.2 IP
 
 ------
 
-#### func    [utils.ServerIP](https://github.com/Is999/go-utils/blob/master/ip.go#L12)
+#### func [utils.ServerIP](https://github.com/Is999/go-utils/blob/master/ip.go#L34)
 
 ```go
 func ServerIP() string
@@ -4299,7 +4315,7 @@ func ServerIP() string
 
 ------
 
-#### func    [utils.LocalIP](https://github.com/Is999/go-utils/blob/master/ip.go#L27)
+#### func [utils.LocalIP](https://github.com/Is999/go-utils/blob/master/ip.go#L59)
 
 ```go
 func LocalIP() string
@@ -4309,7 +4325,7 @@ func LocalIP() string
 
 ------
 
-#### func    [utils.ClientIP](https://github.com/Is999/go-utils/blob/master/ip.go#L55)
+#### func [utils.ClientIP](https://github.com/Is999/go-utils/blob/master/ip.go#L87)
 
 ```go
 func ClientIP(r *http.Request) string
@@ -4320,7 +4336,7 @@ func ClientIP(r *http.Request) string
 
 ------
 
-#### func    [utils.NewTrustedProxies](https://github.com/Is999/go-utils/blob/master/ip.go#L87)
+#### func [utils.NewTrustedProxies](https://github.com/Is999/go-utils/blob/master/ip.go#L93)
 
 ```go
 func NewTrustedProxies(values ...string) (*TrustedProxies, error)
@@ -4330,7 +4346,7 @@ func NewTrustedProxies(values ...string) (*TrustedProxies, error)
 
 ------
 
-#### func    [utils.ClientIPWithTrustedProxies](https://github.com/Is999/go-utils/blob/master/ip.go#L132)
+#### func [utils.ClientIPWithTrustedProxies](https://github.com/Is999/go-utils/blob/master/ip.go#L137)
 
 ```go
 func ClientIPWithTrustedProxies(r *http.Request, trustedProxies *TrustedProxies) string
@@ -4345,7 +4361,7 @@ func ClientIPWithTrustedProxies(r *http.Request, trustedProxies *TrustedProxies)
 
 ------
 
-#### func    [utils.Ternary](https://github.com/Is999/go-utils/blob/master/misce.go#L14)
+#### func [utils.Ternary](https://github.com/Is999/go-utils/blob/master/misce.go#L26)
 
 ```go
 func Ternary[T any](expr bool, trueVal, falseVal T) T 
@@ -4363,7 +4379,7 @@ func Ternary[T any](expr bool, trueVal, falseVal T) T
 
 ------
 
-#### func    [utils.RuntimeInfo](https://github.com/Is999/go-utils/blob/master/runtime.go#L15)
+#### func [utils.RuntimeInfo](https://github.com/Is999/go-utils/blob/master/runtime.go#L16)
 
 ```go
 func RuntimeInfo(skip int) *Frame
@@ -4373,7 +4389,7 @@ func RuntimeInfo(skip int) *Frame
 
 ------
 
-#### func    [utils.GetFunctionName](https://github.com/Is999/go-utils/blob/master/runtime.go#L33)
+#### func [utils.GetFunctionName](https://github.com/Is999/go-utils/blob/master/runtime.go#L38)
 
 ```go
 func GetFunctionName(i interface{}) string
@@ -4387,7 +4403,7 @@ func GetFunctionName(i interface{}) string
 
 ------
 
-#### func    [utils.Retry](https://github.com/Is999/go-utils/blob/master/misce.go#L89)
+#### func [utils.Retry](https://github.com/Is999/go-utils/blob/master/misce.go#L101)
 
 ```go
 func Retry(maxRetries uint8, fn func(tries int) error) error
@@ -4408,7 +4424,7 @@ func Retry(maxRetries uint8, fn func(tries int) error) error
 
 ------
 
-#### struct    [utils.Once](https://github.com/Is999/go-utils/blob/master/once.go#L9)
+#### struct [utils.Once](https://github.com/Is999/go-utils/blob/master/once.go#L12)
 
 ```go
 var o utils.Once
@@ -4432,7 +4448,7 @@ o.Reset()
 
 ------
 
-#### struct    [utils.Pool](https://github.com/Is999/go-utils/blob/master/pool.go#L5)
+#### struct [utils.Pool](https://github.com/Is999/go-utils/blob/master/pool.go#L10)
 
 ```go
 // 创建对象池
@@ -4458,7 +4474,7 @@ pool.Put(buf)
 
 ------
 
-#### func    [utils.Configure](https://github.com/Is999/go-utils/blob/master/config.go#L46)
+#### func [utils.Configure](https://github.com/Is999/go-utils/blob/master/config.go#L95)
 
 ```go
 func Configure(opts ...Option)

@@ -144,7 +144,7 @@ func BenchmarkSubstrUnicode(b *testing.B) {
 	}
 }
 
-func TestStrRev(t *testing.T) {
+func TestReverseString(t *testing.T) {
 	type args struct {
 		str string
 	}
@@ -163,17 +163,17 @@ func TestStrRev(t *testing.T) {
 				t.Errorf("str[%q] is not valid UTF-8", tt.args.str)
 				return
 			}
-			if got := utils.StrRev(tt.args.str); got != tt.want {
-				t.Errorf("StrRev() = %v, want %v", got, tt.want)
+			if got := utils.ReverseString(tt.args.str); got != tt.want {
+				t.Errorf("ReverseString() = %v, want %v", got, tt.want)
 			} else {
-				// t.Logf("StrRev() = %v|%v", tt.args.str, got)
+				// t.Logf("ReverseString() = %v|%v", tt.args.str, got)
 			}
 		})
 	}
 }
 
-// go test -fuzz=StrRev -fuzztime 10s
-func FuzzStrRev(f *testing.F) {
+// go test -fuzz=ReverseString -fuzztime 10s
+func FuzzReverseString(f *testing.F) {
 	testcases := []string{"Hello, world", " ", "!12345", "反转一个字符串\"A￥%&cd=L8217\""}
 	for _, tc := range testcases {
 		f.Add(tc) // Use f.Add to provide a seed corpus
@@ -182,9 +182,9 @@ func FuzzStrRev(f *testing.F) {
 		if !utf8.ValidString(orig) {
 			return
 		}
-		rev := utils.StrRev(orig)
+		rev := utils.ReverseString(orig)
 
-		doubleRev := utils.StrRev(rev)
+		doubleRev := utils.ReverseString(rev)
 		if orig != doubleRev {
 			t.Errorf("Before: %q, after: %q", orig, doubleRev)
 		}
@@ -194,7 +194,7 @@ func FuzzStrRev(f *testing.F) {
 	})
 }
 
-func TestRandStr(t *testing.T) {
+func TestRandomLetters(t *testing.T) {
 	type args struct {
 		n int // 长度
 	}
@@ -211,16 +211,16 @@ func TestRandStr(t *testing.T) {
 	// r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.RandStr(tt.args.n); len(got) != tt.args.n {
-				t.Errorf("RandStr() = %v, wantSize %v", got, tt.args.n)
+			if got := utils.RandomLetters(tt.args.n); len(got) != tt.args.n {
+				t.Errorf("RandomLetters() = %v, wantSize %v", got, tt.args.n)
 			} else {
-				//t.Logf("RandStr() = %v, size %v", got, tt.args.n)
+				//t.Logf("RandomLetters() = %v, size %v", got, tt.args.n)
 			}
 		})
 	}
 }
 
-func TestRandStr2(t *testing.T) {
+func TestRandomID(t *testing.T) {
 	type args struct {
 		n int // 长度
 	}
@@ -247,18 +247,18 @@ func TestRandStr2(t *testing.T) {
 		wg.Add(1)
 		go t.Run(tt.name, func(t *testing.T) {
 			defer wg.Done()
-			if got := utils.RandStr2(tt.args.n, r); len(got) != tt.args.n {
-				t.Errorf("%v RandStr2() = %v, size=%v, wantSize %v", tt.name, got, len(got), tt.args.n)
+			if got := utils.RandomID(tt.args.n, r); len(got) != tt.args.n {
+				t.Errorf("%v RandomID() = %v, size=%v, wantSize %v", tt.name, got, len(got), tt.args.n)
 			} else {
-				// t.Logf("%v RandStr2() = %v, size %v", tt.name, got, tt.args.n)
+				// t.Logf("%v RandomID() = %v, size %v", tt.name, got, tt.args.n)
 			}
 		})
 	}
 	wg.Wait()
 }
 
-// go test -bench=RandStr2$ -run ^$  -count 5 -benchmem
-func BenchmarkRandStr2(b *testing.B) {
+// go test -bench=RandomID$ -run ^$  -count 5 -benchmem
+func BenchmarkRandomID(b *testing.B) {
 	type args struct {
 		n int
 	}
@@ -273,19 +273,19 @@ func BenchmarkRandStr2(b *testing.B) {
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				if got := utils.RandStr2(tt.args.n, r); len(got) != tt.args.n {
-					b.Errorf("RandStr2() = %v, wantSize %v", got, tt.args.n)
+				if got := utils.RandomID(tt.args.n, r); len(got) != tt.args.n {
+					b.Errorf("RandomID() = %v, wantSize %v", got, tt.args.n)
 				}
 
-				/*if got := RandStr2(tt.args.n); len(got) != tt.args.n {
-					b.Errorf("RandStr2() = %v, wantSize %v", got, tt.args.n)
+				/*if got := RandomID(tt.args.n); len(got) != tt.args.n {
+					b.Errorf("RandomID() = %v, wantSize %v", got, tt.args.n)
 				}*/
 			}
 		})
 	}
 }
 
-func TestRandStr3(t *testing.T) {
+func TestRandomString(t *testing.T) {
 	type args struct {
 		n     int
 		alpha string
@@ -308,71 +308,71 @@ func TestRandStr3(t *testing.T) {
 	// r := Source()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.RandStr3(tt.args.n, tt.args.alpha); len(got) != tt.want {
-				t.Errorf("RandStr3() = %v, lenth %v, wantSize %v", got, tt.args.n, tt.want)
+			if got := utils.RandomString(tt.args.n, tt.args.alpha); len(got) != tt.want {
+				t.Errorf("RandomString() = %v, lenth %v, wantSize %v", got, tt.args.n, tt.want)
 			} else {
-				//t.Logf("RandStr3() = %v, size %v", got, tt.args.n)
+				//t.Logf("RandomString() = %v, size %v", got, tt.args.n)
 			}
 		})
 	}
 }
 
-func TestSecureRandStr(t *testing.T) {
-	got, err := utils.SecureRandStr(32)
+func TestSecureRandomLetters(t *testing.T) {
+	got, err := utils.SecureRandomLetters(32)
 	if err != nil {
-		t.Fatalf("SecureRandStr() error = %v", err)
+		t.Fatalf("SecureRandomLetters() error = %v", err)
 	}
 	if len(got) != 32 {
-		t.Fatalf("SecureRandStr() len = %d, want 32", len(got))
+		t.Fatalf("SecureRandomLetters() len = %d, want 32", len(got))
 	}
 	if !allCharsInAlphabet(got, utils.ALPHA) {
-		t.Fatalf("SecureRandStr() = %q, want chars in %q", got, utils.ALPHA)
+		t.Fatalf("SecureRandomLetters() = %q, want chars in %q", got, utils.ALPHA)
 	}
 }
 
-func TestSecureRandStr2(t *testing.T) {
-	got, err := utils.SecureRandStr2(32)
+func TestSecureRandomID(t *testing.T) {
+	got, err := utils.SecureRandomID(32)
 	if err != nil {
-		t.Fatalf("SecureRandStr2() error = %v", err)
+		t.Fatalf("SecureRandomID() error = %v", err)
 	}
 	if len(got) != 32 {
-		t.Fatalf("SecureRandStr2() len = %d, want 32", len(got))
+		t.Fatalf("SecureRandomID() len = %d, want 32", len(got))
 	}
 	if !allCharsInAlphabet(got[:1], utils.ALPHA) {
-		t.Fatalf("SecureRandStr2() first char = %q, want alpha", got[:1])
+		t.Fatalf("SecureRandomID() first char = %q, want alpha", got[:1])
 	}
 	if !allCharsInAlphabet(got[1:], utils.ALNUM) {
-		t.Fatalf("SecureRandStr2() tail = %q, want alnum", got[1:])
+		t.Fatalf("SecureRandomID() tail = %q, want alnum", got[1:])
 	}
 }
 
-func TestSecureRandStr3(t *testing.T) {
-	got, err := utils.SecureRandStr3(24, "abc123")
+func TestSecureRandomString(t *testing.T) {
+	got, err := utils.SecureRandomString(24, "abc123")
 	if err != nil {
-		t.Fatalf("SecureRandStr3() error = %v", err)
+		t.Fatalf("SecureRandomString() error = %v", err)
 	}
 	if len(got) != 24 {
-		t.Fatalf("SecureRandStr3() len = %d, want 24", len(got))
+		t.Fatalf("SecureRandomString() len = %d, want 24", len(got))
 	}
 	if !allCharsInAlphabet(got, "abc123") {
-		t.Fatalf("SecureRandStr3() = %q, want chars in %q", got, "abc123")
+		t.Fatalf("SecureRandomString() = %q, want chars in %q", got, "abc123")
 	}
 }
 
-func TestSecureUniqID(t *testing.T) {
-	got, err := utils.SecureUniqID(8)
+func TestSecureUniqueID(t *testing.T) {
+	got, err := utils.SecureUniqueID(8)
 	if err != nil {
-		t.Fatalf("SecureUniqID() error = %v", err)
+		t.Fatalf("SecureUniqueID() error = %v", err)
 	}
 	if len(got) != 16 {
-		t.Fatalf("SecureUniqID() len = %d, want 16", len(got))
+		t.Fatalf("SecureUniqueID() len = %d, want 16", len(got))
 	}
 	if !allCharsInAlphabet(got[:1], utils.ALPHA) || !allCharsInAlphabet(got[1:], utils.ALNUM) {
-		t.Fatalf("SecureUniqID() = %q, want leading alpha and tail alnum", got)
+		t.Fatalf("SecureUniqueID() = %q, want leading alpha and tail alnum", got)
 	}
 }
 
-func TestUniqId(t *testing.T) {
+func TestUniqueID(t *testing.T) {
 	type args struct {
 		l uint8
 	}
@@ -405,13 +405,13 @@ func TestUniqId(t *testing.T) {
 	r := utils.RandSource
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			utils.UniqId(tt.args.l, r)
+			utils.UniqueID(tt.args.l, r)
 		})
 	}
 }
 
-// go test -bench=UniqId$ -run ^$  -count 5 -benchmem
-func BenchmarkUniqId(t *testing.B) {
+// go test -bench=UniqueID$ -run ^$  -count 5 -benchmem
+func BenchmarkUniqueID(t *testing.B) {
 	type args struct {
 		l uint8
 	}
@@ -425,7 +425,7 @@ func BenchmarkUniqId(t *testing.B) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.B) {
 			for n := 0; n < t.N; n++ {
-				utils.UniqId(tt.args.l, r)
+				utils.UniqueID(tt.args.l, r)
 			}
 		})
 	}

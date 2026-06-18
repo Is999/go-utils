@@ -13,12 +13,6 @@ import (
 // 安全说明：
 //   - 该模式自带完整性校验，优先级高于 CBC/CTR/CFB/OFB 等非认证模式。
 //   - 每次加密都会随机生成 nonce，并写入密文头部，解密时自动解析。
-//
-// 参数说明：
-//   - data：待加密原始数据。
-//   - additionalData：附加认证数据，可为空；加解密两端必须完全一致。
-//
-// 返回值：nonce + 密文字节，错误信息。
 func (c *Cipher) EncryptGCM(data, additionalData []byte) ([]byte, error) {
 	if err := c.check(); err != nil {
 		return nil, errors.Tag(err)
@@ -39,12 +33,6 @@ func (c *Cipher) EncryptGCM(data, additionalData []byte) ([]byte, error) {
 }
 
 // DecryptGCM 使用 GCM(AEAD) 模式解密。
-//
-// 参数说明：
-//   - data：nonce + 密文字节。
-//   - additionalData：附加认证数据，可为空；加解密两端必须完全一致。
-//
-// 返回值：明文字节，错误信息。
 func (c *Cipher) DecryptGCM(data, additionalData []byte) ([]byte, error) {
 	if err := c.check(); err != nil {
 		return nil, errors.Tag(err)

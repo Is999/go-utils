@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 )
 
 const (
@@ -17,28 +18,14 @@ const (
 	HeaderLocation = headerLocation
 )
 
-// GenerateUniqID 是测试用请求 ID 生成函数包装。
-func GenerateUniqID(length int) string {
-	return generateUniqID(length)
-}
-
-// GenerateUniqId 是测试用请求 ID 生成函数包装。
-//
-// Deprecated: 请使用 GenerateUniqID。
-func GenerateUniqId(length int) string {
-	return GenerateUniqID(length)
+// GenerateUniqueID 是测试用请求 ID 生成函数包装。
+func GenerateUniqueID(length int) string {
+	return generateUniqueID(length)
 }
 
 // BuildURL 是测试用 URL 查询参数合并函数包装。
 func BuildURL(baseURL string, params url.Values) (string, error) {
-	return buildURL(baseURL, params)
-}
-
-// BuildUrl 是测试用 URL 查询参数合并函数包装。
-//
-// Deprecated: 请使用 BuildURL。
-func BuildUrl(baseURL string, params url.Values) (string, error) {
-	return BuildURL(baseURL, params)
+	return buildURL(baseURL, params), nil
 }
 
 // ReadBodyPreviewAndRestore 是测试用响应体预览与恢复函数包装。
@@ -54,4 +41,10 @@ func NormalizeContentType(contentType string) string {
 // NewResponse 是测试用响应构造函数包装。
 func NewResponse(w http.ResponseWriter, statusCode int, opts ...ResponseOption) *Response {
 	return newResponse(w, statusCode, opts...)
+}
+
+// ResetConfigForTest 重置全局配置，供外部测试包隔离 Configure 单次设置语义。
+func ResetConfigForTest() {
+	setOptionsOnce = sync.Once{}
+	configValue.Store(defaultOptions())
 }

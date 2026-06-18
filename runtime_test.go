@@ -29,9 +29,9 @@ func TestGetRuntimeInfo(t *testing.T) {
 func TestGetFunctionName(t *testing.T) {
 	// 普通函数
 	t.Run("named_function", func(t *testing.T) {
-		name := utils.GetFunctionName(utils.Md5)
-		if !strings.Contains(name, "Md5") {
-			t.Errorf("GetFunctionName() = %v, want contains 'Md5'", name)
+		name := utils.GetFunctionName(utils.MD5)
+		if !strings.Contains(name, "MD5") {
+			t.Errorf("GetFunctionName() = %v, want contains 'MD5'", name)
 		}
 	})
 

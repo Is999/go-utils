@@ -51,8 +51,8 @@ func (s Slice[T]) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 // 密码
 type (
-	// McryptMode 密码模式
-	McryptMode int8
+	// CipherMode 密码模式
+	CipherMode int8
 
 	// EncodeToString 加密方法
 	//	 - hex.EncodeToString
@@ -64,15 +64,15 @@ type (
 	//	 - base64.StdEncoding.DecodeString
 	DecodeString func(string) ([]byte, error)
 
-	// Padding 填充数据方法
-	//	 - Pkcs7Padding
-	//	 - ZeroPadding
-	Padding func([]byte, int) []byte
+	// Pad 填充数据方法
+	//	 - PKCS7Pad
+	//	 - ZeroPad
+	Pad func([]byte, int) []byte
 
-	// UnPadding 去除填充数据方法
-	//	 - Pkcs7UnPadding
-	//	 - ZeroUnPadding
-	UnPadding func([]byte) ([]byte, error)
+	// Unpad 去除填充数据方法
+	//	 - PKCS7Unpad
+	//	 - ZeroUnpad
+	Unpad func([]byte) ([]byte, error)
 
 	// CipherBlock 密码(AES | DES)
 	//	 - aes.NewCipher
@@ -118,7 +118,7 @@ type (
 // LogLevel 日志级别类型，兼容各种第三方日志库
 type LogLevel int
 
-// 日志级别常量与 slog 默认级别保持一致。
+// 日志级别常量与 slog 默认级别保持一致，便于内部默认实现平滑转换。
 const (
 	// LevelDebug 调试级别 (-4 对应 slog.LevelDebug)
 	LevelDebug LogLevel = -4
@@ -127,7 +127,6 @@ const (
 	// LevelWarn 警告级别 (4 对应 slog.LevelWarn)
 	LevelWarn LogLevel = 4
 	// LevelError 错误级别 (8 对应 slog.LevelError)
-	// 这些值与 slog.Level 保持一致，以便内部默认实现的平滑转换
 	LevelError LogLevel = 8
 )
 

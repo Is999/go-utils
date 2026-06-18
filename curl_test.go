@@ -16,15 +16,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/Is999/go-utils"
 	"github.com/Is999/go-utils/errors"
 )
-
-var apiUrl = "http://127.0.0.1:54334"
 
 func setLogConfig() {
 	// 日志等级
@@ -48,46 +45,28 @@ func TestGet(t *testing.T) {
 	// 日志配置
 	setLogConfig()
 
-	// 退出
-	exit := make(chan os.Signal)
+	serveMux := http.NewServeMux()
+	serveMux.HandleFunc("/curl/get", func(w http.ResponseWriter, r *http.Request) {
+		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
 
-	// 启动http服务器
-	go func() {
-		serveMux := http.NewServeMux()
+		// user 是服务端按查询参数回显的响应数据。
+		user := User{
+			Name:      r.URL.Query().Get("Name"),
+			Age:       utils.ToInt(r.URL.Query().Get("Age")),
+			Sex:       r.URL.Query().Get("Sex"),
+			IsMarried: r.URL.Query().Get("IsMarried") == "true",
+			Address:   r.URL.Query().Get("Address"),
+			phone:     r.URL.Query().Get("phone"),
+		}
 
-		// GET 请求
-		serveMux.HandleFunc("/curl/get", func(w http.ResponseWriter, r *http.Request) {
-			slog.Info(fmt.Sprintf("%v", r.URL.Query()))
-
-			// 响应的数据
-			user := User{
-				Name:      r.URL.Query().Get("Name"),
-				Age:       utils.Str2Int(r.URL.Query().Get("Age")),
-				Sex:       r.URL.Query().Get("Sex"),
-				IsMarried: r.URL.Query().Get("IsMarried") == "true",
-				Address:   r.URL.Query().Get("Address"),
-				phone:     r.URL.Query().Get("phone"),
-			}
-
-			if r.URL.Query().Get("success") == "false" {
-				// 写入响应数据
-				utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail", user)
-				return
-			}
-
-			// 写入响应数据
-			utils.Json(w).Success(10000, user)
-		})
-
-		httpServer(":54334", serveMux, exit)
-	}()
-	waitHTTPServer(t, ":54334")
-
-	// 关闭启动的http服务
-	defer func() {
-		// 退出信号
-		exit <- syscall.Signal(1)
-	}()
+		if r.URL.Query().Get("success") == "false" {
+			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail", user)
+			return
+		}
+		utils.Json(w).Success(10000, user)
+	})
+	server := httptest.NewServer(serveMux)
+	defer server.Close()
 
 	// 创建一个curl，开启默认日志
 	curl := utils.NewCurl().SetDefLogOutput(true)
@@ -105,7 +84,7 @@ func TestGet(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: apiUrl + "/curl/get",
+			url: server.URL + "/curl/get",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -131,7 +110,7 @@ func TestGet(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "002", args: args{
-			url: apiUrl + "/curl/get",
+			url: server.URL + "/curl/get",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -157,7 +136,7 @@ func TestGet(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "003", args: args{
-			url: apiUrl + "/curl/get",
+			url: server.URL + "/curl/get",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -191,7 +170,7 @@ func TestGet(t *testing.T) {
 			//}()
 
 			// 设置请求ID
-			curl.SetRequestId()
+			curl.SetRequestID()
 
 			// 设置记录日志模式
 			//Curl.SetDump(true)
@@ -229,59 +208,34 @@ func TestGet(t *testing.T) {
 }
 
 func TestPost(t *testing.T) {
-	const postAPIURL = "http://127.0.0.1:54335"
-
 	// 日志配置
 	setLogConfig()
 
-	// 退出
-	exit := make(chan os.Signal)
+	serveMux := http.NewServeMux()
+	serveMux.HandleFunc("/curl/post", func(w http.ResponseWriter, r *http.Request) {
+		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
+		if r.Method != http.MethodPost {
+			utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
+			return
+		}
 
-	// 启动http服务器
-	go func() {
-		serveMux := http.NewServeMux()
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Failed to read request body")
+			return
+		}
+		slog.Info("Received POST", "body", string(body))
 
-		// POST 请求
-		serveMux.HandleFunc("/curl/post", func(w http.ResponseWriter, r *http.Request) {
-			slog.Info(fmt.Sprintf("%v", r.URL.Query()))
-			if r.Method == http.MethodPost {
-				body, err := io.ReadAll(r.Body)
-				if err != nil {
-					utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Failed to read request body")
-					return
-				}
-
-				// 处理接收到的 POST 数据
-				slog.Info("Received POST", "body", string(body))
-
-				// 解析body
-				user := new(User)
-				utils.Unmarshal(body, user)
-
-				// 返回响应
-				if r.URL.Query().Get("success") == "false" {
-					// 写入响应数据
-					utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
-					return
-				}
-
-				// 写入响应数据
-				utils.Json(w).Success(1000, user)
-			} else {
-				utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
-				return
-			}
-		})
-
-		httpServer(":54335", serveMux, exit)
-	}()
-	waitHTTPServer(t, ":54335")
-
-	// 关闭启动的http服务
-	defer func() {
-		// 退出信号
-		exit <- syscall.Signal(1)
-	}()
+		user := new(User)
+		utils.Unmarshal(body, user)
+		if r.URL.Query().Get("success") == "false" {
+			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
+			return
+		}
+		utils.Json(w).Success(1000, user)
+	})
+	server := httptest.NewServer(serveMux)
+	defer server.Close()
 
 	// 创建一个curl
 	curl := utils.NewCurl()
@@ -299,7 +253,7 @@ func TestPost(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: postAPIURL + "/curl/post",
+			url: server.URL + "/curl/post",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -325,7 +279,7 @@ func TestPost(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "002", args: args{
-			url: postAPIURL + "/curl/post",
+			url: server.URL + "/curl/post",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -351,7 +305,7 @@ func TestPost(t *testing.T) {
 			wantSuccess: true,
 		}, wantErr: false},
 		{name: "003", args: args{
-			url: postAPIURL + "/curl/post",
+			url: server.URL + "/curl/post",
 			resolve: func(body []byte) error {
 				res := &RespBody[User]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -388,11 +342,11 @@ func TestPost(t *testing.T) {
 				// Curl.CloseIdleConnections()
 
 				// 清空params
-				curl.ReSetParams(nil) // 清空params
+				curl.ResetParams(nil) // 清空params
 			}()
 
 			// 设置请求ID
-			curl.SetRequestId()
+			curl.SetRequestID()
 
 			// 设置记录日志模式
 			curl.SetDump(true)
@@ -429,59 +383,33 @@ func TestPostForm(t *testing.T) {
 	// 日志配置
 	setLogConfig()
 
-	// 退出
-	exit := make(chan os.Signal)
+	serveMux := http.NewServeMux()
+	serveMux.HandleFunc("/curl/form", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			utils.Json(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
+			return
+		}
+		slog.Info("Received POST FORM", "form", r.Form)
 
-	// 启动http服务器
-	go func() {
-		serveMux := http.NewServeMux()
+		info := make(map[string]any)
+		info["name"] = r.FormValue("name")
+		info["age"] = r.FormValue("age")
+		info["language"] = r.FormValue("language")
+		info["friends"] = r.Form["friends"]
+		info["hobby"] = r.Form["hobby"]
 
-		// POST FORM 请求
-		serveMux.HandleFunc("/curl/form", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodPost {
-				// 解析表单数据
-				err := r.ParseForm()
-				if err != nil {
-					utils.Json(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
-					return
-				}
-				// 处理接收到的 POST 数据
-				slog.Info("Received POST FORM", "form", r.Form)
-
-				info := make(map[string]any)
-				// 获取表单字段的值
-				info["name"] = r.FormValue("name")
-				info["age"] = r.FormValue("age")
-				info["language"] = r.FormValue("language")
-
-				// 获取复选框字段的值
-				info["friends"] = r.Form["friends"]
-				info["hobby"] = r.Form["hobby"]
-
-				// 返回响应
-				if r.URL.Query().Get("success") == "false" {
-					// 写入响应数据
-					utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
-					return
-				}
-
-				// 写入响应数据
-				utils.Json(w).Success(1000, info)
-			} else {
-				utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
-				return
-			}
-		})
-
-		httpServer(":54334", serveMux, exit)
-	}()
-	waitHTTPServer(t, ":54334")
-
-	// 关闭启动的http服务
-	defer func() {
-		// 退出信号
-		exit <- syscall.Signal(1)
-	}()
+		if r.URL.Query().Get("success") == "false" {
+			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
+			return
+		}
+		utils.Json(w).Success(1000, info)
+	})
+	server := httptest.NewServer(serveMux)
+	defer server.Close()
 
 	// 创建一个curl
 	curl := utils.NewCurl()
@@ -497,7 +425,7 @@ func TestPostForm(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: apiUrl + "/curl/form",
+			url: server.URL + "/curl/form",
 			resolve: func(body []byte) error {
 				res := &RespBody[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -521,7 +449,7 @@ func TestPostForm(t *testing.T) {
 			curl.SetDefLogOutput(true)
 
 			// 设置请求ID
-			curl.SetRequestId()
+			curl.SetRequestID()
 
 			// 设置重试次数
 			curl.SetMaxRetry(3)
@@ -560,90 +488,57 @@ func TestPostFile(t *testing.T) {
 	// 日志配置
 	setLogConfig()
 
-	// 退出
-	exit := make(chan os.Signal)
+	serveMux := http.NewServeMux()
+	serveMux.HandleFunc("/curl/file", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
+			return
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			utils.Json(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
+			return
+		}
 
-	// 启动http服务器
-	go func() {
-		serveMux := http.NewServeMux()
+		slog.Info("Received POST FORM", "form", r.Form)
 
-		// POST FILE 请求
-		serveMux.HandleFunc("/curl/file", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodPost {
-				// 解析表单数据
-				err := r.ParseMultipartForm(10 << 20) // 10 MB limit for file upload
-				if err != nil {
-					utils.Json(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
-					return
-				}
+		info := make(map[string]any)
+		info["name"] = r.FormValue("name")
+		info["age"] = r.FormValue("age")
+		info["language"] = r.FormValue("language")
+		info["friends"] = r.Form["friends"]
+		info["hobby"] = r.Form["hobby"]
 
-				// 处理接收到的 POST 数据
-				slog.Info("Received POST FORM", "form", r.Form)
+		slog.Info("Received POST File", "File", r.MultipartForm.File)
 
-				info := make(map[string]any)
-				// 获取表单字段的值
-				info["name"] = r.FormValue("name")
-				info["age"] = r.FormValue("age")
-				info["language"] = r.FormValue("language")
+		_, fileHeader, err := r.FormFile("json_file")
+		if err != nil {
+			utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
+			return
+		}
+		info["json_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
 
-				// 获取复选框字段的值
-				info["friends"] = r.Form["friends"]
-				info["hobby"] = r.Form["hobby"]
+		_, fileHeader, err = r.FormFile("env_file")
+		if err != nil {
+			utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
+			return
+		}
+		info["env_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
 
-				// 处理接收到的 POST 数据
-				slog.Info("Received POST File", "File", r.MultipartForm.File)
+		files := r.MultipartForm.File["files"]
+		filesInfo := make([]map[string]any, len(files))
+		for i, fileHeader := range files {
+			filesInfo[i] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
+		}
+		info["files"] = filesInfo
 
-				// 处理上传的文件
-				_, fileHeader, err := r.FormFile("json_file")
-				if err != nil {
-					utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
-					return
-				}
-				info["json_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
-
-				_, fileHeader, err = r.FormFile("env_file")
-				if err != nil {
-					utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
-					return
-				}
-				info["env_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
-
-				// 处理上传的文件
-				files := r.MultipartForm.File["files"]
-				filesInfo := make([]map[string]any, len(files))
-				for i, fileHeader := range files {
-					filesInfo[i] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
-				}
-				info["files"] = filesInfo
-
-				// 创建本地文件
-
-				// 拷贝上传文件内容到本地文件
-
-				// 返回响应
-				if r.URL.Query().Get("success") == "false" {
-					// 写入响应数据
-					utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
-					return
-				}
-
-				// 写入响应数据
-				utils.Json(w).Success(1000, info)
-			} else {
-				utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
-				return
-			}
-		})
-
-		httpServer(":54334", serveMux, exit)
-	}()
-	waitHTTPServer(t, ":54334")
-
-	// 关闭启动的http服务
-	defer func() {
-		// 退出信号
-		exit <- syscall.Signal(1)
-	}()
+		if r.URL.Query().Get("success") == "false" {
+			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
+			return
+		}
+		utils.Json(w).Success(1000, info)
+	})
+	server := httptest.NewServer(serveMux)
+	defer server.Close()
 
 	// 创建一个curl
 	curl := utils.NewCurl()
@@ -659,7 +554,7 @@ func TestPostFile(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "001", args: args{
-			url: apiUrl + "/curl/file",
+			url: server.URL + "/curl/file",
 			resolve: func(body []byte) error {
 				res := &RespBody[map[string]any]{}
 				if err := utils.Unmarshal(body, res); err != nil {
@@ -710,7 +605,7 @@ func TestPostFile(t *testing.T) {
 			}
 
 			// 设置请求ID
-			curl.SetRequestId()
+			curl.SetRequestID()
 
 			// 设置重试次数
 			curl.SetMaxRetry(3)
@@ -888,14 +783,33 @@ func TestCurlBytesBufferBodyCanBeSentRepeatedly(t *testing.T) {
 
 func TestBuildURLPreservesExistingQuery(t *testing.T) {
 	params := mapValues("page", "2", "q", "codex")
-	got, err := utils.BuildUrl("https://example.com/search?lang=go", params)
+	got, err := utils.BuildURL("https://example.com/search?lang=go", params)
 	if err != nil {
-		t.Fatalf("utils.BuildUrl() error = %v", err)
+		t.Fatalf("utils.BuildURL() error = %v", err)
 	}
 	for _, want := range []string{"lang=go", "page=2", "q=codex"} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("utils.BuildUrl() = %q, missing %q", got, want)
+			t.Fatalf("utils.BuildURL() = %q, missing %q", got, want)
 		}
+	}
+}
+
+func TestBuildURLPreservesFragmentAndEmptyParams(t *testing.T) {
+	params := mapValues("page", "2")
+	got, err := utils.BuildURL("https://example.com/search?lang=go#top", params)
+	if err != nil {
+		t.Fatalf("utils.BuildURL() error = %v", err)
+	}
+	if want := "https://example.com/search?lang=go&page=2#top"; got != want {
+		t.Fatalf("utils.BuildURL() = %q, want %q", got, want)
+	}
+
+	got, err = utils.BuildURL("https://example.com/search#top", nil)
+	if err != nil {
+		t.Fatalf("utils.BuildURL(empty) error = %v", err)
+	}
+	if want := "https://example.com/search#top"; got != want {
+		t.Fatalf("utils.BuildURL(empty) = %q, want %q", got, want)
 	}
 }
 
@@ -978,10 +892,10 @@ func TestReadBodyPreviewAndRestoreClosesOriginal(t *testing.T) {
 func TestNewBindsRequestIDToCustomLogger(t *testing.T) {
 	logger := &captureLogger{}
 
-	c := utils.NewCurl(utils.WithCurlLogger(logger), utils.WithCurlRequestId("req-123"))
+	c := utils.NewCurl(utils.WithCurlLogger(logger), utils.WithCurlRequestID("req-123"))
 
-	if c.GetRequestId() != "req-123" {
-		t.Fatalf("request id = %q, want req-123", c.GetRequestId())
+	if c.GetRequestID() != "req-123" {
+		t.Fatalf("request id = %q, want req-123", c.GetRequestID())
 	}
 	if !logger.hasRequestID("req-123") {
 		t.Fatalf("custom logger should receive X-Request-Id, got %#v", logger.args())
@@ -989,8 +903,8 @@ func TestNewBindsRequestIDToCustomLogger(t *testing.T) {
 }
 
 func TestSetRequestIDDoesNotStackLoggerFields(t *testing.T) {
-	c := utils.NewCurl(utils.WithCurlLogger(fieldLogger{}), utils.WithCurlRequestId("req-1"))
-	c.SetRequestId("req-2")
+	c := utils.NewCurl(utils.WithCurlLogger(fieldLogger{}), utils.WithCurlRequestID("req-1"))
+	c.SetRequestID("req-2")
 
 	logger, ok := c.Logger.(fieldLogger)
 	if !ok {

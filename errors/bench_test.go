@@ -98,7 +98,7 @@ func BenchmarkType(b *testing.B) {
 	err := errutils.Wrap(errutils.Wrap(errutils.Wrap(source, "inner"), "middle"), "outer")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, benchBool = errutils.Type[*typedError](err)
+		_, benchBool = errutils.AsType[*typedError](err)
 	}
 }
 

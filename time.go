@@ -11,22 +11,16 @@ import (
 // ============================ 时区配置 ============================
 
 // Local 获取系统运行时区。
-//
-// 返回值：*time.Location 系统当前时区
 func Local() *time.Location {
 	return time.Now().Location()
 }
 
 // CST 获取中国标准时区（东八区）。
-//
-// 返回值：*time.Location UTC+8 时区
 func CST() *time.Location {
 	return time.FixedZone("CST", 8*3600)
 }
 
 // UTC 获取 UTC 时区。
-//
-// 返回值：*time.Location UTC 时区
 func UTC() *time.Location {
 	return time.FixedZone("UTC", 0)
 }
@@ -83,12 +77,6 @@ var patterns = strings.NewReplacer(
 // ============================ 日期计算 ============================
 
 // MonthDay 获取指定年份月份的天数。
-//
-// 参数说明：
-//   - year：年份
-//   - month：月份（1-12）
-//
-// 返回值：该月的天数
 func MonthDay(year int, month int) (days int) {
 	switch {
 	case month != 2 && (month == 4 || month == 6 || month == 9 || month == 11):
@@ -104,32 +92,11 @@ func MonthDay(year int, month int) (days int) {
 }
 
 // CheckDate 验证日期是否合法。
-//
-// 参数说明：
-//   - year：年份（1-32767）
-//   - month：月份（1-12）
-//   - day：日期（1-31）
-//
-// 返回值：true 表示日期合法
 func CheckDate(year, month, day int) bool {
-	if month < 1 || month > 12 || day < 1 || day > 31 || year < 1 || year > 32767 {
+	if year < 1 || year > 32767 || month < 1 || month > 12 || day < 1 {
 		return false
 	}
-	switch month {
-	case 4, 6, 9, 11:
-		if day > 30 {
-			return false
-		}
-	case 2:
-		if ((year%4) == 0 && (year%100) != 0) || (year%400) == 0 {
-			if day > 29 {
-				return false
-			}
-		} else if day > 28 {
-			return false
-		}
-	}
-	return true
+	return day <= MonthDay(year, month)
 }
 
 // ============================ 时间计算 ============================
@@ -138,44 +105,34 @@ func CheckDate(year, month, day int) bool {
 // 支持的时间单位：Y(年)、M(月)、D(日)、H(时)、I(分)、S(秒)、L(毫秒)、C(微秒)、N(纳秒)。
 // 使用 + 或 - 前缀表示增加或减少。
 //
-// 参数说明：
-//   - t：原始时间
-//   - addTimes：增减时间列表，如 "-1D"、"+2H"、"1M"
-//
-// 返回值：计算后的时间，错误信息
-//
-// 示例：
+// 例如：
 //
 //	AddTime(t, "-1D", "+2H", "30S") // 减1天，加2小时，加30秒
 func AddTime(t time.Time, addTimes ...string) (time.Time, error) {
 	for _, v := range addTimes {
-		v = strings.TrimSpace(v)
-		if len(v) < 2 {
-			return t, errors.Errorf("addTimes parameter error: %q", v)
-		}
-		add, err := strconv.Atoi(strings.TrimSpace(v[:len(v)-1]))
+		add, unit, err := parseAddTimeDelta(v)
 		if err != nil {
 			return t, errors.Tag(err)
 		}
 
-		switch strings.ToUpper(v[len(v)-1:]) {
-		case "Y":
+		switch unit {
+		case 'Y':
 			t = t.AddDate(add, 0, 0)
-		case "M":
+		case 'M':
 			t = t.AddDate(0, add, 0)
-		case "D":
+		case 'D':
 			t = t.AddDate(0, 0, add)
-		case "H":
+		case 'H':
 			t = t.Add(time.Hour * time.Duration(add))
-		case "I":
+		case 'I':
 			t = t.Add(time.Minute * time.Duration(add))
-		case "S":
+		case 'S':
 			t = t.Add(time.Second * time.Duration(add))
-		case "L":
+		case 'L':
 			t = t.Add(time.Millisecond * time.Duration(add))
-		case "C":
+		case 'C':
 			t = t.Add(time.Microsecond * time.Duration(add))
-		case "N":
+		case 'N':
 			t = t.Add(time.Nanosecond * time.Duration(add))
 		default:
 			return t, errors.New("addTimes parameter error!")
@@ -184,14 +141,27 @@ func AddTime(t time.Time, addTimes ...string) (time.Time, error) {
 	return t, nil
 }
 
+// parseAddTimeDelta 解析 AddTime 的单个增减表达式。
+func parseAddTimeDelta(value string) (int, byte, error) {
+	value = strings.TrimSpace(value)
+	if len(value) < 2 {
+		return 0, 0, errors.Errorf("addTimes parameter error: %q", value)
+	}
+
+	add, err := strconv.Atoi(strings.TrimSpace(value[:len(value)-1]))
+	if err != nil {
+		return 0, 0, errors.Tag(err)
+	}
+	unit := value[len(value)-1]
+	if unit >= 'a' && unit <= 'z' {
+		unit -= 'a' - 'A'
+	}
+	return add, unit, nil
+}
+
 // ============================ 日期信息提取 ============================
 
 // DateInfo 获取时间的详细信息映射表。
-//
-// 参数说明：
-//   - t：待解析的时间
-//
-// 返回值：包含年月日时分秒、周信息、时间戳等的 map
 //
 // 返回值字段说明：
 //   - year: 年份
@@ -240,14 +210,7 @@ func DateInfo(t time.Time) map[string]any {
 
 // TimeFormat 将时间戳格式化为字符串。
 //
-// 参数说明：
-//   - timeZone：目标时区
-//   - layout：格式化模板，如 "2006-01-02 15:04:05"
-//   - timestamp：可变参数，Unix 时间戳（秒），支持传入纳秒
-//
-// 返回值：格式化后的时间字符串
-//
-// 示例：
+// 例如：
 //
 //	TimeFormat(CST(), "2006-01-02 15:04:05", 1700000000)
 //	TimeFormat(CST(), "2006-01-02 15:04:05", 1700000000000000000) // 纳秒时间戳
@@ -270,13 +233,6 @@ func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) stri
 }
 
 // TimeParse 解析时间字符串为 time.Time。
-//
-// 参数说明：
-//   - timeZone：目标时区
-//   - layout：格式化模板
-//   - timeStr：时间字符串
-//
-// 返回值：解析后的时间，错误信息
 func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, error) {
 	return time.ParseInLocation(layout, timeStr, normalizeLocation(timeZone))
 }
@@ -284,35 +240,22 @@ func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, erro
 // Date 使用 patterns 规则格式化时间。
 // patterns 支持 PHP 风格的格式化符（如 Y-m-d H:i:s）。
 //
-// 参数说明：
-//   - timeZone：目标时区
-//   - layout：格式化模板
-//   - timestamp：可变参数，Unix 时间戳
-//
-// 返回值：格式化后的时间字符串
-//
-// 示例：
+// 例如：
 //
 //	Date(CST(), "Y-m-d H:i:s", 1700000000) // "2023-11-15 01:46:40"
 func Date(timeZone *time.Location, layout string, timestamp ...int64) string {
 	return TimeFormat(timeZone, patterns.Replace(layout), timestamp...)
 }
 
-// Strtotime 解析时间字符串（智能解析）。
+// ParseTime 解析时间字符串（智能解析）。
 // 支持多种常见格式自动识别，也支持指定格式解析。
 //
-// 参数说明：
-//   - timeZone：目标时区
-//   - parse：可变参数，第一个为格式化模板，第二个为时间字符串
+// 例如：
 //
-// 返回值：解析后的时间，错误信息
-//
-// 示例：
-//
-//	Strtotime(CST(), "2006-01-02 15:04:05") // 当前时间（如果解析失败）
-//	Strtotime(CST(), "2006-01-02 15:04:05", "2024-01-01 12:00:00") // 指定时间
-//	Strtotime(CST(), "Y-m-d H:i:s") // 当前时间
-func Strtotime(timeZone *time.Location, parse ...string) (t time.Time, err error) {
+//	ParseTime(CST(), "2006-01-02 15:04:05") // 当前时间（如果解析失败）
+//	ParseTime(CST(), "2006-01-02 15:04:05", "2024-01-01 12:00:00") // 指定时间
+//	ParseTime(CST(), "Y-m-d H:i:s") // 当前时间
+func ParseTime(timeZone *time.Location, parse ...string) (t time.Time, err error) {
 	timeZone = normalizeLocation(timeZone)
 	if len(parse) == 1 {
 		layouts := []string{
@@ -357,82 +300,60 @@ func normalizeLocation(location *time.Location) *time.Location {
 
 // ============================ 时间比较 ============================
 
-// Before 比较 t1 是否在 t2 之前。
-//
-// 参数说明：
-//   - layout：时间格式化模板
-//   - t1：第一个时间字符串
-//   - t2：第二个时间字符串
-//
-// 返回值：true 表示 t1 在 t2 之前，错误信息
-func Before(layout string, t1, t2 string) (bool, error) {
-	tt1, err := time.Parse(layout, t1)
+// parseCompareTimes 解析时间比较函数的两个输入。
+func parseCompareTimes(layout, t1, t2 string) (time.Time, time.Time, error) {
+	tt1, err := parseCompareTime(layout, "t1", t1)
 	if err != nil {
-		return false, errors.Errorf("t1[%v] time parsing error: %s", t1, err.Error())
+		return time.Time{}, time.Time{}, errors.Tag(err)
 	}
-	tt2, err := time.Parse(layout, t2)
+	tt2, err := parseCompareTime(layout, "t2", t2)
 	if err != nil {
-		return false, errors.Errorf("t2[%v] time parsing error: %s", t2, err.Error())
+		return time.Time{}, time.Time{}, errors.Tag(err)
+	}
+	return tt1, tt2, nil
+}
+
+// parseCompareTime 解析单个比较时间并保留底层解析错误。
+func parseCompareTime(layout, label, value string) (time.Time, error) {
+	t, err := time.Parse(layout, value)
+	if err != nil {
+		return time.Time{}, errors.Wrapf(err, "%s[%v] time parsing error", label, value)
+	}
+	return t, nil
+}
+
+// Before 比较 t1 是否在 t2 之前。
+func Before(layout string, t1, t2 string) (bool, error) {
+	tt1, tt2, err := parseCompareTimes(layout, t1, t2)
+	if err != nil {
+		return false, errors.Tag(err)
 	}
 	return tt1.Before(tt2), nil
 }
 
 // After 比较 t1 是否在 t2 之后。
-//
-// 参数说明：
-//   - layout：时间格式化模板
-//   - t1：第一个时间字符串
-//   - t2：第二个时间字符串
-//
-// 返回值：true 表示 t1 在 t2 之后，错误信息
 func After(layout string, t1, t2 string) (bool, error) {
-	tt1, err := time.Parse(layout, t1)
+	tt1, tt2, err := parseCompareTimes(layout, t1, t2)
 	if err != nil {
-		return false, errors.Errorf("t1[%v] time parsing error: %s", t1, err.Error())
-	}
-	tt2, err := time.Parse(layout, t2)
-	if err != nil {
-		return false, errors.Errorf("t2[%v] time parsing error: %s", t2, err.Error())
+		return false, errors.Tag(err)
 	}
 	return tt1.After(tt2), nil
 }
 
 // Equal 比较两个时间是否相等。
-//
-// 参数说明：
-//   - layout：时间格式化模板
-//   - t1：第一个时间字符串
-//   - t2：第二个时间字符串
-//
-// 返回值：true 表示相等，错误信息
 func Equal(layout string, t1, t2 string) (bool, error) {
-	tt1, err := time.Parse(layout, t1)
+	tt1, tt2, err := parseCompareTimes(layout, t1, t2)
 	if err != nil {
-		return false, errors.Errorf("t1[%v] time parsing error: %s", t1, err.Error())
-	}
-	tt2, err := time.Parse(layout, t2)
-	if err != nil {
-		return false, errors.Errorf("t2[%v] time parsing error: %s", t2, err.Error())
+		return false, errors.Tag(err)
 	}
 	return tt1.Equal(tt2), nil
 }
 
 // Sub 计算两个时间的差值。
-//
-// 参数说明：
-//   - layout：时间格式化模板
-//   - t1：第一个时间字符串
-//   - t2：第二个时间字符串
-//
-// 返回值：t1 - t2 的时间差，错误信息
 func Sub(layout string, t1, t2 string) (time.Duration, error) {
-	tt1, err := time.Parse(layout, t1)
+	tt1, tt2, err := parseCompareTimes(layout, t1, t2)
 	if err != nil {
-		return 0, errors.Errorf("t1[%v] time parsing error: %s", t1, err.Error())
-	}
-	tt2, err := time.Parse(layout, t2)
-	if err != nil {
-		return 0, errors.Errorf("t2[%v] time parsing error: %s", t2, err.Error())
+		return 0, errors.Tag(err)
 	}
 	return tt1.Sub(tt2), nil
 }

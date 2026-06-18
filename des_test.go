@@ -10,36 +10,36 @@ import (
 
 func TestDES(t *testing.T) {
 	type args struct {
-		key       string
-		iv        string
-		mode      utils.McryptMode
-		encode    utils.EncodeToString
-		decode    utils.DecodeString
-		padding   utils.Padding
-		unPadding utils.UnPadding
-		data      string
+		key     string
+		iv      string
+		mode    utils.CipherMode
+		encode  utils.EncodeToString
+		decode  utils.DecodeString
+		padding utils.Pad
+		unpad   utils.Unpad
+		data    string
 	}
 	tests := []struct {
 		name string
 		args args
 	}{
 		// key 8 bit
-		{name: "001", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "002", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "003", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "004", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "005", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "006", args: args{key: "E9F1EFED", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "007", args: args{key: "E9F1EFED", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "008", args: args{key: "E9F1EFED", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "009", args: args{key: "E9F1EFED", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "010", args: args{key: "E9F1EFED", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "001", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "002", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "003", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "004", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "005", args: args{key: "E9F1EFED", iv: "D073F7D4", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "006", args: args{key: "E9F1EFED", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "007", args: args{key: "E9F1EFED", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "008", args: args{key: "E9F1EFED", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "009", args: args{key: "E9F1EFED", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "010", args: args{key: "E9F1EFED", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
 		// key 24 bit
-		{name: "011", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "012", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "013", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "014", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
-		{name: "015", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.Pkcs7Padding, unPadding: utils.Pkcs7UnPadding, data: "123456"}},
+		{name: "011", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.CBC, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "012", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.ECB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "013", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.CTR, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "014", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.CFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
+		{name: "015", args: args{key: "9F9CE8D28048399BA52A2E40", iv: "E9F1EFED", mode: utils.OFB, encode: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString, padding: utils.PKCS7Pad, unpad: utils.PKCS7Unpad, data: "123456"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestDES(t *testing.T) {
 			// t.Logf("Encrypt() mode = %v encryptStr = %v", tt.args.mode, encryptStr)
 
 			// 解密数据
-			got, err := a.Decrypt(encryptStr, tt.args.mode, tt.args.decode, tt.args.unPadding)
+			got, err := a.Decrypt(encryptStr, tt.args.mode, tt.args.decode, tt.args.unpad)
 			if err != nil {
 				t.Errorf("Decrypt() mode = %v error = %v", tt.args.mode, err)
 				return

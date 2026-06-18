@@ -6,7 +6,7 @@ import (
 	"github.com/Is999/go-utils"
 )
 
-func TestStr2Int(t *testing.T) {
+func TestToInt(t *testing.T) {
 	type args struct {
 		s string
 	}
@@ -23,14 +23,14 @@ func TestStr2Int(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if gotI := utils.Str2Int(tt.args.s); gotI != tt.want {
-				t.Errorf("Str2Int() = %v, want %v", gotI, tt.want)
+			if gotI := utils.ToInt(tt.args.s); gotI != tt.want {
+				t.Errorf("ToInt() = %v, want %v", gotI, tt.want)
 			}
 		})
 	}
 }
 
-func TestStr2Int64(t *testing.T) {
+func TestToInt64(t *testing.T) {
 	type args struct {
 		s string
 	}
@@ -47,14 +47,14 @@ func TestStr2Int64(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if gotI := utils.Str2Int64(tt.args.s); gotI != tt.want {
-				t.Errorf("Str2Int64() = %v, want %v", gotI, tt.want)
+			if gotI := utils.ToInt64(tt.args.s); gotI != tt.want {
+				t.Errorf("ToInt64() = %v, want %v", gotI, tt.want)
 			}
 		})
 	}
 }
 
-func TestStr2Float(t *testing.T) {
+func TestToFloat64(t *testing.T) {
 	type args struct {
 		s string
 	}
@@ -72,8 +72,8 @@ func TestStr2Float(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if gotI := utils.Str2Float(tt.args.s); gotI != tt.want {
-				t.Errorf("Str2Float() = %v, want %v", gotI, tt.want)
+			if gotI := utils.ToFloat64(tt.args.s); gotI != tt.want {
+				t.Errorf("ToFloat64() = %v, want %v", gotI, tt.want)
 			}
 		})
 	}

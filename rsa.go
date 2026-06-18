@@ -414,28 +414,10 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 	if bits < minRSABits {
 		return nil, errors.Errorf("RSA 密钥位数不能低于 %d，当前位数: %d", minRSABits, bits)
 	}
-	if strings.TrimSpace(path) != "" {
-		// 拒绝通过符号链接目录写入密钥文件，避免把私钥写到调用方预期目录之外。
-		if info, err := os.Lstat(path); err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return nil, errors.Errorf("GenerateKeyRSA() 不允许密钥目录为符号链接: path=%s", path)
-			}
-		} else if !os.IsNotExist(err) {
-			return nil, errors.Tag(err)
-		}
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			return nil, errors.Tag(err)
-		}
+	if err := prepareRSAKeyDir(path); err != nil {
+		return nil, errors.Tag(err)
 	}
-
-	isPubPKCS8 := true
-	isPriPKCS1 := true
-	if len(pkcs) > 0 {
-		isPubPKCS8 = pkcs[0]
-		if len(pkcs) > 1 {
-			isPriPKCS1 = pkcs[1]
-		}
-	}
+	isPubPKCS8, isPriPKCS1 := rsaKeyFormats(pkcs)
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
@@ -451,12 +433,7 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 		return nil, errors.Tag(err)
 	}
 
-	now := time.Now()
-	ts := now.Format(SecondTime) + "_" + strconv.FormatInt(now.UnixNano(), 36)
-	fileName := make([]string, 2)
-	fileName[0] = filepath.Join(path, Ternary(isPubPKCS8, "public_pkcs8_", "public_pkcs1_")+ts+".pem")
-	fileName[1] = filepath.Join(path, Ternary(isPriPKCS1, "private_pkcs1_", "private_pkcs8_")+ts+".pem")
-
+	fileName := rsaKeyFileNames(path, isPubPKCS8, isPriPKCS1, time.Now())
 	publicType := Ternary(isPubPKCS8, "PUBLIC KEY", "RSA PUBLIC KEY")
 	if err = writePEMFile(fileName[0], &pem.Block{Type: publicType, Bytes: publicStream}, 0o644); err != nil {
 		return nil, errors.Tag(err)
@@ -467,6 +444,51 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error) {
 		return nil, errors.Tag(err)
 	}
 	return fileName, nil
+}
+
+// prepareRSAKeyDir 创建 RSA 密钥目录并拒绝符号链接目录。
+func prepareRSAKeyDir(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if err := assertNoSymlinkPath(filepath.Dir(path), path); err != nil {
+		return errors.Tag(err)
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.Errorf("GenerateKeyRSA() 不允许密钥目录为符号链接: path=%s", path)
+		}
+	} else if !os.IsNotExist(err) {
+		return errors.Tag(err)
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return errors.Tag(err)
+	}
+	if err := assertNoSymlinkPath(filepath.Dir(path), path); err != nil {
+		return errors.Tag(err)
+	}
+	return nil
+}
+
+// rsaKeyFormats 解析 GenerateKeyRSA 的 PKCS 格式开关。
+func rsaKeyFormats(pkcs []bool) (isPubPKCS8, isPriPKCS1 bool) {
+	isPubPKCS8, isPriPKCS1 = true, true
+	if len(pkcs) > 0 {
+		isPubPKCS8 = pkcs[0]
+		if len(pkcs) > 1 {
+			isPriPKCS1 = pkcs[1]
+		}
+	}
+	return isPubPKCS8, isPriPKCS1
+}
+
+// rsaKeyFileNames 生成带纳秒后缀的 RSA 公私钥文件名。
+func rsaKeyFileNames(path string, isPubPKCS8, isPriPKCS1 bool, now time.Time) []string {
+	ts := now.Format(SecondTime) + "_" + strconv.FormatInt(now.UnixNano(), 36)
+	return []string{
+		filepath.Join(path, Ternary(isPubPKCS8, "public_pkcs8_", "public_pkcs1_")+ts+".pem"),
+		filepath.Join(path, Ternary(isPriPKCS1, "private_pkcs1_", "private_pkcs8_")+ts+".pem"),
+	}
 }
 
 // RemovePEMHeaders 去掉 PEM 头尾标记和空白字符。
@@ -600,11 +622,6 @@ func parseRSAPrivateKey(der []byte) (*rsa.PrivateKey, error) {
 }
 
 // validateRSAPublicKey 校验 RSA 公钥是否满足生产安全下限。
-//
-// 参数说明：
-//   - pub：待校验公钥。
-//
-// 返回值：错误信息。
 func validateRSAPublicKey(pub *rsa.PublicKey) error {
 	if pub == nil || pub.N == nil {
 		return errors.New("RSA 公钥不能为空")
@@ -616,11 +633,6 @@ func validateRSAPublicKey(pub *rsa.PublicKey) error {
 }
 
 // validateRSAPrivateKey 校验 RSA 私钥结构和安全位数。
-//
-// 参数说明：
-//   - pri：待校验私钥。
-//
-// 返回值：错误信息。
 func validateRSAPrivateKey(pri *rsa.PrivateKey) error {
 	if pri == nil || pri.N == nil {
 		return errors.New("RSA 私钥不能为空")

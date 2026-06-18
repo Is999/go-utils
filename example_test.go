@@ -16,15 +16,25 @@ type User struct {
 }
 
 func ExampleRedirect() {
-	serveMux.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	registerRedirectExample(mux)
+}
+
+func registerRedirectExample(mux *http.ServeMux) {
+	mux.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Request) {
 		// 重定向
 		utils.Redirect(w, "/response/json")
 	})
 }
 
 func ExampleJson() {
+	mux := http.NewServeMux()
+	registerJSONExample(mux)
+}
+
+func registerJSONExample(mux *http.ServeMux) {
 	// 响应json数据
-	serveMux.HandleFunc("/response/json", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/response/json", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
 		queryParam := r.URL.Query().Get("v")
 		// 响应的数据
@@ -49,15 +59,20 @@ func ExampleJson() {
 }
 
 func ExampleView() {
+	mux := http.NewServeMux()
+	registerViewExample(mux)
+}
+
+func registerViewExample(mux *http.ServeMux) {
 	// 响应html
-	serveMux.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
 
 		// 响应html数据
 		utils.View(w).Html("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 	})
 
 	// 响应xml
-	serveMux.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
 
 		// 响应的数据
 		user := User{
@@ -74,13 +89,13 @@ func ExampleView() {
 	})
 
 	// 响应text
-	serveMux.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
 		// 响应text数据
 		utils.View(w).Text("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 	})
 
 	// 显示image
-	serveMux.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
 		file := r.URL.Query().Get("file")
 		if utils.IsExist(file) {
@@ -94,7 +109,7 @@ func ExampleView() {
 	})
 
 	// 下载文件
-	serveMux.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Request) {
 		// 获取URL查询字符串参数
 		file := r.URL.Query().Get("file")
 		if utils.IsExist(file) {

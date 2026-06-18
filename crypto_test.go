@@ -23,12 +23,12 @@ func TestCipherConcurrentRandIV(t *testing.T) {
 	for range 32 {
 		wg.Go(func() {
 			for range 64 {
-				encrypted, err := c.Encrypt(data, utils.CBC, base64.StdEncoding.EncodeToString, utils.Pkcs7Padding)
+				encrypted, err := c.Encrypt(data, utils.CBC, base64.StdEncoding.EncodeToString, utils.PKCS7Pad)
 				if err != nil {
 					t.Errorf("Encrypt() error = %v", err)
 					return
 				}
-				decrypted, err := c.Decrypt(encrypted, utils.CBC, base64.StdEncoding.DecodeString, utils.Pkcs7UnPadding)
+				decrypted, err := c.Decrypt(encrypted, utils.CBC, base64.StdEncoding.DecodeString, utils.PKCS7Unpad)
 				if err != nil {
 					t.Errorf("Decrypt() error = %v", err)
 					return
@@ -43,17 +43,17 @@ func TestCipherConcurrentRandIV(t *testing.T) {
 	wg.Wait()
 }
 
-func TestCipherEncryptToDecryptToCTRNoPadding(t *testing.T) {
+func TestCipherEncryptToDecryptToCTRNoPad(t *testing.T) {
 	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// data 是流模式原始业务数据，用于验证 NoPadding 快路径不会额外复制或裁剪内容。
+	// data 是流模式原始业务数据，用于验证 NoPad 快路径不会额外复制或裁剪内容。
 	data := []byte("payload for dst reuse")
 	// encryptedDst 是调用方复用的密文缓冲区，前缀用于验证 EncryptTo 会追加而不是覆盖历史内容。
 	encryptedDst := []byte("prefix:")
-	encrypted, err := c.EncryptTo(encryptedDst, data, utils.CTR, utils.NoPadding)
+	encrypted, err := c.EncryptTo(encryptedDst, data, utils.CTR, utils.NoPad)
 	if err != nil {
 		t.Fatalf("EncryptTo() error = %v", err)
 	}
@@ -63,7 +63,7 @@ func TestCipherEncryptToDecryptToCTRNoPadding(t *testing.T) {
 
 	// decryptedDst 是调用方复用的明文缓冲区，解密输入跳过前缀后应恢复原始 data。
 	decryptedDst := []byte("plain:")
-	decrypted, err := c.DecryptTo(decryptedDst, encrypted[len(encryptedDst):], utils.CTR, utils.NoUnPadding)
+	decrypted, err := c.DecryptTo(decryptedDst, encrypted[len(encryptedDst):], utils.CTR, utils.NoUnpad)
 	if err != nil {
 		t.Fatalf("DecryptTo() error = %v", err)
 	}
@@ -72,7 +72,34 @@ func TestCipherEncryptToDecryptToCTRNoPadding(t *testing.T) {
 	}
 }
 
-func TestPkcs7UnPaddingRejectsInvalidPadding(t *testing.T) {
+func TestCipherGCMStringRoundTrip(t *testing.T) {
+	c, err := utils.AES("1234567812345678")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const plaintext = "gcm payload"
+	aad := []byte("request-id:1")
+	encrypted, err := c.EncryptGCMString(plaintext, base64.StdEncoding.EncodeToString, aad)
+	if err != nil {
+		t.Fatalf("EncryptGCMString() error = %v", err)
+	}
+	decrypted, err := c.DecryptGCMString(encrypted, base64.StdEncoding.DecodeString, aad)
+	if err != nil {
+		t.Fatalf("DecryptGCMString() error = %v", err)
+	}
+	if decrypted != plaintext {
+		t.Fatalf("DecryptGCMString() = %q, want %q", decrypted, plaintext)
+	}
+	if _, err := c.EncryptGCMString(plaintext, nil, aad); err == nil {
+		t.Fatal("EncryptGCMString() with nil encoder expected error")
+	}
+	if _, err := c.DecryptGCMString(encrypted, nil, aad); err == nil {
+		t.Fatal("DecryptGCMString() with nil decoder expected error")
+	}
+}
+
+func TestPKCS7UnpadRejectsInvalidPadding(t *testing.T) {
 	tests := [][]byte{
 		{},
 		{1, 2, 3, 0},
@@ -80,8 +107,8 @@ func TestPkcs7UnPaddingRejectsInvalidPadding(t *testing.T) {
 		{1, 2, 3, 2, 3},
 	}
 	for _, tt := range tests {
-		if _, err := utils.Pkcs7UnPadding(tt); err == nil {
-			t.Fatalf("utils.Pkcs7UnPadding(%v) expected error", tt)
+		if _, err := utils.PKCS7Unpad(tt); err == nil {
+			t.Fatalf("utils.PKCS7Unpad(%v) expected error", tt)
 		}
 	}
 }
@@ -90,22 +117,31 @@ func TestPaddingDoesNotMutateInput(t *testing.T) {
 	src := make([]byte, 2, 16)
 	copy(src, "ab")
 
-	padded := utils.Pkcs7Padding(src, 8)
+	padded := utils.PKCS7Pad(src, 8)
 	padded[0] = 'x'
 	if string(src) != "ab" {
-		t.Fatalf("utils.Pkcs7Padding mutated input: %q", src)
+		t.Fatalf("utils.PKCS7Pad mutated input: %q", src)
 	}
 
-	zeroPadded := utils.ZeroPadding(src, 8)
+	zeroPadded := utils.ZeroPad(src, 8)
 	zeroPadded[0] = 'y'
 	if string(src) != "ab" {
-		t.Fatalf("utils.ZeroPadding mutated input: %q", src)
+		t.Fatalf("utils.ZeroPad mutated input: %q", src)
 	}
 
-	noPadding := utils.NoPadding(src, 8)
+	noPadding := utils.NoPad(src, 8)
 	noPadding[0] = 'z'
 	if string(src) != "ab" {
-		t.Fatalf("utils.NoPadding mutated input: %q", src)
+		t.Fatalf("utils.NoPad mutated input: %q", src)
+	}
+
+	noUnpadding, err := utils.NoUnpad(src)
+	if err != nil {
+		t.Fatalf("utils.NoUnpad() error = %v", err)
+	}
+	noUnpadding[0] = 'w'
+	if string(src) != "ab" {
+		t.Fatalf("utils.NoUnpad mutated input: %q", src)
 	}
 }
 
@@ -114,17 +150,17 @@ func TestCipherRejectsNilCallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Encrypt("data", utils.CBC, nil, utils.Pkcs7Padding); err == nil {
+	if _, err := c.Encrypt("data", utils.CBC, nil, utils.PKCS7Pad); err == nil {
 		t.Fatal("Encrypt() with nil encode expected error")
 	}
 	if _, err := c.Encrypt("data", utils.CBC, base64.StdEncoding.EncodeToString, nil); err == nil {
 		t.Fatal("Encrypt() with nil padding expected error")
 	}
-	if _, err := c.Decrypt("data", utils.CBC, nil, utils.Pkcs7UnPadding); err == nil {
+	if _, err := c.Decrypt("data", utils.CBC, nil, utils.PKCS7Unpad); err == nil {
 		t.Fatal("Decrypt() with nil decode expected error")
 	}
 	if _, err := c.DecryptBytes([]byte("data"), utils.CBC, nil); err == nil {
-		t.Fatal("DecryptBytes() with nil unPadding expected error")
+		t.Fatal("DecryptBytes() with nil unpad expected error")
 	}
 }
 
@@ -133,13 +169,13 @@ func TestCipherRejectsUnsafeStreamModesByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EncryptCTR([]byte("data"), utils.NoPadding); err == nil {
+	if _, err := c.EncryptCTR([]byte("data"), utils.NoPad); err == nil {
 		t.Fatal("EncryptCTR() expected error when unsafe stream mode is disabled")
 	}
-	if _, err := c.EncryptCFB([]byte("data"), utils.Pkcs7Padding); err == nil {
+	if _, err := c.EncryptCFB([]byte("data"), utils.PKCS7Pad); err == nil {
 		t.Fatal("EncryptCFB() expected error when unsafe stream mode is disabled")
 	}
-	if _, err := c.EncryptOFB([]byte("data"), utils.Pkcs7Padding); err == nil {
+	if _, err := c.EncryptOFB([]byte("data"), utils.PKCS7Pad); err == nil {
 		t.Fatal("EncryptOFB() expected error when unsafe stream mode is disabled")
 	}
 }
@@ -149,12 +185,12 @@ func TestCipherRejectsECBByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EncryptECB([]byte("data"), utils.Pkcs7Padding); err == nil {
+	if _, err := c.EncryptECB([]byte("data"), utils.PKCS7Pad); err == nil {
 		t.Fatal("EncryptECB() expected error when utils.ECB is disabled")
 	}
 }
 
-func TestCipherBlockModesNoPaddingRejectPartialBlockWithoutPanic(t *testing.T) {
+func TestCipherBlockModesNoPadRejectPartialBlockWithoutPanic(t *testing.T) {
 	c, err := utils.AES(
 		"1234567812345678",
 		utils.WithIV("abcdefgh12345678"),
@@ -171,56 +207,56 @@ func TestCipherBlockModesNoPaddingRejectPartialBlockWithoutPanic(t *testing.T) {
 		{
 			name: "EncryptECB",
 			run: func() error {
-				_, err := c.EncryptECB([]byte("short"), utils.NoPadding)
+				_, err := c.EncryptECB([]byte("short"), utils.NoPad)
 				return err
 			},
 		},
 		{
 			name: "EncryptCBC",
 			run: func() error {
-				_, err := c.EncryptCBC([]byte("short"), utils.NoPadding)
+				_, err := c.EncryptCBC([]byte("short"), utils.NoPad)
 				return err
 			},
 		},
 		{
 			name: "EncryptBytes ECB",
 			run: func() error {
-				_, err := c.EncryptBytes([]byte("short"), utils.ECB, utils.NoPadding)
+				_, err := c.EncryptBytes([]byte("short"), utils.ECB, utils.NoPad)
 				return err
 			},
 		},
 		{
 			name: "EncryptBytes CBC",
 			run: func() error {
-				_, err := c.EncryptBytes([]byte("short"), utils.CBC, utils.NoPadding)
+				_, err := c.EncryptBytes([]byte("short"), utils.CBC, utils.NoPad)
 				return err
 			},
 		},
 		{
 			name: "EncryptTo ECB",
 			run: func() error {
-				_, err := c.EncryptTo(nil, []byte("short"), utils.ECB, utils.NoPadding)
+				_, err := c.EncryptTo(nil, []byte("short"), utils.ECB, utils.NoPad)
 				return err
 			},
 		},
 		{
 			name: "EncryptTo CBC",
 			run: func() error {
-				_, err := c.EncryptTo(nil, []byte("short"), utils.CBC, utils.NoPadding)
+				_, err := c.EncryptTo(nil, []byte("short"), utils.CBC, utils.NoPad)
 				return err
 			},
 		},
 		{
 			name: "Encrypt string ECB",
 			run: func() error {
-				_, err := c.Encrypt("short", utils.ECB, base64.StdEncoding.EncodeToString, utils.NoPadding)
+				_, err := c.Encrypt("short", utils.ECB, base64.StdEncoding.EncodeToString, utils.NoPad)
 				return err
 			},
 		},
 		{
 			name: "Encrypt string CBC",
 			run: func() error {
-				_, err := c.Encrypt("short", utils.CBC, base64.StdEncoding.EncodeToString, utils.NoPadding)
+				_, err := c.Encrypt("short", utils.CBC, base64.StdEncoding.EncodeToString, utils.NoPad)
 				return err
 			},
 		},
@@ -245,14 +281,14 @@ func TestCipherRejectsImplicitKeyIVByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EncryptCBC([]byte("data"), utils.Pkcs7Padding); err == nil {
+	if _, err := c.EncryptCBC([]byte("data"), utils.PKCS7Pad); err == nil {
 		t.Fatal("EncryptCBC() expected error when IV is not configured")
 	}
 	ctr, err := utils.AES("1234567812345678", utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ctr.EncryptCTR([]byte("data"), utils.Pkcs7Padding); err == nil {
+	if _, err := ctr.EncryptCTR([]byte("data"), utils.PKCS7Pad); err == nil {
 		t.Fatal("EncryptCTR() expected error when IV is not configured")
 	}
 }
@@ -263,11 +299,11 @@ func TestCipherAllowsUnsafeStreamModesWhenEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctrEncrypted, err := c.EncryptCTR([]byte("legacy-data"), utils.Pkcs7Padding)
+	ctrEncrypted, err := c.EncryptCTR([]byte("legacy-data"), utils.PKCS7Pad)
 	if err != nil {
 		t.Fatalf("EncryptCTR() error = %v", err)
 	}
-	ctrDecrypted, err := c.DecryptCTR(ctrEncrypted, utils.Pkcs7UnPadding)
+	ctrDecrypted, err := c.DecryptCTR(ctrEncrypted, utils.PKCS7Unpad)
 	if err != nil {
 		t.Fatalf("DecryptCTR() error = %v", err)
 	}
@@ -275,11 +311,11 @@ func TestCipherAllowsUnsafeStreamModesWhenEnabled(t *testing.T) {
 		t.Fatalf("DecryptCTR() = %q, want %q", ctrDecrypted, "legacy-data")
 	}
 
-	encrypted, err := c.EncryptCFB([]byte("legacy-data"), utils.Pkcs7Padding)
+	encrypted, err := c.EncryptCFB([]byte("legacy-data"), utils.PKCS7Pad)
 	if err != nil {
 		t.Fatalf("EncryptCFB() error = %v", err)
 	}
-	decrypted, err := c.DecryptCFB(encrypted, utils.Pkcs7UnPadding)
+	decrypted, err := c.DecryptCFB(encrypted, utils.PKCS7Unpad)
 	if err != nil {
 		t.Fatalf("DecryptCFB() error = %v", err)
 	}
@@ -293,11 +329,11 @@ func TestCipherAllowsUnsafeECBWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encrypted, err := c.EncryptECB([]byte("legacy-data"), utils.Pkcs7Padding)
+	encrypted, err := c.EncryptECB([]byte("legacy-data"), utils.PKCS7Pad)
 	if err != nil {
 		t.Fatalf("EncryptECB() error = %v", err)
 	}
-	decrypted, err := c.DecryptECB(encrypted, utils.Pkcs7UnPadding)
+	decrypted, err := c.DecryptECB(encrypted, utils.PKCS7Unpad)
 	if err != nil {
 		t.Fatalf("DecryptECB() error = %v", err)
 	}
@@ -311,11 +347,11 @@ func TestCipherAllowsUnsafeKeyIVWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encrypted, err := c.EncryptCBC([]byte("legacy-data"), utils.Pkcs7Padding)
+	encrypted, err := c.EncryptCBC([]byte("legacy-data"), utils.PKCS7Pad)
 	if err != nil {
 		t.Fatalf("EncryptCBC() error = %v", err)
 	}
-	decrypted, err := c.DecryptCBC(encrypted, utils.Pkcs7UnPadding)
+	decrypted, err := c.DecryptCBC(encrypted, utils.PKCS7Unpad)
 	if err != nil {
 		t.Fatalf("DecryptCBC() error = %v", err)
 	}
@@ -324,18 +360,18 @@ func TestCipherAllowsUnsafeKeyIVWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestCipherCTRNoPadding(t *testing.T) {
+func TestCipherCTRNoPad(t *testing.T) {
 	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	raw := []byte("short")
-	encrypted, err := c.EncryptCTR(raw, utils.NoPadding)
+	encrypted, err := c.EncryptCTR(raw, utils.NoPad)
 	if err != nil {
 		t.Fatalf("EncryptCTR() error = %v", err)
 	}
-	decrypted, err := c.DecryptCTR(encrypted, utils.NoUnPadding)
+	decrypted, err := c.DecryptCTR(encrypted, utils.NoUnpad)
 	if err != nil {
 		t.Fatalf("DecryptCTR() error = %v", err)
 	}
@@ -435,7 +471,7 @@ func BenchmarkCipherAESCBCEncrypt(b *testing.B) {
 	data := []byte("benchmark payload")
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		benchCipherBytes, err = c.EncryptBytes(data, utils.CBC, utils.Pkcs7Padding)
+		benchCipherBytes, err = c.EncryptBytes(data, utils.CBC, utils.PKCS7Pad)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -447,20 +483,20 @@ func BenchmarkCipherAESCBCDecrypt(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	encrypted, err := c.EncryptBytes([]byte("benchmark payload"), utils.CBC, utils.Pkcs7Padding)
+	encrypted, err := c.EncryptBytes([]byte("benchmark payload"), utils.CBC, utils.PKCS7Pad)
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		benchCipherBytes, err = c.DecryptBytes(encrypted, utils.CBC, utils.Pkcs7UnPadding)
+		benchCipherBytes, err = c.DecryptBytes(encrypted, utils.CBC, utils.PKCS7Unpad)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkCipherAESCTRNoPaddingEncrypt(b *testing.B) {
+func BenchmarkCipherAESCTRNoPadEncrypt(b *testing.B) {
 	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		b.Fatal(err)
@@ -468,56 +504,56 @@ func BenchmarkCipherAESCTRNoPaddingEncrypt(b *testing.B) {
 	data := []byte("benchmark payload")
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		benchCipherBytes, err = c.EncryptCTR(data, utils.NoPadding)
+		benchCipherBytes, err = c.EncryptCTR(data, utils.NoPad)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkCipherAESCTRNoPaddingEncryptTo(b *testing.B) {
+func BenchmarkCipherAESCTRNoPadEncryptTo(b *testing.B) {
 	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		b.Fatal(err)
 	}
-	// data 是流模式加密输入，NoPadding 下 EncryptTo 可直接写入复用缓冲区。
+	// data 是流模式加密输入，NoPad 下 EncryptTo 可直接写入复用缓冲区。
 	data := []byte("benchmark payload")
 	// dst 是循环复用的密文缓冲区，用于衡量减少输出切片分配后的收益。
 	dst := make([]byte, 0, len(data)+16)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		dst = dst[:0]
-		benchCipherBytes, err = c.EncryptTo(dst, data, utils.CTR, utils.NoPadding)
+		benchCipherBytes, err = c.EncryptTo(dst, data, utils.CTR, utils.NoPad)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkCipherAESCTRNoPaddingDecrypt(b *testing.B) {
+func BenchmarkCipherAESCTRNoPadDecrypt(b *testing.B) {
 	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		b.Fatal(err)
 	}
-	encrypted, err := c.EncryptCTR([]byte("benchmark payload"), utils.NoPadding)
+	encrypted, err := c.EncryptCTR([]byte("benchmark payload"), utils.NoPad)
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		benchCipherBytes, err = c.DecryptCTR(encrypted, utils.NoUnPadding)
+		benchCipherBytes, err = c.DecryptCTR(encrypted, utils.NoUnpad)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkCipherAESCTRNoPaddingDecryptTo(b *testing.B) {
+func BenchmarkCipherAESCTRNoPadDecryptTo(b *testing.B) {
 	c, err := utils.AES("1234567812345678", utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 	if err != nil {
 		b.Fatal(err)
 	}
-	encrypted, err := c.EncryptCTR([]byte("benchmark payload"), utils.NoPadding)
+	encrypted, err := c.EncryptCTR([]byte("benchmark payload"), utils.NoPad)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -526,7 +562,7 @@ func BenchmarkCipherAESCTRNoPaddingDecryptTo(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		dst = dst[:0]
-		benchCipherBytes, err = c.DecryptTo(dst, encrypted, utils.CTR, utils.NoUnPadding)
+		benchCipherBytes, err = c.DecryptTo(dst, encrypted, utils.CTR, utils.NoUnpad)
 		if err != nil {
 			b.Fatal(err)
 		}

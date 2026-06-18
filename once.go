@@ -10,21 +10,18 @@ import (
 // Once 提供带重试能力的一次性执行控制器。
 // 同一轮生命周期内只会有一个 goroutine 真正执行目标函数，其余调用方等待最终结果。
 type Once struct {
-	mu      sync.Mutex
-	waitCh  chan struct{}
-	running bool
-	done    bool
-	err     error
+	mu      sync.Mutex    // 状态锁
+	waitCh  chan struct{} // 当前执行轮次的等待通道
+	running bool          // 是否已有执行中的任务
+	done    bool          // 是否已有最终结果
+	err     error         // 缓存的最终错误
 }
 
 // Do 执行带重试能力的一次性调用。
 //
-// 参数说明：
-//
 //   - f：待执行函数，无参数并返回 error
-//   - maxRetries：最大尝试次数，包含首次执行；小于等于 0 时按 1 次处理
 //
-// 返回值：
+//   - maxRetries：最大尝试次数，包含首次执行；小于等于 0 时按 1 次处理
 //
 //   - error：执行成功返回 nil，最终失败返回带重试次数的错误
 //
@@ -123,7 +120,7 @@ func (r *Once) Reset() {
 func (r *Once) doWithRetryContext(ctx context.Context, fnName string, f func(ctx context.Context) error, maxRetries int) (finalErr error) {
 	defer func() {
 		if recoverErr := recover(); recoverErr != nil {
-			finalErr = errors.Tag(errors.Errorf("%s panic: %v", fnName, recoverErr))
+			finalErr = errors.Errorf("%s panic: %v", fnName, recoverErr)
 		}
 	}()
 
@@ -142,5 +139,5 @@ func (r *Once) doWithRetryContext(ctx context.Context, fnName string, f func(ctx
 			return errors.Tag(err)
 		}
 	}
-	return errors.Tag(errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries))
+	return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries)
 }

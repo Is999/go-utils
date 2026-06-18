@@ -244,7 +244,7 @@ func TimeDay(value string) bool {
 		month := value[5:i]
 		day := value[i+1:]
 		// 验证日期是否正确
-		matched = CheckDate(Str2Int(year), Str2Int(month), Str2Int(day))
+		matched = CheckDate(ToInt(year), ToInt(month), ToInt(day))
 	}
 	return matched
 }
@@ -265,7 +265,7 @@ func Timestamp(value string) bool {
 		month := value[5:i]
 		day := value[i+1 : space]
 		// 验证日期是否正确
-		matched = CheckDate(Str2Int(year), Str2Int(month), Str2Int(day))
+		matched = CheckDate(ToInt(year), ToInt(month), ToInt(day))
 	}
 	return matched
 }
@@ -288,8 +288,8 @@ func Account(value string, min, max uint8) error {
 	return nil
 }
 
-// PassWord 密码(字母开头，允许字母数字下划线，长度在 min - max之间)
-func PassWord(value string, min, max uint8) error {
+// Password 密码(字母开头，允许字母数字下划线，长度在 min - max之间)
+func Password(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
@@ -302,8 +302,8 @@ func PassWord(value string, min, max uint8) error {
 	return nil
 }
 
-// PassWord2 强密码(必须包含大小写字母和数字的组合，不能使用特殊字符，长度在min-max之间)
-func PassWord2(value string, min, max uint8) error {
+// StrongPassword 强密码(必须包含大小写字母和数字的组合，不能使用特殊字符，长度在min-max之间)
+func StrongPassword(value string, min, max uint8) error {
 	// 验证长度
 	l := len(value)
 	if l < int(min) || l > int(max) {
@@ -327,9 +327,9 @@ func PassWord2(value string, min, max uint8) error {
 	return nil
 }
 
-// PassWord3 强密码(必须包含大小写字母和数字的组合，可以使用特殊字符，长度在min-max之间)
-func PassWord3(value string, min, max uint8) error {
-	// 验证长度。PassWord3 保持历史正则 `.` 的语义，按 Unicode 字符数计算，而不是按 UTF-8 字节数计算。
+// StrongPasswordWithSymbols 强密码(必须包含大小写字母和数字的组合，可以使用特殊字符，长度在min-max之间)
+func StrongPasswordWithSymbols(value string, min, max uint8) error {
+	// 验证长度。StrongPasswordWithSymbols 保持历史正则 `.` 的语义，按 Unicode 字符数计算，而不是按 UTF-8 字节数计算。
 	if !runeCountInRange(value, int(min), int(max)) {
 		return newValidationError(ValidationReasonLengthOutOfRange, min, max)
 	}
@@ -357,11 +357,6 @@ func HasSymbols(value string) bool {
 }
 
 // validDecimalNumber 校验十进制数字字符串，覆盖 Numeric、UnNumeric 和 Amount 的共同边界。
-//
-// 参数说明：
-//   - value：待校验字符串，数据来源通常是用户输入或接口参数。
-//   - allowSign：是否允许首位出现 + 或 -，用于区分有符号和无符号金额。
-//   - maxDecimal：允许的小数位上限；-1 表示不限制小数位，0 表示不允许小数。
 func validDecimalNumber(value string, allowSign bool, maxDecimal int) bool {
 	if value == "" {
 		return false

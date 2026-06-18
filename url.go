@@ -12,12 +12,6 @@ import (
 
 // URLPath 组装带参数的完整 URL。
 // 将 params 中的查询参数合并到 urlPath 中，保留原有查询参数。
-//
-// 参数说明：
-//   - urlPath：基础 URL 路径
-//   - params：查询参数键值对
-//
-// 返回值：完整 URL 字符串，错误信息
 func URLPath(urlPath string, params url.Values) (string, error) {
 	if len(params) > 0 {
 		u, err := url.Parse(urlPath)
@@ -30,11 +24,4 @@ func URLPath(urlPath string, params url.Values) (string, error) {
 		return u.String(), nil
 	}
 	return urlPath, nil
-}
-
-// UrlPath 组装带参数的完整 URL。
-//
-// Deprecated: 请使用 URLPath。
-func UrlPath(urlPath string, params url.Values) (string, error) {
-	return URLPath(urlPath, params)
 }

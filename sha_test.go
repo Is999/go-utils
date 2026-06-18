@@ -6,7 +6,7 @@ import (
 	"github.com/Is999/go-utils"
 )
 
-func TestSha1(t *testing.T) {
+func TestSHA1(t *testing.T) {
 	type args struct {
 		str string
 	}
@@ -20,14 +20,14 @@ func TestSha1(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.Sha1(tt.args.str); got != tt.want {
-				t.Errorf("Sha1() = %v, want %v", got, tt.want)
+			if got := utils.SHA1(tt.args.str); got != tt.want {
+				t.Errorf("SHA1() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestSha256(t *testing.T) {
+func TestSHA256(t *testing.T) {
 	type args struct {
 		str string
 	}
@@ -41,14 +41,14 @@ func TestSha256(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.Sha256(tt.args.str); got != tt.want {
-				t.Errorf("Sha256() = %v, want %v", got, tt.want)
+			if got := utils.SHA256(tt.args.str); got != tt.want {
+				t.Errorf("SHA256() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestSha512(t *testing.T) {
+func TestSHA512(t *testing.T) {
 	type args struct {
 		str string
 	}
@@ -62,8 +62,8 @@ func TestSha512(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.Sha512(tt.args.str); got != tt.want {
-				t.Errorf("Sha512() = %v, want %v", got, tt.want)
+			if got := utils.SHA512(tt.args.str); got != tt.want {
+				t.Errorf("SHA512() = %v, want %v", got, tt.want)
 			}
 		})
 	}

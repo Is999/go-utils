@@ -20,15 +20,11 @@ const (
 
 // archiveCounter 统计解压过程中的条目数与累计展开大小。
 type archiveCounter struct {
-	entryCount int
-	totalSize  int64
+	entryCount int   // 已处理条目数
+	totalSize  int64 // 已累计展开大小
 }
 
 // add 在写入磁盘前校验条目数量与大小是否超过安全阈值。
-//
-// 参数说明：
-//   - entryName：当前条目名称
-//   - size：当前条目的解压后大小
 func (c *archiveCounter) add(entryName string, size int64) error {
 	c.entryCount++
 	if c.entryCount > archiveMaxEntries {
@@ -50,12 +46,6 @@ func (c *archiveCounter) add(entryName string, size int64) error {
 }
 
 // validateArchiveOutput 校验归档输出路径和输入列表。
-//
-// 参数说明：
-//   - outputFile：最终归档文件路径
-//   - suffix：归档文件名后缀，例如 .zip、.tar、.tar.gz
-//   - format：归档格式名称，用于错误信息
-//   - files：待打包文件或目录列表
 func validateArchiveOutput(outputFile, suffix, format string, files []string) error {
 	outputFile = strings.TrimSpace(outputFile)
 	if outputFile == "" {
@@ -104,6 +94,109 @@ func validateArchiveOutput(outputFile, suffix, format string, files []string) er
 	return nil
 }
 
+// prepareArchiveDestRoot 规范化并创建解包根目录。
+// 返回的路径为绝对路径，后续条目必须限制在该目录内。
+func prepareArchiveDestRoot(destDir string) (string, error) {
+	destRoot, err := filepath.Abs(destDir)
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	if err = os.MkdirAll(destRoot, 0755); err != nil {
+		return "", errors.Tag(err)
+	}
+	if err = assertNoSymlinkPath(destRoot, destRoot); err != nil {
+		return "", errors.Tag(err)
+	}
+	return destRoot, nil
+}
+
+// safeArchivePath 计算安全的解包目标路径。
+// 仅允许写入目标目录内，拒绝空路径、绝对路径、目录穿越和 Windows 风格分隔符绕过。
+func safeArchivePath(format, destRoot, entryName string) (string, error) {
+	if entryName == "" {
+		return "", errors.Errorf("%s 条目名称不能为空", format)
+	}
+	if strings.Contains(entryName, "\x00") {
+		return "", errors.Errorf("%s 条目名称不能包含空字符", format)
+	}
+
+	normalizedName := strings.ReplaceAll(entryName, "\\", "/")
+	if strings.HasPrefix(normalizedName, "/") || filepath.IsAbs(normalizedName) {
+		return "", errors.Errorf("%s 条目不允许使用绝对路径: %s", format, entryName)
+	}
+
+	cleanName := filepath.Clean(filepath.FromSlash(normalizedName))
+	if cleanName == "." {
+		return destRoot, nil
+	}
+
+	destPath := filepath.Join(destRoot, cleanName)
+	relPath, err := filepath.Rel(destRoot, destPath)
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+		return "", errors.Errorf("%s 条目路径越界: %s", format, entryName)
+	}
+	return destPath, nil
+}
+
+// createArchiveDir 安全创建解包目录并恢复权限。
+func createArchiveDir(destRoot, destPath string, perm os.FileMode) error {
+	if err := assertNoSymlinkPath(destRoot, destPath); err != nil {
+		return errors.Tag(err)
+	}
+	if err := os.MkdirAll(destPath, perm); err != nil {
+		return errors.Tag(err)
+	}
+	if err := assertNoSymlinkPath(destRoot, destPath); err != nil {
+		return errors.Tag(err)
+	}
+	if err := os.Chmod(destPath, perm); err != nil {
+		return errors.Tag(err)
+	}
+	return nil
+}
+
+// writeArchiveFile 安全写入解包文件并恢复权限。
+func writeArchiveFile(destRoot, destPath string, perm os.FileMode, write func(file *os.File) error) error {
+	if err := assertNoSymlinkPath(destRoot, destPath); err != nil {
+		return errors.Tag(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return errors.Tag(err)
+	}
+	if err := writeFileAtomic(destPath, perm, write); err != nil {
+		return errors.Tag(err)
+	}
+	if err := os.Chmod(destPath, perm); err != nil {
+		return errors.Tag(err)
+	}
+	return nil
+}
+
+// archiveDirPerm 计算解包目录权限。
+// 目录至少保留拥有者的读写执行权限，避免创建出不可进入的目录。
+func archiveDirPerm(mode os.FileMode) os.FileMode {
+	perm := mode & os.ModePerm
+	if perm == 0 {
+		return 0755
+	}
+	if perm&0700 != 0700 {
+		perm |= 0700
+	}
+	return perm
+}
+
+// archiveFilePerm 计算解包文件权限。
+func archiveFilePerm(mode os.FileMode) os.FileMode {
+	perm := mode & os.ModePerm
+	if perm == 0 {
+		return 0644
+	}
+	return perm
+}
+
 // isPathInside 判断 target 是否位于 root 路径内部或与 root 相同。
 func isPathInside(root, target string) (bool, error) {
 	rel, err := filepath.Rel(root, target)
@@ -114,11 +207,6 @@ func isPathInside(root, target string) (bool, error) {
 }
 
 // rejectArchiveSymlink 统一拒绝打包符号链接，避免归档结果依赖宿主机路径状态。
-//
-// 参数说明：
-//   - filePath：待归档路径
-//   - mode：文件模式
-//   - format：归档格式名称
 func rejectArchiveSymlink(filePath string, mode os.FileMode, format string) error {
 	if mode&os.ModeSymlink != 0 {
 		return errors.Errorf("%s 打包不支持符号链接: %s", format, filePath)
@@ -128,13 +216,8 @@ func rejectArchiveSymlink(filePath string, mode os.FileMode, format string) erro
 
 // assertNoSymlinkPath 校验 root 到 target 的路径链路上不存在符号链接。
 //
-// 用途：
-//   - tar/zip 解包时，即使归档条目本身不是符号链接，磁盘上的既有目录/文件仍可能是符号链接；
-//     这会导致 OpenFile/MkdirAll 跟随符号链接，把内容写到解包目录之外。
-//
-// 参数说明：
-//   - root：解包根目录（绝对/相对均可）
-//   - target：即将写入/创建的目标路径（绝对/相对均可）
+// tar/zip 解包时，即使归档条目本身不是符号链接，磁盘上的既有目录或文件仍可能是符号链接；
+// 这会导致 OpenFile/MkdirAll 跟随符号链接，把内容写到解包目录之外。
 func assertNoSymlinkPath(root, target string) error {
 	root = strings.TrimSpace(root)
 	target = strings.TrimSpace(target)

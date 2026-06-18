@@ -15,11 +15,6 @@ import (
 // Trace 返回适配 slog 的结构化追踪值。
 // 返回的 slog.LogValuer 实现会在日志打印时延迟渲染错误信息。
 // 日志输出包含 code、msg、ctx 等字段，可通过 SetTraceEnabled 控制是否输出 trace 数组。
-//
-// 参数说明：
-//   - err：错误对象，nil 时返回 nil
-//
-// 返回值：slog.LogValuer 接口，调用 LogValue() 时渲染完整错误信息
 func Trace(err error) slog.LogValuer {
 	if err == nil {
 		return nil
@@ -30,11 +25,6 @@ func Trace(err error) slog.LogValuer {
 // TraceString 返回第三方日志库可直接打印的文本追踪。
 // 格式为：code=xxx, msg=xxx @ file:line; cause=xxx @ file:line
 // 使用预分配策略减少内存分配，追踪深度受 maxChainDepth 限制。
-//
-// 参数说明：
-//   - err：错误对象，nil 时返回空字符串
-//
-// 返回值：多行文本追踪字符串，每层错误占一行
 func TraceString(err error) string {
 	if err == nil {
 		return ""
@@ -48,11 +38,6 @@ func TraceString(err error) string {
 // TraceJSON 返回结构化 JSON 追踪字符串，便于第三方日志或落盘。
 // JSON 结构包含 code（错误码）、msg（消息）、ctx（上下文）、trace（栈帧数组）等字段。
 // Join 多错误场景下使用 errs 数组扁平化输出，避免嵌套噪声。
-//
-// 参数说明：
-//   - err：错误对象，nil 时返回空字符串
-//
-// 返回值：JSON 格式的错误追踪字符串
 func TraceJSON(err error) string {
 	if err == nil {
 		return ""
@@ -68,10 +53,7 @@ func TraceJSON(err error) string {
 // traceValue 是对外暴露给 slog 的结构化追踪包装器。
 // 实现 slog.LogValuer 接口，支持延迟渲染和日志级别过滤。
 //
-// 字段说明：
-//   - err：错误对象
-//   - depth：当前渲染深度，用于限制链式输出的递归层数
-//   - withTrace：是否渲染 trace 栈帧数组
+// 它保存错误对象、当前渲染深度和是否渲染 trace 栈帧数组。
 type traceValue struct {
 	err       error // 错误对象
 	depth     int   // 当前递归深度
@@ -80,8 +62,6 @@ type traceValue struct {
 
 // LogValue 实现 slog.LogValuer 接口，返回 slog 结构化值。
 // 该方法仅在日志系统决定输出该属性时才会被调用，实现延迟渲染。
-//
-// 返回值：slog.Value，结构化包含 code、msg、ctx、trace、err 等字段
 func (t traceValue) LogValue() slog.Value {
 	return buildLogValue(t.err, t.depth, t.withTrace)
 }
@@ -91,15 +71,7 @@ func (t traceValue) LogValue() slog.Value {
 // nodeInfo 是统一渲染层使用的内部视图结构。
 // 遍历错误链时将各类错误统一转换为该结构，确保 Text/JSON/slog 三种输出格式一致。
 //
-// 字段说明：
-//   - msg：错误消息内容
-//   - hasMsg：是否存在自定义消息（区分空消息和未设置）
-//   - code：错误码
-//   - hasCode：是否设置了错误码
-//   - trace：栈帧数组，仅 stackError 类型会设置
-//   - next：下一个错误，用于单链展开
-//   - children：子错误列表，用于 Join 多错误场景
-//   - ctxKeys：扁平化的上下文键值对数组
+// 该结构保存消息、错误码、栈帧、单链 next、多错误 children 和上下文字段。
 type nodeInfo struct {
 	msg      string     // 错误消息
 	hasMsg   bool       // 是否设置了消息
@@ -114,11 +86,6 @@ type nodeInfo struct {
 // inspectError 将任意错误对象转换为统一的 nodeInfo 视图。
 // 使用类型断言识别 stackError、messageError、codeError、contextError 等内置类型，
 // 对标准库错误和其他第三方错误使用接口检查（multiUnwrapper/unwrapper）。
-//
-// 参数说明：
-//   - err：待检查的错误对象
-//
-// 返回值：统一格式的 nodeInfo 结构
 func inspectError(err error) nodeInfo {
 	if err == nil {
 		return nodeInfo{}
@@ -155,11 +122,6 @@ func inspectError(err error) nodeInfo {
 
 // isJoinNode 判断 nodeInfo 是否为 Join 节点。
 // Join 节点特征：无自定义消息、无错误码、无栈追踪、无 next 链，仅有 children。
-//
-// 参数说明：
-//   - info：待检查的 nodeInfo
-//
-// 返回值：true 表示是 Join 节点
 func isJoinNode(info nodeInfo) bool {
 	return len(info.children) > 0 && !info.hasMsg && !info.hasCode && len(info.trace) == 0 && info.next == nil
 }
@@ -172,11 +134,6 @@ func isJoinNode(info nodeInfo) bool {
 //   - 优先保留外层消息（msg）、错误码（code）
 //   - 优先保留外层栈追踪（trace），内层不再重复采集
 //   - 如果内层也有消息/错误码/栈追踪，则停止上浮，保持原有结构
-//
-// 参数说明：
-//   - info：待处理的 nodeInfo
-//
-// 返回值：扁平化后的 nodeInfo
 func flattenJoinCarrier(info nodeInfo) nodeInfo {
 	current := info
 	next := current.next
@@ -234,11 +191,6 @@ func flattenJoinCarrier(info nodeInfo) nodeInfo {
 //   - %v / %s：文本追踪格式（TraceString）
 //   - %+v / %#v：JSON 追踪格式（TraceJSON）
 //   - %q：带引号的文本追踪
-//
-// 参数说明：
-//   - s：格式化状态，可获取标志位和输出目标
-//   - verb：格式化动词（v/s/q 等）
-//   - err：要格式化的错误对象
 func formatError(s fmt.State, verb rune, err error) {
 	switch verb {
 	case 'v':
@@ -263,12 +215,6 @@ func formatError(s fmt.State, verb rune, err error) {
 // writeTextTrace 渲染文本格式的错误追踪。
 // 格式为：code=xxx, msg=xxx @ file:line; cause=xxx @ file:line
 // 通过递归遍历错误链，每层错误占一个分段，使用 "; cause=" 分隔。
-//
-// 参数说明：
-//   - b：字符串构建器，用于追加输出
-//   - err：要渲染的错误对象
-//   - depth：当前递归深度，防止链过深
-//   - withTrace：是否渲染栈帧位置信息
 func writeTextTrace(b *strings.Builder, err error, depth int, withTrace bool) {
 	if err == nil || depth >= maxChainDepth {
 		return
@@ -322,12 +268,6 @@ func writeTextTrace(b *strings.Builder, err error, depth int, withTrace bool) {
 
 // writeJoinedText 渲染 Join 多错误的文本格式。
 // 格式为：joined=[err1 @ loc | err2 @ loc | err3]
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - children：子错误列表
-//   - depth：递归深度
-//   - withTrace：是否渲染栈位置
 func writeJoinedText(b *strings.Builder, children []error, depth int, withTrace bool) {
 	b.WriteString("joined=[")
 	for i, child := range children {
@@ -350,12 +290,6 @@ const (
 // writeJSONTrace 渲染 JSON 格式的错误追踪。
 // 结构为：{"code":xxx,"msg":"xxx","ctx":{"k":"v"},"trace":["loc1","loc2"],"err":{...}}
 // Join 场景下使用 "errs" 数组扁平化输出，避免嵌套。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - err：要渲染的错误对象
-//   - depth：递归深度
-//   - withTrace：是否渲染 trace 数组
 func writeJSONTrace(b *strings.Builder, err error, depth int, withTrace bool) {
 	if err == nil {
 		b.WriteString("null")
@@ -427,12 +361,6 @@ func writeJSONTrace(b *strings.Builder, err error, depth int, withTrace bool) {
 }
 
 // writeJSONChildren 渲染 Join 多错误的 JSON 数组。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - children：子错误列表
-//   - depth：递归深度
-//   - withTrace：是否渲染栈追踪
 func writeJSONChildren(b *strings.Builder, children []error, depth int, withTrace bool) {
 	b.WriteString(`"errs":[`)
 	for i, child := range children {
@@ -448,13 +376,6 @@ func writeJSONChildren(b *strings.Builder, children []error, depth int, withTrac
 
 // buildLogValue 构建 slog 结构化追踪值。
 // 返回 slog.GroupValue，包含 code、msg、ctx、trace、errs 等属性。
-//
-// 参数说明：
-//   - err：错误对象
-//   - depth：递归深度
-//   - withTrace：是否渲染 trace
-//
-// 返回值：slog.Value，结构化错误信息
 func buildLogValue(err error, depth int, withTrace bool) slog.Value {
 	if err == nil {
 		return slog.AnyValue(nil)
@@ -495,13 +416,6 @@ func buildLogValue(err error, depth int, withTrace bool) slog.Value {
 }
 
 // buildLogChildren 构建 slog 子错误数组。
-//
-// 参数说明：
-//   - children：子错误列表
-//   - depth：递归深度
-//   - withTrace：是否渲染栈追踪
-//
-// 返回值：slog 可序列化的 []any 数组
 func buildLogChildren(children []error, depth int, withTrace bool) []any {
 	items := make([]any, 0, len(children))
 	for _, child := range children {
@@ -511,13 +425,6 @@ func buildLogChildren(children []error, depth int, withTrace bool) []any {
 }
 
 // buildLogObject 构建单个错误的 slog 对象表示。
-//
-// 参数说明：
-//   - err：错误对象
-//   - depth：递归深度
-//   - withTrace：是否渲染栈追踪
-//
-// 返回值：map[string]any 结构
 func buildLogObject(err error, depth int, withTrace bool) map[string]any {
 	if err == nil || depth >= maxChainDepth {
 		return map[string]any{"msg": ""}
@@ -546,10 +453,6 @@ func buildLogObject(err error, depth int, withTrace bool) map[string]any {
 
 // writeTraceFrames 渲染栈帧数组为 JSON 格式。
 // 格式为：["file1:10","file2:20","file3:30"]
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - st：栈帧数组
 func writeTraceFrames(b *strings.Builder, st stackTrace) {
 	b.WriteByte('[')
 	if len(st) == 0 {
@@ -564,12 +467,6 @@ func writeTraceFrames(b *strings.Builder, st stackTrace) {
 
 // writeProjectTraceFrames 将项目内连续栈帧渲染为 JSON 数组元素。
 // 数据来源是 runtime.Callers 捕获的原始 PC；渲染时才解析 runtime.Frame 并裁剪项目边界，避免创建错误时承担路径处理成本。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - st：原始 PC 栈追踪
-//
-// 返回值：true 表示已找到并写入项目帧；false 表示需要调用方降级输出原始栈
 func writeProjectTraceFrames(b *strings.Builder, st stackTrace) bool {
 	root := projectRoot() // root 是项目边界，命中后只输出第一段连续业务栈帧。
 	if root == "" || len(st) == 0 {
@@ -600,10 +497,6 @@ func writeProjectTraceFrames(b *strings.Builder, st stackTrace) bool {
 
 // writeRawTraceFrames 将原始 PC 栈帧渲染为 JSON 数组元素。
 // 这是找不到项目根或项目帧时的降级策略，宁可保留完整诊断信息，也不静默输出空 trace。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - st：原始 PC 栈追踪
 func writeRawTraceFrames(b *strings.Builder, st stackTrace) {
 	frames := runtime.CallersFrames(st) // frames 是降级输出使用的原始调用栈，可能包含框架帧但不丢诊断信息。
 	for i := range len(st) {
@@ -619,11 +512,7 @@ func writeRawTraceFrames(b *strings.Builder, st stackTrace) {
 }
 
 // writeQuotedString 将字符串写入 Builder 并进行 JSON 转义。
-// 业务意图：TraceJSON 可能承载外部错误消息和 context 值，必须输出严格 JSON 字符串而不是 Go 字符串字面量。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - s：要写入的字符串
+// TraceJSON 可能承载外部错误消息和 context 值，必须输出严格 JSON 字符串而不是 Go 字符串字面量。
 func writeQuotedString(b *strings.Builder, s string) {
 	b.WriteByte('"')
 	writeJSONEscapedContent(b, s)
@@ -640,10 +529,6 @@ func writeInt(b *strings.Builder, v int) {
 
 // writeFirstFrameLocation 渲染栈帧的第一个位置。
 // 格式为：file:line
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - st：栈帧数组
 func writeFirstFrameLocation(b *strings.Builder, st stackTrace) {
 	if len(st) == 0 {
 		return
@@ -656,12 +541,6 @@ func writeFirstFrameLocation(b *strings.Builder, st stackTrace) {
 
 // writeFirstProjectFrameLocation 写入首个项目内栈帧的位置。
 // TraceString 只展示首个业务失败位置，因此找到第一帧项目路径后即可停止，避免解析完整调用栈。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - st：原始 PC 栈追踪
-//
-// 返回值：true 表示已写入项目内位置；false 表示调用方需要降级使用原始首帧
 func writeFirstProjectFrameLocation(b *strings.Builder, st stackTrace) bool {
 	root := projectRoot() // root 用来跳过错误库外层框架帧，优先定位第一帧业务代码。
 	if root == "" || len(st) == 0 {
@@ -683,10 +562,6 @@ func writeFirstProjectFrameLocation(b *strings.Builder, st stackTrace) bool {
 
 // writeFirstRawFrameLocation 写入原始栈的首帧位置。
 // 这是项目根不可用或没有项目帧时的降级策略，确保 TraceString 仍然给出可定位的失败位置。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - st：原始 PC 栈追踪
 func writeFirstRawFrameLocation(b *strings.Builder, st stackTrace) {
 	frame, _ := runtime.CallersFrames(st).Next()
 	writeFrameLocation(b, frame)
@@ -694,10 +569,6 @@ func writeFirstRawFrameLocation(b *strings.Builder, st stackTrace) {
 
 // writeQuotedFrame 将单个栈帧写入 Builder，带 JSON 引号。
 // 如果函数名或文件路径包含特殊字符，先进行 JSON 转义。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - frame：栈帧信息
 func writeQuotedFrame(b *strings.Builder, frame runtime.Frame) {
 	file := relativeProjectPath(frame.File)
 	if needsJSONEscape(frame.Function) || needsJSONEscape(file) {
@@ -716,11 +587,7 @@ func writeQuotedFrame(b *strings.Builder, frame runtime.Frame) {
 }
 
 // writeJSONEscapedContent 写入 JSON 字符串内部内容，不包含外层引号。
-// 业务意图：栈帧函数名或路径偶发包含引号、反斜杠、控制字符时直接转义片段，避免先拼接完整帧字符串再二次转义。
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - s：待写入的字符串片段，数据来源为 runtime.Frame.Function 或裁剪后的文件路径
+// 栈帧函数名或路径偶发包含引号、反斜杠、控制字符时直接转义片段，避免先拼接完整帧字符串再二次转义。
 func writeJSONEscapedContent(b *strings.Builder, s string) {
 	start := 0 // start 是尚未写入的安全片段起点，用于批量写出普通字符减少 Write 调用。
 	for i := 0; i < len(s); {
@@ -778,10 +645,6 @@ func writeJSONEscapedContent(b *strings.Builder, s string) {
 
 // writeFrameLocation 将帧位置写入 Builder。
 // 格式为：file:line
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - frame：栈帧信息
 func writeFrameLocation(b *strings.Builder, frame runtime.Frame) {
 	file := relativeProjectPath(frame.File)
 	b.WriteString(file)
@@ -791,12 +654,6 @@ func writeFrameLocation(b *strings.Builder, frame runtime.Frame) {
 
 // writeFrameText 将帧的完整信息写入 Builder。
 // 格式为：function (file:line)
-//
-// 参数说明：
-//   - b：字符串构建器
-//   - function：函数名
-//   - file：文件路径
-//   - line：行号
 func writeFrameText(b *strings.Builder, function, file string, line int) {
 	b.WriteString(function)
 	b.WriteString(" (")
@@ -808,11 +665,6 @@ func writeFrameText(b *strings.Builder, function, file string, line int) {
 
 // needsJSONEscape 检查字符串是否包含需要 JSON 转义的字符。
 // 检查范围：反斜杠、引号、控制字符（< 0x20）。
-//
-// 参数说明：
-//   - s：待检查的字符串
-//
-// 返回值：true 表示需要转义
 func needsJSONEscape(s string) bool {
 	for i := 0; i < len(s); i++ {
 		switch s[i] {

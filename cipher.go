@@ -14,7 +14,7 @@ import (
 //   - key 和固定 IV 在构造后只读，Encrypt/Decrypt 过程中不再修改对象状态，便于并发复用。
 //   - WithRandIV(true) 时，加密会把随机 IV 写入密文头部，解密会从密文头部读取 IV。
 //   - ECB、非认证流模式与“未显式设置 IV 时使用 key 派生 IV”都属于兼容旧系统的保留能力，默认禁用。
-//   - 公开 API 同时支持传统 padding 语义和 `NoPadding/NoUnPadding` 零额外拷贝路径。
+//   - 公开 API 同时支持传统 padding 语义和 `NoPad/NoUnpad` 零额外拷贝路径。
 type Cipher struct {
 	key                   []byte       // AES: 16/24/32 字节；DES: 8 字节；3DES: 24 字节。
 	iv                    []byte       // 固定 IV；为空时表示未显式配置固定 IV。
@@ -30,12 +30,7 @@ type CipherOption func(*cipherOptions)
 
 // cipherOptions 是加密器构造阶段的内部配置。
 //
-// 字段说明：
-//   - randIV：是否启用随机 IV。
-//   - iv：固定 IV，优先级高于随机 IV。
-//   - allowUnsafeECB：是否允许使用 ECB。
-//   - allowUnsafeKeyIV：是否允许未配置 IV 时回退到 key 派生 IV。
-//   - allowUnsafeStreamMode：是否允许使用 CTR/CFB/OFB 等非认证流模式。
+// 字段含义与 Cipher 的安全开关保持一致，仅在构造阶段使用。
 type cipherOptions struct {
 	randIV                bool    // 是否启用随机 IV。
 	iv                    *string // 固定 IV 配置。
@@ -128,12 +123,6 @@ func NewCipher(key string, block CipherBlock, opts ...CipherOption) (*Cipher, er
 }
 
 // setKey 设置密钥并创建底层分组密码。
-//
-// 参数说明：
-//   - key：原始密钥字符串。
-//   - block：底层分组算法构造函数。
-//
-// 返回值：错误信息。
 func (c *Cipher) setKey(key string, block CipherBlock) error {
 	if block == nil {
 		return errors.New("CipherBlock 不能为空")
@@ -157,15 +146,11 @@ func (c *Cipher) setKey(key string, block CipherBlock) error {
 }
 
 // isSetKey 判断密钥和分组密码是否已经设置。
-//
-// 返回值：true 表示加密器已经完成密钥初始化。
 func (c *Cipher) isSetKey() bool {
 	return c != nil && len(c.key) > 0 && c.block != nil
 }
 
 // check 校验加密器是否可用。
-//
-// 返回值：错误信息。
 func (c *Cipher) check() error {
 	if !c.isSetKey() {
 		return errors.New("请先设置密钥")
@@ -174,11 +159,6 @@ func (c *Cipher) check() error {
 }
 
 // setIV 设置固定 IV。
-//
-// 参数说明：
-//   - iv：固定 IV 字符串。
-//
-// 返回值：错误信息。
 func (c *Cipher) setIV(iv string) error {
 	if err := c.check(); err != nil {
 		return errors.Tag(err)
@@ -191,13 +171,7 @@ func (c *Cipher) setIV(iv string) error {
 }
 
 // EncryptECB 使用 ECB 模式加密。
-//
-// 参数说明：
-//   - data：待加密的原始数据。
-//   - padding：填充函数。
-//
-// 返回值：密文字节，错误信息。
-func (c *Cipher) EncryptECB(data []byte, padding Padding) ([]byte, error) {
+func (c *Cipher) EncryptECB(data []byte, padding Pad) ([]byte, error) {
 	if err := c.check(); err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -219,13 +193,7 @@ func (c *Cipher) EncryptECB(data []byte, padding Padding) ([]byte, error) {
 }
 
 // DecryptECB 使用 ECB 模式解密。
-//
-// 参数说明：
-//   - data：待解密密文。
-//   - unPadding：去填充函数。
-//
-// 返回值：明文字节，错误信息。
-func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
+func (c *Cipher) DecryptECB(data []byte, unpad Unpad) ([]byte, error) {
 	if err := c.check(); err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -235,25 +203,19 @@ func (c *Cipher) DecryptECB(data []byte, unPadding UnPadding) ([]byte, error) {
 	if err := c.validateBlockCiphertext(data); err != nil {
 		return nil, errors.Tag(err)
 	}
-	if unPadding == nil {
-		return nil, errors.New("unPadding 不能为空")
+	if unpad == nil {
+		return nil, errors.New("unpad 不能为空")
 	}
 
 	decrypted := make([]byte, len(data))
 	if err := c.cryptBlockLoop(decrypted, data, c.block.Decrypt); err != nil {
 		return nil, errors.Tag(err)
 	}
-	return unPadding(decrypted)
+	return unpad(decrypted)
 }
 
 // EncryptCBC 使用 CBC 模式加密。
-//
-// 参数说明：
-//   - data：待加密原始数据。
-//   - padding：填充函数。
-//
-// 返回值：密文字节，错误信息。
-func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
+func (c *Cipher) EncryptCBC(data []byte, padding Pad) ([]byte, error) {
 	paddingData, out, dst, iv, err := c.prepareBlockEncrypt(data, padding)
 	if err != nil {
 		return nil, errors.Tag(err)
@@ -266,34 +228,22 @@ func (c *Cipher) EncryptCBC(data []byte, padding Padding) ([]byte, error) {
 }
 
 // DecryptCBC 使用 CBC 模式解密。
-//
-// 参数说明：
-//   - data：待解密密文。
-//   - unPadding：去填充函数。
-//
-// 返回值：明文字节，错误信息。
-func (c *Cipher) DecryptCBC(data []byte, unPadding UnPadding) ([]byte, error) {
+func (c *Cipher) DecryptCBC(data []byte, unpad Unpad) ([]byte, error) {
 	body, iv, err := c.prepareBlockDecrypt(data)
 	if err != nil {
 		return nil, errors.Tag(err)
 	}
-	if unPadding == nil {
-		return nil, errors.New("unPadding 不能为空")
+	if unpad == nil {
+		return nil, errors.New("unpad 不能为空")
 	}
 
 	decrypted := make([]byte, len(body))
 	cipher.NewCBCDecrypter(c.block, iv).CryptBlocks(decrypted, body)
-	return unPadding(decrypted)
+	return unpad(decrypted)
 }
 
 // EncryptCTR 使用 CTR 模式加密。
-//
-// 参数说明：
-//   - data：待加密原始数据。
-//   - padding：填充函数。
-//
-// 返回值：密文字节，错误信息。
-func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
+func (c *Cipher) EncryptCTR(data []byte, padding Pad) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("CTR"); err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -301,27 +251,15 @@ func (c *Cipher) EncryptCTR(data []byte, padding Padding) ([]byte, error) {
 }
 
 // DecryptCTR 使用 CTR 模式解密。
-//
-// 参数说明：
-//   - data：待解密密文。
-//   - unPadding：去填充函数。
-//
-// 返回值：明文字节，错误信息。
-func (c *Cipher) DecryptCTR(data []byte, unPadding UnPadding) ([]byte, error) {
+func (c *Cipher) DecryptCTR(data []byte, unpad Unpad) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("CTR"); err != nil {
 		return nil, errors.Tag(err)
 	}
-	return c.decryptStream(data, unPadding, cipher.NewCTR)
+	return c.decryptStream(data, unpad, cipher.NewCTR)
 }
 
 // EncryptCFB 使用 CFB 模式加密。
-//
-// 参数说明：
-//   - data：待加密原始数据。
-//   - padding：填充函数。
-//
-// 返回值：密文字节，错误信息。
-func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
+func (c *Cipher) EncryptCFB(data []byte, padding Pad) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("CFB"); err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -329,27 +267,15 @@ func (c *Cipher) EncryptCFB(data []byte, padding Padding) ([]byte, error) {
 }
 
 // DecryptCFB 使用 CFB 模式解密。
-//
-// 参数说明：
-//   - data：待解密密文。
-//   - unPadding：去填充函数。
-//
-// 返回值：明文字节，错误信息。
-func (c *Cipher) DecryptCFB(data []byte, unPadding UnPadding) ([]byte, error) {
+func (c *Cipher) DecryptCFB(data []byte, unpad Unpad) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("CFB"); err != nil {
 		return nil, errors.Tag(err)
 	}
-	return c.decryptStream(data, unPadding, newLegacyCFBDecrypter)
+	return c.decryptStream(data, unpad, newLegacyCFBDecrypter)
 }
 
 // EncryptOFB 使用 OFB 模式加密。
-//
-// 参数说明：
-//   - data：待加密原始数据。
-//   - padding：填充函数。
-//
-// 返回值：密文字节，错误信息。
-func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
+func (c *Cipher) EncryptOFB(data []byte, padding Pad) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("OFB"); err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -357,17 +283,11 @@ func (c *Cipher) EncryptOFB(data []byte, padding Padding) ([]byte, error) {
 }
 
 // DecryptOFB 使用 OFB 模式解密。
-//
-// 参数说明：
-//   - data：待解密密文。
-//   - unPadding：去填充函数。
-//
-// 返回值：明文字节，错误信息。
-func (c *Cipher) DecryptOFB(data []byte, unPadding UnPadding) ([]byte, error) {
+func (c *Cipher) DecryptOFB(data []byte, unpad Unpad) ([]byte, error) {
 	if err := c.checkUnsafeStreamMode("OFB"); err != nil {
 		return nil, errors.Tag(err)
 	}
-	return c.decryptStream(data, unPadding, newLegacyOFBStream)
+	return c.decryptStream(data, unpad, newLegacyOFBStream)
 }
 
 // newLegacyCFBEncrypter 创建兼容旧协议的 CFB 加密流。
@@ -391,14 +311,7 @@ func newLegacyOFBStream(block cipher.Block, iv []byte) cipher.Stream {
 // EncryptBytes 加密字节数据并返回原始密文字节。
 //
 // 该方法适合业务层自行选择编码方式，可避免 string 与 []byte 的额外转换。
-//
-// 参数说明：
-//   - data：待加密原始数据。
-//   - mode：加密模式。
-//   - padding：填充函数。
-//
-// 返回值：密文字节，错误信息。
-func (c *Cipher) EncryptBytes(data []byte, mode McryptMode, padding Padding) ([]byte, error) {
+func (c *Cipher) EncryptBytes(data []byte, mode CipherMode, padding Pad) ([]byte, error) {
 	switch mode {
 	case ECB:
 		return c.EncryptECB(data, padding)
@@ -416,41 +329,26 @@ func (c *Cipher) EncryptBytes(data []byte, mode McryptMode, padding Padding) ([]
 }
 
 // DecryptBytes 解密原始密文字节。
-//
-// 参数说明：
-//   - data：待解密密文。
-//   - mode：解密模式。
-//   - unPadding：去填充函数。
-//
-// 返回值：明文字节，错误信息。
-func (c *Cipher) DecryptBytes(data []byte, mode McryptMode, unPadding UnPadding) ([]byte, error) {
+func (c *Cipher) DecryptBytes(data []byte, mode CipherMode, unpad Unpad) ([]byte, error) {
 	switch mode {
 	case ECB:
-		return c.DecryptECB(data, unPadding)
+		return c.DecryptECB(data, unpad)
 	case CBC:
-		return c.DecryptCBC(data, unPadding)
+		return c.DecryptCBC(data, unpad)
 	case CTR:
-		return c.DecryptCTR(data, unPadding)
+		return c.DecryptCTR(data, unpad)
 	case CFB:
-		return c.DecryptCFB(data, unPadding)
+		return c.DecryptCFB(data, unpad)
 	case OFB:
-		return c.DecryptOFB(data, unPadding)
+		return c.DecryptOFB(data, unpad)
 	default:
 		return nil, errors.New("错误的解密模式")
 	}
 }
 
 // EncryptTo 将加密结果追加到 dst 并返回结果切片。
-// 业务意图：高频加密场景可复用调用方缓冲区，减少密文字节切片分配；CTR/CFB/OFB 且 NoPadding 时走零填充复制快路径。
-//
-// 参数说明：
-//   - dst：调用方提供的输出缓冲区，历史内容会保留，新密文追加在末尾。
-//   - data：待加密原始数据，不能与 dst 的可写容量部分重叠，避免流加密覆盖尚未读取的明文。
-//   - mode：加密模式。
-//   - padding：填充函数。
-//
-// 返回值：追加密文后的 dst，错误信息。
-func (c *Cipher) EncryptTo(dst, data []byte, mode McryptMode, padding Padding) ([]byte, error) {
+// 高频加密场景可复用调用方缓冲区，减少密文字节切片分配；CTR/CFB/OFB 且 NoPad 时走零填充复制快路径。
+func (c *Cipher) EncryptTo(dst, data []byte, mode CipherMode, padding Pad) ([]byte, error) {
 	switch mode {
 	case CTR:
 		if err := c.checkUnsafeStreamMode("CTR"); err != nil {
@@ -478,35 +376,27 @@ func (c *Cipher) EncryptTo(dst, data []byte, mode McryptMode, padding Padding) (
 }
 
 // DecryptTo 将解密结果追加到 dst 并返回结果切片。
-// 业务意图：高频解密场景可复用调用方缓冲区，减少明文字节切片分配；CTR/CFB/OFB 且 NoUnPadding 时走直接写入快路径。
-//
-// 参数说明：
-//   - dst：调用方提供的输出缓冲区，历史内容会保留，新明文追加在末尾。
-//   - data：待解密密文，不能与 dst 的可写容量部分重叠，避免流解密覆盖尚未读取的密文。
-//   - mode：解密模式。
-//   - unPadding：去填充函数。
-//
-// 返回值：追加明文后的 dst，错误信息。
-func (c *Cipher) DecryptTo(dst, data []byte, mode McryptMode, unPadding UnPadding) ([]byte, error) {
+// 高频解密场景可复用调用方缓冲区，减少明文字节切片分配；CTR/CFB/OFB 且 NoUnpad 时走直接写入快路径。
+func (c *Cipher) DecryptTo(dst, data []byte, mode CipherMode, unpad Unpad) ([]byte, error) {
 	switch mode {
 	case CTR:
 		if err := c.checkUnsafeStreamMode("CTR"); err != nil {
 			return nil, errors.Tag(err)
 		}
-		return c.decryptStreamTo(dst, data, unPadding, cipher.NewCTR)
+		return c.decryptStreamTo(dst, data, unpad, cipher.NewCTR)
 	case CFB:
 		if err := c.checkUnsafeStreamMode("CFB"); err != nil {
 			return nil, errors.Tag(err)
 		}
-		return c.decryptStreamTo(dst, data, unPadding, newLegacyCFBDecrypter)
+		return c.decryptStreamTo(dst, data, unpad, newLegacyCFBDecrypter)
 	case OFB:
 		if err := c.checkUnsafeStreamMode("OFB"); err != nil {
 			return nil, errors.Tag(err)
 		}
-		return c.decryptStreamTo(dst, data, unPadding, newLegacyOFBStream)
+		return c.decryptStreamTo(dst, data, unpad, newLegacyOFBStream)
 	default:
-		// 分组模式和自定义 unPadding 可能改变长度或返回新切片，统一复用现有路径保证兼容性。
-		decrypted, err := c.DecryptBytes(data, mode, unPadding)
+		// 分组模式和自定义 unpad 可能改变长度或返回新切片，统一复用现有路径保证兼容性。
+		decrypted, err := c.DecryptBytes(data, mode, unpad)
 		if err != nil {
 			return nil, errors.Tag(err)
 		}
@@ -517,7 +407,7 @@ func (c *Cipher) DecryptTo(dst, data []byte, mode McryptMode, unPadding UnPaddin
 // Encrypt 加密字符串并编码输出。
 //
 // data 为待加密数据；mode 为加密模式；encode 为编码方法；padding 为填充方法。
-func (c *Cipher) Encrypt(data string, mode McryptMode, encode EncodeToString, padding Padding) (string, error) {
+func (c *Cipher) Encrypt(data string, mode CipherMode, encode EncodeToString, padding Pad) (string, error) {
 	if encode == nil {
 		return "", errors.New("encode 不能为空")
 	}
@@ -530,8 +420,8 @@ func (c *Cipher) Encrypt(data string, mode McryptMode, encode EncodeToString, pa
 
 // Decrypt 解密编码后的密文字符串。
 //
-// encrypt 为待解密数据；decode 为解码方法；unPadding 为去填充方法。
-func (c *Cipher) Decrypt(encrypt string, mode McryptMode, decode DecodeString, unPadding UnPadding) (string, error) {
+// encrypt 为待解密数据；decode 为解码方法；unpad 为去填充方法。
+func (c *Cipher) Decrypt(encrypt string, mode CipherMode, decode DecodeString, unpad Unpad) (string, error) {
 	if decode == nil {
 		return "", errors.New("decode 不能为空")
 	}
@@ -539,7 +429,7 @@ func (c *Cipher) Decrypt(encrypt string, mode McryptMode, decode DecodeString, u
 	if err != nil {
 		return "", errors.Tag(err)
 	}
-	decrypted, err := c.DecryptBytes(ciphertext, mode, unPadding)
+	decrypted, err := c.DecryptBytes(ciphertext, mode, unpad)
 	if err != nil {
 		return "", errors.Tag(err)
 	}
@@ -547,18 +437,12 @@ func (c *Cipher) Decrypt(encrypt string, mode McryptMode, decode DecodeString, u
 }
 
 // pad 对原始数据执行填充。
-//
-// 参数说明：
-//   - data：原始数据。
-//   - padding：填充函数。
-//
-// 返回值：填充后的数据，错误信息。
-func (c *Cipher) pad(data []byte, padding Padding) ([]byte, error) {
+func (c *Cipher) pad(data []byte, padding Pad) ([]byte, error) {
 	if padding == nil {
 		return nil, errors.New("padding 不能为空")
 	}
-	if isNoPaddingFunc(padding) {
-		return NoPadding(data, c.block.BlockSize()), nil
+	if isNoPadFunc(padding) {
+		return NoPad(data, c.block.BlockSize()), nil
 	}
 	// 填充后的数据必须满足分组大小要求，否则后续块加密一定失败。
 	paddingData := padding(data, c.block.BlockSize())
@@ -570,7 +454,7 @@ func (c *Cipher) pad(data []byte, padding Padding) ([]byte, error) {
 
 // validateBlockPlaintext 校验块模式明文是否可以直接分组加密。
 //
-// NoPadding 用于 CBC/ECB 时不会补齐长度，因此必须在调用 CryptBlocks 或逐块加密前显式返回错误，
+// NoPad 用于 CBC/ECB 时不会补齐长度，因此必须在调用 CryptBlocks 或逐块加密前显式返回错误，
 // 避免标准库或切片边界检查触发 panic；CTR/CFB/OFB 等流模式不走该校验。
 func (c *Cipher) validateBlockPlaintext(data []byte) error {
 	blockSize := c.block.BlockSize()
@@ -581,11 +465,6 @@ func (c *Cipher) validateBlockPlaintext(data []byte) error {
 }
 
 // checkUnsafeStreamMode 校验是否允许使用非认证流模式。
-//
-// 参数说明：
-//   - modeName：模式名称，如 CFB、OFB。
-//
-// 返回值：错误信息。
 func (c *Cipher) checkUnsafeStreamMode(modeName string) error {
 	if c.allowUnsafeStreamMode {
 		return nil
@@ -602,18 +481,7 @@ func (c *Cipher) checkUnsafeECB() error {
 }
 
 // prepareBlockEncrypt 为 CBC/CTR/CFB/OFB 等模式准备加密数据。
-//
-// 参数说明：
-//   - data：原始数据。
-//   - padding：填充函数。
-//
-// 返回值：
-//   - paddingData：填充后的原始数据。
-//   - out：最终输出缓冲区。
-//   - dst：真正写入密文的位置。
-//   - iv：本次加密使用的 IV。
-//   - err：错误信息。
-func (c *Cipher) prepareBlockEncrypt(data []byte, padding Padding) (paddingData, out, dst, iv []byte, err error) {
+func (c *Cipher) prepareBlockEncrypt(data []byte, padding Pad) (paddingData, out, dst, iv []byte, err error) {
 	if err = c.check(); err != nil {
 		return nil, nil, nil, nil, errors.Tag(err)
 	}
@@ -641,14 +509,6 @@ func (c *Cipher) prepareBlockEncrypt(data []byte, padding Padding) (paddingData,
 }
 
 // prepareBlockDecrypt 为 CBC/CTR/CFB/OFB 等模式准备解密数据。
-//
-// 参数说明：
-//   - data：待解密密文。
-//
-// 返回值：
-//   - body：实际密文主体。
-//   - iv：解密时使用的 IV。
-//   - err：错误信息。
 func (c *Cipher) prepareBlockDecrypt(data []byte) (body, iv []byte, err error) {
 	if err = c.check(); err != nil {
 		return nil, nil, errors.Tag(err)
@@ -679,14 +539,7 @@ func (c *Cipher) prepareStreamDecrypt(data []byte) (body, iv []byte, err error) 
 }
 
 // encryptStream 使用流模式执行加密。
-//
-// 参数说明：
-//   - data：待加密原始数据。
-//   - padding：填充函数。
-//   - newStream：流模式构造函数。
-//
-// 返回值：密文字节，错误信息。
-func (c *Cipher) encryptStream(data []byte, padding Padding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
+func (c *Cipher) encryptStream(data []byte, padding Pad, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
 	paddingData, out, dst, iv, err := c.prepareBlockEncrypt(data, padding)
 	if err != nil {
 		return nil, errors.Tag(err)
@@ -696,44 +549,29 @@ func (c *Cipher) encryptStream(data []byte, padding Padding, newStream func(ciph
 }
 
 // decryptStream 使用流模式执行解密。
-//
-// 参数说明：
-//   - data：待解密密文。
-//   - unPadding：去填充函数。
-//   - newStream：流模式构造函数。
-//
-// 返回值：明文字节，错误信息。
-func (c *Cipher) decryptStream(data []byte, unPadding UnPadding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
+func (c *Cipher) decryptStream(data []byte, unpad Unpad, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
 	body, iv, err := c.prepareStreamDecrypt(data)
 	if err != nil {
 		return nil, errors.Tag(err)
 	}
-	if unPadding == nil {
-		return nil, errors.New("unPadding 不能为空")
+	if unpad == nil {
+		return nil, errors.New("unpad 不能为空")
 	}
 
 	decrypted := make([]byte, len(body))
 	newStream(c.block, iv).XORKeyStream(decrypted, body)
-	if isNoUnPaddingFunc(unPadding) {
+	if isNoUnpadFunc(unpad) {
 		return decrypted, nil
 	}
-	return unPadding(decrypted)
+	return unpad(decrypted)
 }
 
 // encryptStreamTo 使用流模式将密文追加写入 dst。
-//
-// 参数说明：
-//   - dst：调用方复用的输出缓冲区。
-//   - data：待加密原始数据。
-//   - padding：填充函数；只有 NoPadding 可直接写入 dst，其余策略回退到兼容路径。
-//   - newStream：流模式构造函数。
-//
-// 返回值：追加密文后的 dst，错误信息。
-func (c *Cipher) encryptStreamTo(dst, data []byte, padding Padding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
+func (c *Cipher) encryptStreamTo(dst, data []byte, padding Pad, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
 	if padding == nil {
 		return nil, errors.New("padding 不能为空")
 	}
-	if !isNoPaddingFunc(padding) {
+	if !isNoPadFunc(padding) {
 		// 自定义 padding 可能返回新数据或改变长度，回退到旧路径以保留调用方定义的边界语义。
 		encrypted, err := c.encryptStream(data, padding, newStream)
 		if err != nil {
@@ -767,21 +605,13 @@ func (c *Cipher) encryptStreamTo(dst, data []byte, padding Padding, newStream fu
 }
 
 // decryptStreamTo 使用流模式将明文追加写入 dst。
-//
-// 参数说明：
-//   - dst：调用方复用的输出缓冲区。
-//   - data：待解密密文。
-//   - unPadding：去填充函数；只有 NoUnPadding 可直接写入 dst，其余策略回退到兼容路径。
-//   - newStream：流模式构造函数。
-//
-// 返回值：追加明文后的 dst，错误信息。
-func (c *Cipher) decryptStreamTo(dst, data []byte, unPadding UnPadding, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
-	if unPadding == nil {
-		return nil, errors.New("unPadding 不能为空")
+func (c *Cipher) decryptStreamTo(dst, data []byte, unpad Unpad, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
+	if unpad == nil {
+		return nil, errors.New("unpad 不能为空")
 	}
-	if !isNoUnPaddingFunc(unPadding) {
+	if !isNoUnpadFunc(unpad) {
 		// 自定义去填充可能裁剪或校验明文，回退到旧路径以保留错误与边界行为。
-		decrypted, err := c.decryptStream(data, unPadding, newStream)
+		decrypted, err := c.decryptStream(data, unpad, newStream)
 		if err != nil {
 			return nil, errors.Tag(err)
 		}
@@ -798,7 +628,7 @@ func (c *Cipher) decryptStreamTo(dst, data []byte, unPadding UnPadding, newStrea
 }
 
 // appendCipherOutput 为密文或明文结果扩展 dst，并返回本次写入窗口。
-// 业务意图：集中处理容量复用，调用方负责保证 dst 可写区域不与输入数据发生不安全重叠。
+// 调用方负责保证 dst 可写区域不与输入数据发生不安全重叠。
 func appendCipherOutput(dst []byte, size int) ([]byte, []byte) {
 	start := len(dst)
 	if size <= 0 {
@@ -815,8 +645,6 @@ func appendCipherOutput(dst []byte, size int) ([]byte, []byte) {
 
 // fixedIV 获取固定 IV。
 // 默认要求业务显式设置固定 IV 或启用随机 IV；只有开启兼容开关时才允许退回到 key 派生 IV。
-//
-// 返回值：固定 IV，错误信息。
 func (c *Cipher) fixedIV() ([]byte, error) {
 	blockSize := c.block.BlockSize()
 	if len(c.iv) > 0 {
@@ -836,11 +664,6 @@ func (c *Cipher) fixedIV() ([]byte, error) {
 
 // splitCiphertextIV 从密文中拆分真实密文和 IV。
 // 随机 IV 模式下，密文前 blockSize 字节为 IV。
-//
-// 参数说明：
-//   - data：原始密文字节。
-//
-// 返回值：真实密文、IV、错误信息。
 func (c *Cipher) splitCiphertextIV(data []byte) ([]byte, []byte, error) {
 	blockSize := c.block.BlockSize()
 	if c.isRandIV {
@@ -857,11 +680,6 @@ func (c *Cipher) splitCiphertextIV(data []byte) ([]byte, []byte, error) {
 }
 
 // validateBlockCiphertext 校验分组密文是否合法。
-//
-// 参数说明：
-//   - data：待校验密文。
-//
-// 返回值：错误信息。
 func (c *Cipher) validateBlockCiphertext(data []byte) error {
 	blockSize := c.block.BlockSize()
 	if len(data) == 0 {
@@ -874,11 +692,6 @@ func (c *Cipher) validateBlockCiphertext(data []byte) error {
 }
 
 // cryptBlockLoop 逐个分组执行加解密。
-//
-// 参数说明：
-//   - dst：目标缓冲区。
-//   - src：源缓冲区。
-//   - crypt：单个分组的加解密函数。
 func (c *Cipher) cryptBlockLoop(dst, src []byte, crypt func(dst, src []byte)) error {
 	blockSize := c.block.BlockSize()
 	if len(src)%blockSize != 0 {

@@ -26,22 +26,21 @@ const (
 )
 
 var (
-	// uniqIDMinBase36ByLen 缓存 base36 指定位数的最小值，数据来源是 36 进制位数边界，用于避免 UniqID 每次解析字符串。
-	uniqIDMinBase36ByLen [13]int64
-	// uniqIDMaxBase36ByLen 缓存 base36 指定位数的最大值，索引范围 1-12，对应 UniqID 随机段的最大块长度。
-	uniqIDMaxBase36ByLen [13]int64
+	// uniqueIDMinBase36ByLen 缓存 base36 指定位数的最小值，数据来源是 36 进制位数边界，用于避免 UniqueID 每次解析字符串。
+	uniqueIDMinBase36ByLen [13]int64
+	// uniqueIDMaxBase36ByLen 缓存 base36 指定位数的最大值，索引范围 1-12，对应 UniqueID 随机段的最大块长度。
+	uniqueIDMaxBase36ByLen [13]int64
 )
 
-// init 初始化字符串工具的包级缓存，当前只预计算 UniqID 随机段使用的 base36 边界。
+// init 初始化字符串工具的包级缓存，当前只预计算 UniqueID 随机段使用的 base36 边界。
 func init() {
-	initUniqIDBase36Bounds()
+	initUniqueIDBase36Bounds()
 }
 
 // Replacer 是可复用字符串替换器。
 //
-// 业务意图：
-//   - 当同一批替换规则被反复使用时，调用方可复用已排序和已构建的 strings.Replacer。
-//   - 替换规则来源于 map，构造时会固定排序，避免 map 遍历无序导致重叠替换规则结果不稳定。
+// 同一批替换规则被反复使用时，调用方可复用已排序和已构建的 strings.Replacer。
+// 替换规则来源于 map，构造时会固定排序，避免 map 遍历无序导致重叠替换规则结果不稳定。
 type Replacer struct {
 	replacer *strings.Replacer // 底层标准库替换器；nil 表示无替换规则，Replace 会原样返回输入。
 }
@@ -71,9 +70,8 @@ func (r *Replacer) Replace(s string) string {
 
 // replacePairs 将 map 替换规则转换为 strings.NewReplacer 需要的有序 pairs。
 //
-// 性能保护：
-//   - 只在构造替换器时排序一次，避免复用场景每次 Replace 都重复排序。
-//   - 对空 map 直接返回 nil，调用方可跳过底层 Replacer 分配。
+// 该函数只在构造替换器时排序一次，避免复用场景每次 Replace 都重复排序。
+// 对空 map 直接返回 nil，调用方可跳过底层 Replacer 分配。
 func replacePairs(oldnew map[string]string) []string {
 	length := len(oldnew)
 	if length == 0 {
@@ -145,10 +143,9 @@ func substrASCII(str string, start, length int) string {
 
 // substrRange 根据历史 Substr 语义计算截取范围。
 //
-// 边界说明：
-//   - length 为 0、空字符串、start 超出末尾时返回 false。
-//   - start 为负数时从尾部倒算，越过头部则降级为 0。
-//   - length 为负数时表示结束字符索引，和旧实现保持 len+length+1 的闭区间语义。
+// length 为 0、空字符串、start 超出末尾时返回 false。
+// start 为负数时从尾部倒算，越过头部则降级为 0。
+// length 为负数时表示结束字符索引，和旧实现保持 len+length+1 的闭区间语义。
 func substrRange(size, start, length int) (int, int, bool) {
 	if length == 0 || size == 0 || start > size {
 		return 0, 0, false
@@ -196,29 +193,29 @@ func isASCIIString(str string) bool {
 	return true
 }
 
-// StrRev 反转字符串
-func StrRev(str string) string {
+// ReverseString 反转字符串
+func ReverseString(str string) string {
 	return string(Reverse([]rune(str)))
 }
 
-// RandStr 随机生成字符串，使用 ALPHA 规则。
+// RandomLetters 随机生成字符串，使用 ALPHA 规则。
 // 注意：该函数基于 math/rand，仅适用于测试数据、临时标识等非安全场景。
-// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandStr。
+// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandomLetters。
 //
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func RandStr(n int, r ...*rand.Rand) string {
-	return RandStr3(n, ALPHA, r...)
+func RandomLetters(n int, r ...*rand.Rand) string {
+	return RandomString(n, ALPHA, r...)
 }
 
-// RandStr2 随机生成字符串，使用 ALNUM 规则。
+// RandomID 随机生成字符串，使用 ALNUM 规则。
 // 为兼容旧行为，首字符固定从 ALPHA 中选择，避免数字开头。
 // 注意：该函数基于 math/rand，仅适用于测试数据、临时标识等非安全场景。
-// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandStr2。
+// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandomID。
 //
 //	n 生成字符串长度
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func RandStr2(n int, r ...*rand.Rand) string {
+func RandomID(n int, r ...*rand.Rand) string {
 	if n <= 0 {
 		return ""
 	}
@@ -240,14 +237,14 @@ func RandStr2(n int, r ...*rand.Rand) string {
 	return string(s)
 }
 
-// RandStr3 随机生成字符串。
+// RandomString 随机生成字符串。
 // 注意：该函数基于 math/rand，仅适用于测试数据、临时标识等非安全场景。
-// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandStr3。
+// 禁止用于 token、验证码、重置链接、签名密钥等安全敏感用途；安全场景请使用 SecureRandomString。
 //
 //	n 生成字符串长度
 //	alpha 生成随机字符串的种子
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func RandStr3(n int, alpha string, r ...*rand.Rand) string {
+func RandomString(n int, alpha string, r ...*rand.Rand) string {
 	if n <= 0 || len(alpha) == 0 {
 		return ""
 	}
@@ -268,24 +265,14 @@ func RandStr3(n int, alpha string, r ...*rand.Rand) string {
 	return string(s)
 }
 
-// SecureRandStr 使用密码学安全随机源生成字符串，使用 ALPHA 规则。
-//
-// 参数说明：
-//   - n：生成字符串长度
-//
-// 返回值：随机字符串、错误信息
-func SecureRandStr(n int) (string, error) {
-	return SecureRandStr3(n, ALPHA)
+// SecureRandomLetters 使用密码学安全随机源生成字符串，使用 ALPHA 规则。
+func SecureRandomLetters(n int) (string, error) {
+	return SecureRandomString(n, ALPHA)
 }
 
-// SecureRandStr2 使用密码学安全随机源生成字符串，使用 ALNUM 规则。
+// SecureRandomID 使用密码学安全随机源生成字符串，使用 ALNUM 规则。
 // 为兼容历史命名习惯，首字符固定从 ALPHA 中选择，避免数字开头。
-//
-// 参数说明：
-//   - n：生成字符串长度
-//
-// 返回值：随机字符串、错误信息
-func SecureRandStr2(n int) (string, error) {
+func SecureRandomID(n int) (string, error) {
 	if n <= 0 {
 		return "", nil
 	}
@@ -301,25 +288,19 @@ func SecureRandStr2(n int) (string, error) {
 	return string(s), nil
 }
 
-// SecureRandStr3 使用密码学安全随机源按自定义字符集生成字符串。
-//
-// 参数说明：
-//   - n：生成字符串长度
-//   - alpha：候选字符集
-//
-// 返回值：随机字符串、错误信息
-func SecureRandStr3(n int, alpha string) (string, error) {
-	return secureRandString(n, alpha)
+// SecureRandomString 使用密码学安全随机源按自定义字符集生成字符串。
+func SecureRandomString(n int, alpha string) (string, error) {
+	return secureRandomString(n, alpha)
 }
 
-// UniqID 生成一个长度范围 16-32 位的唯一 ID 字符串（可排序字符串）。
-// UniqID 只生成字符串标识，不承诺全局强唯一；强唯一场景建议使用业务唯一键或 UUID/ULID。
+// UniqueID 生成一个长度范围 16-32 位的唯一 ID 字符串（可排序字符串）。
+// UniqueID 只生成字符串标识，不承诺全局强唯一；强唯一场景建议使用业务唯一键或 UUID/ULID。
 // 注意：该函数基于时间戳与 math/rand，仅适用于非安全场景。
-// 禁止用于 token、验证码、重置链接等安全敏感用途；安全场景请使用 SecureUniqID。
+// 禁止用于 token、验证码、重置链接等安全敏感用途；安全场景请使用 SecureUniqueID。
 //
-//	l 生成 UniqID 长度: 取值范围[16-32], 小于16按16位处理, 大于32按32位处理
+//	l 生成 UniqueID 长度: 取值范围[16-32], 小于16按16位处理, 大于32按32位处理
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
-func UniqID(l uint8, r ...*rand.Rand) string {
+func UniqueID(l uint8, r ...*rand.Rand) string {
 	// 16-32 位
 	if l > 32 {
 		l = 32
@@ -327,7 +308,7 @@ func UniqID(l uint8, r ...*rand.Rand) string {
 		l = 16
 	}
 
-	// 生成UniqId前半部分(使用时间戳生成UniqId前12位字符)
+	// 生成UniqueID前半部分(使用时间戳生成UniqueID前12位字符)
 	nano := time.Now().UnixNano()
 	ts := strconv.FormatInt(nano, 36) // int64时间戳转36位字符串
 
@@ -336,14 +317,10 @@ func UniqID(l uint8, r ...*rand.Rand) string {
 	b.Grow(int(l))
 	b.WriteString(ts)
 
-	// 生成UniqId后半部分
-	total := int(l) - len(ts) // UniqId后半部分需生成的字符长度
+	// 生成UniqueID后半部分
+	total := int(l) - len(ts) // UniqueID后半部分需生成的字符长度
 	// 计算生成次数(int64转换36位字符串 最大值可转换12个长度的'z', total超出12位需多次生成)
 	n := total / 12
-
-	if len(r) == 0 {
-		r = append(r, RandSource)
-	}
 
 	for i := 0; i <= n && total > 0; i++ {
 		// 计算随机生成最小值(min)和最大值(max), 并重新计算total值
@@ -352,8 +329,8 @@ func UniqID(l uint8, r ...*rand.Rand) string {
 		total -= num
 
 		// 复用预计算的 base36 边界，避免在高频 ID 生成路径里重复 strings.Repeat 和 ParseInt。
-		minInt := uniqIDMinBase36ByLen[num]
-		maxInt := uniqIDMaxBase36ByLen[num]
+		minInt := uniqueIDMinBase36ByLen[num]
+		maxInt := uniqueIDMaxBase36ByLen[num]
 
 		// 随机生成 minInt - maxInt 之间的数, 并转换成36位字符串
 		rv := strconv.FormatInt(Rand(minInt, maxInt, r...), 36)
@@ -364,50 +341,37 @@ func UniqID(l uint8, r ...*rand.Rand) string {
 	return b.String()
 }
 
-// SecureUniqID 使用密码学安全随机源生成长度范围 16-32 位的字符串标识。
-// 与 UniqID 不同，SecureUniqID 不依赖时间戳，不保证可排序。
-//
-// 参数说明：
-//   - l：生成长度，取值范围 [16-32]
-//
-// 返回值：随机字符串、错误信息
-func SecureUniqID(l uint8) (string, error) {
+// SecureUniqueID 使用密码学安全随机源生成长度范围 16-32 位的字符串标识。
+// 与 UniqueID 不同，SecureUniqueID 不依赖时间戳，不保证可排序。
+func SecureUniqueID(l uint8) (string, error) {
 	if l > 32 {
 		l = 32
 	} else if l < 16 {
 		l = 16
 	}
-	return SecureRandStr2(int(l))
+	return SecureRandomID(int(l))
 }
 
-// UniqId 生成一个长度范围 16-32 位的唯一 ID 字符串。
-//
-// Deprecated: 请使用 UniqID。
-func UniqId(l uint8, r ...*rand.Rand) string {
-	return UniqID(l, r...)
-}
-
-// RandSource rand
+// RandSource 是兼容旧调用的可复用随机源；并发场景请通过 Rand/Random* 函数使用。
 var RandSource = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
 
-// initUniqIDBase36Bounds 初始化 UniqID 随机段的 base36 数值边界。
+// initUniqueIDBase36Bounds 初始化 UniqueID 随机段的 base36 数值边界。
 //
-// 边界说明：
-//   - 随机段一次最多生成 12 位 base36 字符，36^12-1 仍在 int64 范围内。
-//   - 索引 0 不使用，保留零值，调用方仅访问 1-12。
-func initUniqIDBase36Bounds() {
+// 随机段一次最多生成 12 位 base36 字符，36^12-1 仍在 int64 范围内。
+// 索引 0 不使用，保留零值，调用方仅访问 1-12。
+func initUniqueIDBase36Bounds() {
 	var min int64 = 1
 	var max int64 = 35
 	for digits := 1; digits <= 12; digits++ {
-		uniqIDMinBase36ByLen[digits] = min
-		uniqIDMaxBase36ByLen[digits] = max
+		uniqueIDMinBase36ByLen[digits] = min
+		uniqueIDMaxBase36ByLen[digits] = max
 		min *= 36
 		max = max*36 + 35
 	}
 }
 
-// secureRandString 使用密码学安全随机源按字符集生成字符串。
-func secureRandString(n int, alpha string) (string, error) {
+// secureRandomString 使用密码学安全随机源按字符集生成字符串。
+func secureRandomString(n int, alpha string) (string, error) {
 	if n <= 0 || len(alpha) == 0 {
 		return "", nil
 	}
@@ -421,13 +385,8 @@ func secureRandString(n int, alpha string) (string, error) {
 
 // secureRandBytes 使用密码学安全随机源填充目标字节切片。
 //
-// 参数说明：
-//   - dst：待填充的目标切片，调用方负责按目标长度预分配。
-//   - alpha：候选字符集，按字节索引以保持历史随机字符串接口的 ASCII 字符集语义。
-//
-// 性能保护：
-//   - 常见字符集长度不超过 256 时，批量读取随机字节并做拒绝采样，避免每个字符一次 big.Int 分配。
-//   - 超过 256 的非常规字符集退回到 crand.Int，优先保证分布均匀和行为正确。
+// 常见字符集长度不超过 256 时，批量读取随机字节并做拒绝采样，避免每个字符一次 big.Int 分配。
+// 超过 256 的非常规字符集退回到 crand.Int，优先保证分布均匀和行为正确。
 func secureRandBytes(dst []byte, alpha string) error {
 	if len(dst) == 0 || len(alpha) == 0 {
 		return nil

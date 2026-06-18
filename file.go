@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"io/fs"
 	"mime"
@@ -76,14 +75,14 @@ func Copy(src, dst string) error {
 	switch {
 	case err == nil:
 		if dstInfo.Mode()&os.ModeSymlink != 0 {
-			return errors.Tag(fmt.Errorf("Copy() 不允许目标文件为符号链接: dst=%s", dst))
+			return errors.Errorf("Copy() 不允许目标文件为符号链接: dst=%s", dst)
 		}
 		dstStat, statErr := os.Stat(dst)
 		if statErr != nil {
 			return errors.Tag(statErr)
 		}
 		if os.SameFile(stat, dstStat) {
-			return errors.Tag(errors.Errorf("Copy 不允许源文件和目标文件相同: src=%s dst=%s", src, dst))
+			return errors.Errorf("Copy 不允许源文件和目标文件相同: src=%s dst=%s", src, dst)
 		}
 	case os.IsNotExist(err):
 		// 目标文件不存在时允许继续创建。
@@ -106,30 +105,25 @@ func Copy(src, dst string) error {
 
 // writeFileAtomic 使用同目录临时文件完成原子写入。
 // 该方法会拒绝通过符号链接目录或符号链接目标写入，降低覆盖写越界和半写文件风险。
-//
-// 参数说明：
-//   - fileName：目标文件路径
-//   - perm：目标文件权限
-//   - write：实际写入逻辑，由调用方负责向临时文件写内容
 func writeFileAtomic(fileName string, perm os.FileMode, write func(file *os.File) error) error {
 	dir := filepath.Dir(fileName)
 	var err error
 
 	// 拒绝目标路径链路中的符号链接，避免把内容写入符号链接指向的其它位置。
 	if err = assertNoSymlinkPath(dir, fileName); err != nil {
-		return errors.Tag(fmt.Errorf("writeFileAtomic() 校验路径失败: path=%s err=%w", fileName, err))
+		return errors.Wrapf(err, "writeFileAtomic() 校验路径失败: path=%s", fileName)
 	}
 	if info, err := os.Lstat(fileName); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return errors.Tag(fmt.Errorf("writeFileAtomic() 不允许目标文件为符号链接: path=%s", fileName))
+			return errors.Errorf("writeFileAtomic() 不允许目标文件为符号链接: path=%s", fileName)
 		}
 	} else if !os.IsNotExist(err) {
-		return errors.Tag(fmt.Errorf("writeFileAtomic() 校验目标文件失败: path=%s err=%w", fileName, err))
+		return errors.Wrapf(err, "writeFileAtomic() 校验目标文件失败: path=%s", fileName)
 	}
 
 	tmpFile, err := os.CreateTemp(dir, "."+filepath.Base(fileName)+".tmp-*")
 	if err != nil {
-		return errors.Tag(fmt.Errorf("writeFileAtomic() 创建临时文件失败: path=%s err=%w", fileName, err))
+		return errors.Wrapf(err, "writeFileAtomic() 创建临时文件失败: path=%s", fileName)
 	}
 	tmpName := tmpFile.Name()
 	needCleanup := true
@@ -142,19 +136,19 @@ func writeFileAtomic(fileName string, perm os.FileMode, write func(file *os.File
 
 	// 临时文件先写入最终权限，Rename 后即可保持目标权限一致。
 	if err = tmpFile.Chmod(perm); err != nil {
-		return errors.Tag(fmt.Errorf("writeFileAtomic() 设置临时文件权限失败: path=%s err=%w", fileName, err))
+		return errors.Wrapf(err, "writeFileAtomic() 设置临时文件权限失败: path=%s", fileName)
 	}
 	if err = write(tmpFile); err != nil {
-		return errors.Tag(fmt.Errorf("writeFileAtomic() 写入临时文件失败: path=%s err=%w", fileName, err))
+		return errors.Wrapf(err, "writeFileAtomic() 写入临时文件失败: path=%s", fileName)
 	}
 	if err = tmpFile.Sync(); err != nil {
-		return errors.Tag(fmt.Errorf("writeFileAtomic() 刷盘失败: path=%s err=%w", fileName, err))
+		return errors.Wrapf(err, "writeFileAtomic() 刷盘失败: path=%s", fileName)
 	}
 	if err = tmpFile.Close(); err != nil {
-		return errors.Tag(fmt.Errorf("writeFileAtomic() 关闭临时文件失败: path=%s err=%w", fileName, err))
+		return errors.Wrapf(err, "writeFileAtomic() 关闭临时文件失败: path=%s", fileName)
 	}
 	if err = os.Rename(tmpName, fileName); err != nil {
-		return errors.Tag(fmt.Errorf("writeFileAtomic() 原子替换失败: path=%s err=%w", fileName, err))
+		return errors.Wrapf(err, "writeFileAtomic() 原子替换失败: path=%s", fileName)
 	}
 	needCleanup = false
 	return nil
@@ -162,8 +156,8 @@ func writeFileAtomic(fileName string, perm os.FileMode, write func(file *os.File
 
 // FileInfo 文件信息
 type FileInfo struct {
-	fs.FileInfo
-	Path string // 文件绝对路径
+	fs.FileInfo        // 原始文件信息
+	Path        string // 文件绝对路径
 }
 
 // FindFiles 获取目录下所有匹配文件
@@ -179,40 +173,9 @@ type FileInfo struct {
 //	 - `s`, `文件后缀名` : 匹配后缀文件名 FindFiles(path, depth, `s`, fileNameSuffix)
 //	 - `r`, `正则表达式` : 正则匹配文件名 FindFiles(path, depth, `r`, fileNameReg)
 func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err error) {
-	var (
-		mode     = "*"            // 匹配模式
-		regs     []string         // 匹配规则
-		compiles []*regexp.Regexp // 匹配模式为r时，正则表达式
-	)
-
-	// match参数处理
-	if len(match) == 1 {
-		if match[0] != "*" {
-			mode = "e" // 精准匹配
-			regs = append(regs, match[0])
-		}
-	} else if len(match) >= 2 {
-		if IsHas[string](match[0], []string{"*", "p", "s", "r", "e"}) {
-			mode = match[0]
-			if mode != "*" {
-				regs = make([]string, 0, len(match)-1)
-				regs = append(regs, match[1:]...)
-
-				// 正则匹配, 验证正则表达式是否正确
-				if mode == "r" {
-					compiles = make([]*regexp.Regexp, 0, len(regs))
-					for i := 0; i < len(regs); i++ {
-						compile, err := regexp.Compile(regs[i])
-						if err != nil {
-							return nil, errors.Errorf("格式错误的表达式[%s]: %s", regs[i], err.Error())
-						}
-						compiles = append(compiles, compile)
-					}
-				}
-			}
-		} else {
-			return files, errors.Errorf("match第一个参数[%s]错误的规则", match[0])
-		}
+	matcher, err := newFindMatcher(match)
+	if err != nil {
+		return files, errors.Tag(err)
 	}
 
 	// 处理文件匹配
@@ -225,38 +188,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 			return nil
 		}
 
-		ok := false
-		if mode == "*" {
-			ok = true
-		} else {
-			for i := 0; i < len(regs); i++ {
-				switch mode {
-				case "p": // 匹配前缀
-					if strings.HasPrefix(d.Name(), regs[i]) {
-						ok = true
-					}
-				case "s": // 匹配后缀
-					if strings.HasSuffix(d.Name(), regs[i]) {
-						ok = true
-					}
-				case "r": // 正则表达式匹配
-					if compiles[i].MatchString(d.Name()) {
-						ok = true
-					}
-				case "e": // 精确匹配
-					if regs[i] == d.Name() {
-						ok = true
-					}
-				}
-
-				// 当前文件匹配规则，则终止匹配
-				if ok {
-					break
-				}
-			}
-		}
-
-		if ok {
+		if matcher(d.Name()) {
 			info, err := d.Info()
 			if err != nil {
 				return errors.Tag(err)
@@ -275,7 +207,9 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 	// 深度模式或当前模式
 	if depth {
 		// 深度模式
-		err = errors.Wrap(filepath.WalkDir(path, fc))
+		if err = filepath.WalkDir(path, fc); err != nil {
+			return files, errors.Tag(err)
+		}
 	} else {
 		// 当前模式读取当前目录
 		entries, err := os.ReadDir(path)
@@ -283,14 +217,9 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 			return files, errors.Tag(err)
 		}
 
-		// 处理目录路径末尾路径分割符
-		if !strings.HasSuffix(path, string(filepath.Separator)) {
-			path += string(filepath.Separator)
-		}
-
 		// 遍历当前目录所有目录和文件
 		for _, v := range entries {
-			err = fc(path+v.Name(), v, nil)
+			err = fc(filepath.Join(path, v.Name()), v, nil)
 			if err != nil {
 				break
 			}
@@ -298,6 +227,84 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 
 	}
 	return files, err
+}
+
+// newFindMatcher 将 FindFiles 的匹配参数编译为文件名匹配函数。
+func newFindMatcher(match []string) (func(string) bool, error) {
+	switch {
+	case len(match) == 0:
+		return func(string) bool { return true }, nil
+	case len(match) == 1:
+		if match[0] == "*" {
+			return func(string) bool { return true }, nil
+		}
+		rules := []string{match[0]}
+		return func(name string) bool { return hasExactRule(name, rules) }, nil
+	}
+
+	rules := append([]string(nil), match[1:]...)
+	switch match[0] {
+	case "*":
+		return func(string) bool { return true }, nil
+	case "p":
+		return func(name string) bool { return hasPrefixRule(name, rules) }, nil
+	case "s":
+		return func(name string) bool { return hasSuffixRule(name, rules) }, nil
+	case "e":
+		return func(name string) bool { return hasExactRule(name, rules) }, nil
+	case "r":
+		compiles := make([]*regexp.Regexp, 0, len(rules))
+		for _, expr := range rules {
+			compile, err := regexp.Compile(expr)
+			if err != nil {
+				return nil, errors.Wrapf(err, "格式错误的表达式[%s]", expr)
+			}
+			compiles = append(compiles, compile)
+		}
+		return func(name string) bool { return hasRegexpRule(name, compiles) }, nil
+	default:
+		return nil, errors.Errorf("match第一个参数[%s]错误的规则", match[0])
+	}
+}
+
+// hasPrefixRule 判断文件名是否命中任一前缀规则。
+func hasPrefixRule(name string, rules []string) bool {
+	for _, rule := range rules {
+		if strings.HasPrefix(name, rule) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSuffixRule 判断文件名是否命中任一后缀规则。
+func hasSuffixRule(name string, rules []string) bool {
+	for _, rule := range rules {
+		if strings.HasSuffix(name, rule) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasRegexpRule 判断文件名是否命中任一正则规则。
+func hasRegexpRule(name string, rules []*regexp.Regexp) bool {
+	for _, rule := range rules {
+		if rule.MatchString(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasExactRule 判断文件名是否命中任一精确规则。
+func hasExactRule(name string, rules []string) bool {
+	for _, rule := range rules {
+		if rule == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Scan 使用scan扫描文件每一行数据
@@ -410,11 +417,6 @@ func WithWritePerm(perm os.FileMode) WriteOption {
 // WriteFileAtomic 原子写入完整文件内容。
 // 适用于配置文件、密钥文件、状态文件等需要“覆盖即完整替换”的场景。
 // 内部使用同目录临时文件 + Sync + Close + Rename，避免直接 O_TRUNC 截断目标文件。
-//
-// 参数说明：
-//   - fileName：目标文件路径
-//   - data：完整文件内容
-//   - perm：文件权限
 func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error {
 	return writeFileAtomic(fileName, perm, func(file *os.File) error {
 		if _, err := file.Write(data); err != nil {
@@ -426,11 +428,6 @@ func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error {
 
 // WriteStringAtomic 原子写入完整字符串内容。
 // 适用于希望以字符串形式原子覆盖目标文件的场景。
-//
-// 参数说明：
-//   - fileName：目标文件路径
-//   - data：完整字符串内容
-//   - perm：文件权限
 func WriteStringAtomic(fileName, data string, perm os.FileMode) error {
 	return WriteFileAtomic(fileName, []byte(data), perm)
 }
@@ -497,8 +494,8 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 
 // WriteFile 文件读写操作
 type WriteFile struct {
-	Lock sync.RWMutex
-	File *os.File
+	Lock sync.RWMutex // 文件句柄读写锁
+	File *os.File     // 当前文件句柄
 }
 
 // currentFileLocked 获取当前文件句柄。
@@ -585,36 +582,22 @@ func (f *WriteFile) Close() error {
 //	size 文件实际大小(Byte)
 //	decimals 保留几位小数
 func SizeFormat(size int64, decimals uint) string {
-	/*var base float64 = 1024
-	if size < 1024 {
-		return fmt.Sprintf("%dB", size)
+	for _, unit := range [...]struct {
+		size   int64  // 单位字节数
+		suffix string // 单位后缀
+	}{
+		{EB, "E"},
+		{PB, "P"},
+		{TB, "T"},
+		{GB, "G"},
+		{MB, "M"},
+		{KB, "K"},
+	} {
+		if size >= unit.size {
+			return NumberFormat(float64(size)/float64(unit.size), decimals, ".", ",") + unit.suffix
+		}
 	}
-	sizes := []string{"B", "KB", "MB", "GB", "TB", "PB", "EB"}
-	e := math.Floor(math.Log(float64(size)) / math.Log(base))
-	suffix := sizes[int(e)]
-	val := float64(size) / math.Pow(base, math.Floor(e))
-	f := "%.0f"
-	if val < 10 {
-		f = "%.1f"
-	}
-	return fmt.Sprintf(f+"%s", val, suffix)*/
-
-	switch {
-	case size >= EB:
-		return NumberFormat(float64(size)/float64(EB), decimals, ".", ",") + "E"
-	case size >= PB:
-		return NumberFormat(float64(size)/float64(PB), decimals, ".", ",") + "P"
-	case size >= TB:
-		return NumberFormat(float64(size)/float64(TB), decimals, ".", ",") + "T"
-	case size >= GB:
-		return NumberFormat(float64(size)/float64(GB), decimals, ".", ",") + "G"
-	case size >= MB:
-		return NumberFormat(float64(size)/float64(MB), decimals, ".", ",") + "M"
-	case size >= KB:
-		return NumberFormat(float64(size)/float64(KB), decimals, ".", ",") + "K"
-	default:
-		return strconv.FormatInt(size*Byte, 10) + "B"
-	}
+	return strconv.FormatInt(size, 10) + "B"
 }
 
 // FileType 文件类型

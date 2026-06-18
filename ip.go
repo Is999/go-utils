@@ -19,19 +19,18 @@ type TrustedProxies struct {
 	prefixes []netip.Prefix // prefixes 是可信代理 IP/CIDR 规则，数据来源于 NewTrustedProxies 的业务配置。
 }
 
-const serverIPCacheTTL = time.Minute
+const serverIPCacheTTL = time.Minute // 服务器 IP 缓存有效期
 
+// serverIPCache 缓存服务器 IP，避免热路径重复探测网卡或外网连接。
 var serverIPCache struct {
-	mu        sync.RWMutex
-	ip        string
-	expiresAt time.Time
+	mu        sync.RWMutex // 缓存读写锁
+	ip        string       // 缓存的服务器 IP
+	expiresAt time.Time    // 缓存过期时间
 }
 
 // ServerIP 获取服务器对外 IP 地址。
 // 默认优先返回缓存值或本地网卡 IP，避免在热路径上频繁拨号外网地址。
 // 如需自定义超时控制，可使用 ServerIPContext。
-//
-// 返回值：服务器对外 IP 地址字符串，获取失败返回空字符串
 func ServerIP() string {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -40,11 +39,6 @@ func ServerIP() string {
 
 // ServerIPContext 获取服务器出站 IP 地址，并允许调用方控制超时。
 // 默认优先返回缓存值或本地网卡 IP，仅在本地 IP 不可用时才回退到 UDP 探测。
-//
-// 参数说明：
-//   - ctx：上下文，可用于控制超时或取消
-//
-// 返回值：服务器出站 IP 地址字符串，获取失败返回空字符串
 func ServerIPContext(ctx context.Context) string {
 	if ip := loadServerIPCache(); ip != "" {
 		return ip
@@ -62,8 +56,6 @@ func ServerIPContext(ctx context.Context) string {
 
 // LocalIP 获取本机 IP 地址。
 // 优先返回主机名对应的 IPv4 地址，如果获取失败则遍历网络接口。
-//
-// 返回值：本地 IP 地址字符串，获取失败返回空字符串
 func LocalIP() string {
 	// 优先通过主机名获取 IP
 	hostname, err := os.Hostname()
@@ -92,22 +84,12 @@ func LocalIP() string {
 
 // ClientIP 获取客户端 IP 地址。
 // 默认仅在请求来自回环地址时信任转发头，生产环境建议使用 ClientIPWithTrustedProxies 显式配置白名单。
-//
-// 参数说明：
-//   - r：HTTP 请求对象
-//
-// 返回值：客户端 IP 地址字符串
 func ClientIP(r *http.Request) string {
 	return clientIPByTrustChecker(r, isTrustedProxyAddr)
 }
 
 // NewTrustedProxies 构造可信代理白名单。
 // 支持传入单个 IP 或 CIDR，例如 `10.0.0.10`、`10.0.0.0/8`、`fd00::/8`。
-//
-// 参数说明：
-//   - values：可信代理 IP 或 CIDR 列表
-//
-// 返回值：可信代理配置、错误信息
 func NewTrustedProxies(values ...string) (*TrustedProxies, error) {
 	proxies := &TrustedProxies{
 		prefixes: make([]netip.Prefix, 0, len(values)),
@@ -128,11 +110,6 @@ func NewTrustedProxies(values ...string) (*TrustedProxies, error) {
 }
 
 // Contains 判断指定 IP 是否命中可信代理白名单。
-//
-// 参数说明：
-//   - ip：待判断的 IP 地址
-//
-// 返回值：true 表示命中白名单
 func (p *TrustedProxies) Contains(ip net.IP) bool {
 	addr, ok := addrFromIP(ip)
 	if p == nil || !ok {
@@ -143,11 +120,6 @@ func (p *TrustedProxies) Contains(ip net.IP) bool {
 
 // containsAddr 判断 netip 地址是否命中可信代理白名单。
 // 该方法服务于 ClientIP 热路径，避免把每个请求地址转换为 net.IP 切片。
-//
-// 参数说明：
-//   - addr：待判断的客户端或代理地址，来源于请求 RemoteAddr / X-Forwarded-For。
-//
-// 返回值：true 表示命中白名单。
 func (p *TrustedProxies) containsAddr(addr netip.Addr) bool {
 	if p == nil || !addr.IsValid() {
 		return false
@@ -162,12 +134,6 @@ func (p *TrustedProxies) containsAddr(addr netip.Addr) bool {
 
 // ClientIPWithTrustedProxies 使用显式可信代理白名单解析客户端 IP。
 // 仅当 RemoteAddr 命中 trustedProxies 时才信任 `X-Forwarded-For` / `X-Real-Ip`。
-//
-// 参数说明：
-//   - r：HTTP 请求对象
-//   - trustedProxies：可信代理白名单
-//
-// 返回值：客户端 IP 地址字符串
 func ClientIPWithTrustedProxies(r *http.Request, trustedProxies *TrustedProxies) string {
 	return clientIPByTrustChecker(r, func(addr netip.Addr) bool {
 		return trustedProxies != nil && trustedProxies.containsAddr(addr)
@@ -176,13 +142,6 @@ func ClientIPWithTrustedProxies(r *http.Request, trustedProxies *TrustedProxies)
 
 // parseRequestAddr 从请求相关字符串中解析值类型 IP 地址。
 // 支持 RemoteAddr、X-Real-IP、X-Forwarded-For 单节点以及错误多值头；返回 netip.Addr 以减少热路径分配。
-//
-// 参数说明：
-//   - raw：原始地址字符串，可能是 host:port、[ipv6]:port、单个 IP 或错误拼接的多值头。
-//
-// 返回值：
-//   - netip.Addr：解析成功的 IP 地址，IPv4-mapped IPv6 会归一化为 IPv4。
-//   - bool：true 表示解析成功，false 表示输入为空或不是合法 IP。
 func parseRequestAddr(raw string) (netip.Addr, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -276,11 +235,6 @@ func clientIPFromForwardedChain(xff string, remoteAddr netip.Addr, isTrusted fun
 }
 
 // parseTrustedProxy 解析单个可信代理配置，支持 IP 与 CIDR 两种形式。
-//
-// 参数说明：
-//   - value：单个 IP 或 CIDR 表达式
-//
-// 返回值：解析后的网段对象、错误信息
 func parseTrustedProxy(value string) (netip.Prefix, error) {
 	if strings.Contains(value, "/") {
 		prefix, err := netip.ParsePrefix(value)
@@ -300,13 +254,6 @@ func parseTrustedProxy(value string) (netip.Prefix, error) {
 
 // addrFromIP 将标准库 net.IP 转成 netip.Addr。
 // 该函数用于兼容公开的 TrustedProxies.Contains(net.IP)，同时让内部热路径使用零分配值类型。
-//
-// 参数说明：
-//   - ip：标准库 IP 切片，可能是 IPv4、IPv6 或 IPv4-mapped IPv6。
-//
-// 返回值：
-//   - netip.Addr：归一化后的 IP 地址。
-//   - bool：true 表示转换成功。
 func addrFromIP(ip net.IP) (netip.Addr, bool) {
 	if ip == nil {
 		return netip.Addr{}, false
@@ -328,11 +275,6 @@ func addrFromIP(ip net.IP) (netip.Addr, bool) {
 
 // isTrustedProxyAddr 判断来源地址是否可被视为默认可信代理。
 // 默认只信任回环地址，避免内网机器伪造 X-Forwarded-For 影响客户端 IP 判断。
-//
-// 参数说明：
-//   - addr：来源地址，通常来自请求 RemoteAddr。
-//
-// 返回值：true 表示可以信任转发头。
 func isTrustedProxyAddr(addr netip.Addr) bool {
 	return addr.IsValid() && addr.IsLoopback()
 }

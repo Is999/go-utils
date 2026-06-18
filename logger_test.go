@@ -62,6 +62,9 @@ func (m *mockLogger) Enabled(ctx context.Context, level utils.LogLevel) bool {
 
 // TestThirdPartyLoggerCompatibility 测试第三方日志库兼容性
 func TestThirdPartyLoggerCompatibility(t *testing.T) {
+	utils.ResetConfigForTest()
+	t.Cleanup(utils.ResetConfigForTest)
+
 	mock := &mockLogger{isEnabled: true}
 
 	// 设置自定义 logger

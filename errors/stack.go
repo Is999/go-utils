@@ -27,8 +27,6 @@ type stackTrace []uintptr
 
 // LogValue 实现 slog.LogValuer 接口，用于 slog 结构化输出。
 // 将栈帧渲染为 slog.GroupValue，格式为 { "0": "func (file:line)", "1": "func (file:line)", ... }
-//
-// 返回值：slog.Value，包含所有栈帧的属性组
 func (st stackTrace) LogValue() slog.Value {
 	attrs := make([]slog.Attr, 0, len(st)) // attrs 预分配为原始栈深度，避免项目帧全部命中时扩容。
 	root := projectRoot()                  // root 是当前业务项目根目录，用于把 runtime/testing 等框架帧挡在输出外。
@@ -63,10 +61,7 @@ func (st stackTrace) LogValue() slog.Value {
 // stackError 是真正带追踪栈的错误节点类型。
 // 在创建时会调用 runtime.Callers 捕获当前调用栈，适用于需要记录错误发生位置的场景。
 //
-// 字段说明：
-//   - msg：错误消息
-//   - err：被包装的底层错误
-//   - trace：调用栈信息
+// 它保存错误消息、被包装的底层错误和调用栈信息。
 type stackError struct {
 	msg   string     // 错误消息
 	err   error      // 被包装的底层错误
@@ -75,19 +70,11 @@ type stackError struct {
 
 // newStackError 内部构造函数，创建带栈追踪的错误。
 // 调用 runtime.Callers 采集原始 PC；项目帧裁剪推迟到渲染阶段，降低错误创建路径开销。
-//
-// 参数说明：
-//   - msg：错误消息
-//   - err：被包装的底层错误（可为 nil）
-//
-// 返回值：带栈追踪的错误对象
 func newStackError(msg string, err error) *stackError {
 	return &stackError{msg: msg, err: err, trace: callers(2)}
 }
 
 // Error 返回错误消息。
-//
-// 返回值：错误消息字符串
 func (e *stackError) Error() string {
 	if e == nil {
 		return ""
@@ -96,8 +83,6 @@ func (e *stackError) Error() string {
 }
 
 // Unwrap 返回被包装的底层错误，支持错误链展开。
-//
-// 返回值：底层错误对象
 func (e *stackError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -107,45 +92,28 @@ func (e *stackError) Unwrap() error {
 
 // Is 实现 errors.Is 接口，支持错误比较。
 // 当目标错误也是 stackError 时，比较其是否完全相同。
-//
-// 参数说明：
-//   - target：目标错误对象
-//
-// 返回值：true 表示两个错误相等
 func (e *stackError) Is(target error) bool {
 	te, ok := target.(*stackError)
 	return ok && e == te
 }
 
 // String 返回错误的文本追踪格式，等同于 TraceString。
-//
-// 返回值：错误的多行文本表示
 func (e *stackError) String() string { return TraceString(e) }
 
 // GoString 返回错误的 JSON 追踪格式，等同于 TraceJSON。
-//
-// 返回值：错误的 JSON 字符串表示
 func (e *stackError) GoString() string { return TraceJSON(e) }
 
 // Format 实现 fmt.Formatter 接口，支持格式化动词（%v/%s/%q 等）。
-//
-// 参数说明：
-//   - s：格式化状态
-//   - verb：格式化动词
 func (e *stackError) Format(s fmt.State, verb rune) {
 	formatError(s, verb, e)
 }
 
 // MarshalJSON 实现 json.Marshaler 接口，返回 JSON 追踪格式。
-//
-// 返回值：JSON 字节数组
 func (e *stackError) MarshalJSON() ([]byte, error) {
 	return []byte(TraceJSON(e)), nil
 }
 
 // MarshalText 实现 encoding.TextMarshaler 接口，返回文本追踪格式。
-//
-// 返回值：错误文本表示的字节数组
 func (e *stackError) MarshalText() ([]byte, error) {
 	return []byte(TraceString(e)), nil
 }
@@ -155,11 +123,6 @@ func (e *stackError) MarshalText() ([]byte, error) {
 // callers 采集调用栈的程序计数器。
 // 跳过 skip 指定的帧数，通常用于忽略错误库自身的栈帧。
 // 这里只保存原始 PC，不在创建阶段解析 runtime.Frame 或裁剪项目路径，降低错误热路径开销。
-//
-// 参数说明：
-//   - skip：跳过的栈帧数
-//
-// 返回值：采集到的程序计数器数组；为空表示 runtime 未返回可用帧
 func callers(skip int) stackTrace {
 	var pcs [maxStackDepth]uintptr                   // pcs 是栈上临时缓冲，只承接本次 runtime.Callers 的原始 PC。
 	n := runtime.Callers(skip+2, pcs[:StackDepth()]) // n 是实际采集到的帧数，受 StackDepth 全局配置约束。
@@ -176,11 +139,6 @@ func callers(skip int) stackTrace {
 
 // frameString 将单个栈帧渲染为字符串。
 // 格式为：function (file:line)
-//
-// 参数说明：
-//   - frame：栈帧信息
-//
-// 返回值：格式化后的帧字符串
 func frameString(frame runtime.Frame) string {
 	file := relativeProjectPath(frame.File)
 	var b strings.Builder
@@ -196,12 +154,6 @@ func frameString(frame runtime.Frame) string {
 
 // appendRawFrameAttrs 将原始 PC 栈渲染为 slog 属性。
 // 仅在找不到项目根或没有项目帧时作为降级路径使用，保证异常运行环境下仍能看到完整诊断栈。
-//
-// 参数说明：
-//   - attrs：待追加的 slog 属性数组
-//   - st：原始 PC 栈追踪，数据来自 runtime.Callers
-//
-// 返回值：追加栈帧后的 slog 属性数组
 func appendRawFrameAttrs(attrs []slog.Attr, st stackTrace) []slog.Attr {
 	frames := runtime.CallersFrames(st)
 	for i := range len(st) {
@@ -216,11 +168,6 @@ func appendRawFrameAttrs(attrs []slog.Attr, st stackTrace) []slog.Attr {
 
 // relativeProjectPath 将绝对路径转换为相对于项目根目录的路径。
 // 使用 filepath.Rel 计算相对路径，结果使用正斜杠分隔符。
-//
-// 参数说明：
-//   - file：文件的绝对路径
-//
-// 返回值：相对于项目根目录的路径，使用正斜杠
 func relativeProjectPath(file string) string {
 	root := projectRoot() // root 来自 go.mod 向上查找结果，用于把源码绝对路径转成项目相对路径。
 	if root == "" || file == "" {
@@ -241,14 +188,6 @@ func relativeProjectPath(file string) string {
 
 // relativeProjectPathFast 使用字符串前缀快速计算项目相对路径。
 // runtime.Frame.File 通常是项目根下的绝对路径，命中该分支可避开 filepath.Rel 的清理和分配成本。
-//
-// 参数说明：
-//   - file：runtime 提供的源码文件绝对路径
-//   - root：projectRoot 缓存的项目根绝对路径
-//
-// 返回值：
-//   - string：项目相对路径，统一使用正斜杠
-//   - bool：true 表示已命中安全快路径；false 表示需要回退 filepath.Rel 处理边界路径
 func relativeProjectPathFast(file, root string) (string, bool) {
 	if len(file) <= len(root) || !strings.HasPrefix(file, root) {
 		return "", false
@@ -262,8 +201,6 @@ func relativeProjectPathFast(file, root string) (string, bool) {
 // projectRoot 获取项目根目录路径。
 // 通过向上查找包含 go.mod 文件的目录来确定项目根路径。
 // 结果会被缓存，后续调用直接返回缓存值。
-//
-// 返回值：项目根目录的绝对路径
 func projectRoot() string {
 	projectRootOnce.Do(func() {
 		wd, err := os.Getwd()
@@ -287,12 +224,6 @@ func projectRoot() string {
 }
 
 // isWithinRoot 判断文件路径是否在指定根目录下。
-//
-// 参数说明：
-//   - file：文件路径
-//   - root：根目录路径
-//
-// 返回值：true 表示文件在根目录下
 func isWithinRoot(file, root string) bool {
 	if file == "" || root == "" {
 		return false

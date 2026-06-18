@@ -73,7 +73,7 @@ func UniqueInto[T comparable](dst, s []T) []T {
 }
 
 // UniqueInPlace 在 s 的原始底层数组上完成去重并返回结果切片。
-// 业务意图：调用方明确不再需要原始顺序完整数据时，可用该入口省掉结果切片分配；边界是返回后 s 尾部旧数据不可再视为有效结果。
+// 调用方明确不再需要原始顺序完整数据时，可用该入口省掉结果切片分配；返回后 s 尾部旧数据不可再视为有效结果。
 func UniqueInPlace[T comparable](s []T) []T {
 	return UniqueInto(s[:0], s)
 }

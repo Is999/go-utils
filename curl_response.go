@@ -17,13 +17,6 @@ import (
 
 // Send 发起 HTTP 请求。
 // 封装完整请求生命周期：构建 Request、配置 Client/Transport、执行重试、处理响应。
-//
-// 参数说明：
-//   - method：HTTP 方法（GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS）
-//   - url：请求地址
-//   - body：请求体
-//
-// 返回值：错误信息
 func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 	return c.SendContext(context.Background(), method, url, body)
 }
@@ -32,9 +25,7 @@ func (c *Curl) Send(method, url string, body io.Reader) (err error) {
 // 当 ctx 被取消时，会立即中断请求以及重试等待。
 func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Reader) (err error) {
 	ctx = ensureContext(ctx)
-
-	// 记录请求开始时间
-	t := time.Now()
+	start := time.Now()
 
 	// 设置请求 ID（未设置时自动生成）
 	if c.requestID == "" {
@@ -43,56 +34,94 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 
 	// 输出调试日志
 	if c.defLogOutput {
-		c.Logger.Debug("HTTP START", "time", t.Format(time.RFC3339Nano))
+		c.Logger.Debug("HTTP START", "time", start.Format(time.RFC3339Nano))
 	}
 
-	// 定义请求和响应变量
 	var (
 		req  *http.Request
 		resp *http.Response
 	)
-
-	// 请求完成后的资源清理
 	defer func() {
-		// 关闭 Response.Body
-		defer func() {
-			if resp == nil || resp.Body == nil || resp.Body == http.NoBody {
-				return
-			}
-
-			if c.defLogOutput {
-				c.Logger.Debug("Close Response Body")
-			}
-
-			if err := resp.Body.Close(); err != nil {
-				c.Logger.Error("Body.Close()", "err", err.Error())
-			}
-		}()
-
-		// 执行 afterDone 回调
-		if c.afterDone != nil {
-			if c.defLogOutput {
-				c.Logger.Debug("done()")
-			}
-			c.afterDone(ctx, c.cli, req, resp)
-		}
+		c.finishRequest(ctx, req, resp)
 	}()
 
-	// 如果请求体支持 Seek，先回到起点，确保同一个 Curl 实例重复发送时请求体完整。
-	if body, err = rewindRequestBody(body); err != nil {
-		return errors.Tag(err)
+	req, err = c.prepareRequest(ctx, method, url, body)
+	if err != nil {
+		return err
+	}
+	if err = c.prepareClient(ctx); err != nil {
+		return err
+	}
+	resp, err = c.sendWithRetry(ctx, req)
+	if err != nil {
+		return err
 	}
 
-	// 构建 Request
-	req, err = http.NewRequestWithContext(ctx, method, url, body)
+	done, err := c.handleResponse(ctx, resp)
+	if err != nil || done {
+		return err
+	}
+
+	if c.defLogOutput {
+		c.Logger.Debug("HTTP END", "total time spent", time.Since(start).String())
+	}
+	return nil
+}
+
+// finishRequest 执行完成回调并关闭响应体。
+// afterDone 先于 Body.Close 执行，保留调用方在完成回调中读取响应对象的旧边界。
+func (c *Curl) finishRequest(ctx context.Context, req *http.Request, resp *http.Response) {
+	if c.afterDone != nil {
+		if c.defLogOutput {
+			c.Logger.Debug("done()")
+		}
+		c.afterDone(ctx, c.cli, req, resp)
+	}
+	if resp == nil || resp.Body == nil || resp.Body == http.NoBody {
+		return
+	}
+	if c.defLogOutput {
+		c.Logger.Debug("Close Response Body")
+	}
+	if err := resp.Body.Close(); err != nil {
+		c.Logger.Error("Body.Close()", "err", err.Error())
+	}
+}
+
+// prepareRequest 构建请求并执行 Header、Cookie、认证、日志和发送前回调处理。
+func (c *Curl) prepareRequest(ctx context.Context, method, rawURL string, body io.Reader) (*http.Request, error) {
+	req, err := buildHTTPRequest(ctx, method, rawURL, body)
 	if err != nil {
-		return errors.Tag(err)
+		return nil, errors.Tag(err)
+	}
+	c.applyRequestOptions(req)
+	if err = c.runBeforeRequest(ctx, req); err != nil {
+		return nil, errors.Tag(err)
+	}
+	if err = c.logPreparedRequest(ctx, method, rawURL, req); err != nil {
+		return nil, errors.Tag(err)
+	}
+	return req, nil
+}
+
+// buildHTTPRequest 构建可重放请求体的 HTTP Request。
+func buildHTTPRequest(ctx context.Context, method, rawURL string, body io.Reader) (*http.Request, error) {
+	body, err := rewindRequestBody(body)
+	if err != nil {
+		return nil, errors.Tag(err)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
+	if err != nil {
+		return nil, errors.Tag(err)
 	}
 	if err = setRequestGetBody(req, body); err != nil {
-		return errors.Tag(err)
+		return nil, errors.Tag(err)
 	}
+	return req, nil
+}
 
-	// 设置请求头。默认 Content-Type 在发送前补齐，避免 NewCurl 只作为模板使用时提前分配 Header。
+// applyRequestOptions 写入 Header、Cookie 和 BasicAuth。
+func (c *Curl) applyRequestOptions(req *http.Request) {
 	header := c.ensureDefaultContentType()
 	if len(header) > 0 {
 		if c.defLogOutput {
@@ -101,7 +130,6 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 		req.Header = header.Clone()
 	}
 
-	// 设置 Cookie
 	if len(c.cookies) > 0 {
 		if c.defLogOutput {
 			c.Logger.Debug("AddCookie()")
@@ -111,25 +139,29 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 		}
 	}
 
-	// 设置 BasicAuth 认证
 	if c.username != "" && c.password != "" {
 		if c.defLogOutput {
 			c.Logger.Debug("SetBasicAuth()")
 		}
 		req.SetBasicAuth(c.username, c.password)
 	}
+}
 
-	// 执行 beforeRequest 回调
+// runBeforeRequest 执行发送前请求回调。
+func (c *Curl) runBeforeRequest(ctx context.Context, req *http.Request) error {
 	if c.beforeRequest != nil {
 		if c.defLogOutput {
 			c.Logger.Debug("request()")
 		}
-		if err = c.beforeRequest(ctx, req); err != nil {
+		if err := c.beforeRequest(ctx, req); err != nil {
 			return errors.Tag(err)
 		}
 	}
+	return nil
+}
 
-	// 记录请求日志
+// logPreparedRequest 输出请求日志或 dump 内容。
+func (c *Curl) logPreparedRequest(ctx context.Context, method, rawURL string, req *http.Request) error {
 	if c.defLogOutput && c.Logger.Enabled(ctx, LevelInfo) {
 		if c.dump {
 			dump, err := dumpRequestSafe(req, c.dumpBodyLimit)
@@ -138,147 +170,136 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 			}
 			c.Logger.Info("httputil.DumpRequestOut()", "request", dump)
 		} else {
-			c.logRequest(method, url, req)
+			c.logRequest(method, rawURL, req)
 		}
 	}
+	return nil
+}
 
-	// 初始化 Client（如未初始化）
+// prepareClient 初始化 HTTP Client、超时、Transport 和 client 回调。
+func (c *Curl) prepareClient(ctx context.Context) error {
 	if c.cli == nil {
 		if c.defLogOutput {
 			c.Logger.Debug("Init Client")
 		}
 		c.cli = &http.Client{}
 	}
-
-	// 设置超时时间
 	c.cli.Timeout = c.timeout
 	if c.cli.Timeout == 0 {
 		c.cli.Timeout = defaultTimeout
 	}
-
-	// 初始化 Transport
-	if err = c.initTransport(); err != nil {
+	if err := c.initTransport(); err != nil {
 		return errors.Tag(err)
 	}
-
-	// 执行 beforeClient 回调
 	if c.beforeClient != nil {
 		if c.defLogOutput {
 			c.Logger.Debug("client()")
 		}
-		if err = c.beforeClient(ctx, c.cli); err != nil {
+		if err := c.beforeClient(ctx, c.cli); err != nil {
 			return errors.Tag(err)
 		}
 	}
+	return nil
+}
 
-	// 计算重试次数
+// retryCount 返回本次请求最大尝试次数，包含首次请求。
+func (c *Curl) retryCount() int {
 	maxRetry := int(c.maxRetry)
 	if maxRetry <= 0 {
-		maxRetry = 1
+		return 1
 	}
 	if maxRetry > defaultMaxRetries {
-		maxRetry = defaultMaxRetries
+		return defaultMaxRetries
 	}
+	return maxRetry
+}
 
-	// 记录请求开始时间
-	t1 := time.Now()
+// sendWithRetry 执行 HTTP 请求，并在请求体可重放时按配置重试。
+func (c *Curl) sendWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
+	maxRetry := c.retryCount()
+	start := time.Now()
 	if c.defLogOutput {
-		c.Logger.Debug("client start", "time", t1.Format(time.RFC3339Nano))
+		c.Logger.Debug("client start", "time", start.Format(time.RFC3339Nano))
 	}
 
-	// 执行请求（含重试逻辑）
+	var (
+		resp *http.Response
+		err  error
+	)
 	for i := 1; i <= maxRetry; i++ {
 		if i > 1 && req.GetBody == nil && req.Body != nil && req.Body != http.NoBody {
-			return errors.Tag(errors.New("client.Do() retry body is not rewindable"))
+			return nil, errors.New("client.Do() retry body is not rewindable")
 		}
 		if i > 1 && req.GetBody != nil {
 			req.Body, err = req.GetBody()
 			if err != nil {
-				return errors.Tag(err)
+				return nil, errors.Tag(err)
 			}
 		}
 		resp, err = c.cli.Do(req)
 		if err == nil {
 			break
 		}
-
-		// 非最后一次重试，记录警告并等待
 		if i < maxRetry {
 			c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error())
-			// 使用统一的指数退避和抖动策略，避免瞬时重试放大故障。
 			if err = waitRetry(ctx, i); err != nil {
-				return errors.Tag(err)
+				return nil, errors.Tag(err)
 			}
 		}
 	}
 
 	if c.defLogOutput {
-		c.Logger.Debug("client end", "time spent", time.Since(t1).String())
+		c.Logger.Debug("client end", "time spent", time.Since(start).String())
 	}
-
 	if err != nil {
-		return errors.Tag(errors.Errorf("client.Do() Retry %d times err: %v", maxRetry, err.Error()))
+		return nil, errors.Wrapf(err, "client.Do() Retry %d times err", maxRetry)
 	}
+	return resp, nil
+}
 
+// handleResponse 记录响应、校验状态码，并执行响应回调。
+// 返回 done=true 表示 afterResponse 已接管后续处理，调用方应直接结束。
+func (c *Curl) handleResponse(ctx context.Context, resp *http.Response) (done bool, err error) {
 	var respBody []byte
-
-	// 记录响应日志
 	if c.defLogOutput && c.Logger.Enabled(ctx, LevelInfo) {
-		if respBody, err = c.logResponse(resp); err != nil {
-			return errors.Tag(err)
+		if err = c.logResponse(resp); err != nil {
+			return false, errors.Tag(err)
 		}
 	}
-
-	// 检查状态码
 	if resp.StatusCode != http.StatusOK && !containsStatusCode(resp.StatusCode, c.statusCode) {
-		return errors.Tag(errors.Errorf("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status))
+		return false, errors.Errorf("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
 	}
-
-	// 执行 afterResponse 回调
 	if c.afterResponse != nil {
 		if c.defLogOutput {
 			c.Logger.Debug("response()")
 		}
-		isDone, err := c.afterResponse(ctx, resp)
+		done, err = c.afterResponse(ctx, resp)
 		if err != nil {
-			return errors.Tag(err)
+			return false, errors.Tag(err)
 		}
-		if isDone {
-			return nil
+		if done {
+			return true, nil
 		}
 	}
-
-	// 执行 afterBody 回调
 	if c.afterBody != nil {
 		if c.defLogOutput {
 			c.Logger.Debug("resolve()")
 		}
 		if respBody == nil {
 			var buf bytes.Buffer
-			_, err = buf.ReadFrom(resp.Body)
-			if err != nil {
-				return errors.Tag(err)
+			if _, err = buf.ReadFrom(resp.Body); err != nil {
+				return false, errors.Tag(err)
 			}
 			respBody = buf.Bytes()
 		}
 		if err = c.afterBody(ctx, respBody); err != nil {
-			return errors.Tag(err)
+			return false, errors.Tag(err)
 		}
 	}
-
-	if c.defLogOutput {
-		c.Logger.Debug("HTTP END", "total time spent", time.Since(t).String())
-	}
-
-	return nil
+	return false, nil
 }
 
 // rewindRequestBody 在请求发送前重置可回放请求体。
-//
-// 参数说明：
-//   - body：原始请求体。
-//
-// 返回值：重置后的请求体、错误信息。
 func rewindRequestBody(body io.Reader) (io.Reader, error) {
 	if body == nil {
 		return nil, nil
@@ -305,10 +326,6 @@ type reusableReadSeeker struct {
 }
 
 // setRequestGetBody 为可安全重放的请求体补充 GetBody，保证日志预览和传输重试不会共享读取游标。
-//
-// 参数说明：
-//   - req：HTTP 请求对象。
-//   - body：请求体。
 func setRequestGetBody(req *http.Request, body io.Reader) error {
 	if req == nil || req.GetBody != nil || body == nil {
 		return nil
@@ -379,11 +396,6 @@ func setRequestGetBodyFromBytes(req *http.Request, data []byte) {
 }
 
 // logRequest 记录请求日志（非 dump 模式）。
-//
-// 参数说明：
-//   - method：HTTP 方法
-//   - url：请求地址
-//   - req：HTTP 请求
 func (c *Curl) logRequest(method, url string, req *http.Request) {
 	var b strings.Builder
 	b.WriteString(method + ": " + url + "\n")
@@ -395,87 +407,59 @@ func (c *Curl) logRequest(method, url string, req *http.Request) {
 			c.Logger.Error("requestBodyPreview() error", "err", err.Error())
 			return
 		}
-		b.WriteString(formatBodyPreview(reqBody, truncated))
+		appendBodyPreview(&b, reqBody, truncated)
 	}
 	c.Logger.Info("Request", "body", b.String())
 }
 
-// logResponse 记录响应日志。
-//
-// 参数说明：
-//   - resp：HTTP 响应
-//
-// 返回值：错误信息
-func (c *Curl) logResponse(resp *http.Response) ([]byte, error) {
+// logResponse 记录响应日志，并在读取预览后恢复 Body。
+func (c *Curl) logResponse(resp *http.Response) error {
 	if resp == nil {
 		c.Logger.Info("Response", "body", "<nil>")
-		return nil, nil
-	}
-
-	isAllowedStatusCode := resp.StatusCode == http.StatusOK || containsStatusCode(resp.StatusCode, c.statusCode)
-	if c.afterBody != nil && c.afterResponse == nil && isAllowedStatusCode && resp.Body != nil && resp.Body != http.NoBody {
-		// 响应 body 还需要交给 afterBody 完整读取；日志阶段只截取预览并恢复流，避免大响应被 DrainBody 全量复制。
-		if c.dump {
-			dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
-			if err != nil {
-				return nil, errors.Tag(err)
-			}
-			c.Logger.Info("httputil.DumpResponse()", "response", dump)
-			return nil, nil
-		}
-
-		var b strings.Builder
-		b.WriteString("Response Status: ")
-		b.WriteString(resp.Status)
-		b.WriteByte('\n')
-		if c.logBodyLimit > 0 {
-			b.WriteString("Response Body Preview:\n")
-			respBody, truncated, restored, err := readBodyPreviewAndRestore(resp.Body, c.logBodyLimit)
-			if err != nil {
-				return nil, errors.Tag(err)
-			}
-			resp.Body = restored
-			b.WriteString(formatBodyPreview(respBody, truncated))
-		}
-		c.Logger.Info("Response", "body", b.String())
-		return nil, nil
+		return nil
 	}
 
 	if c.dump {
 		dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
 		if err != nil {
-			return nil, errors.Tag(err)
+			return errors.Tag(err)
 		}
 		c.Logger.Info("httputil.DumpResponse()", "response", dump)
-	} else {
-		var b strings.Builder
-		b.WriteString("Response Status: ")
-		b.WriteString(resp.Status)
-		b.WriteByte('\n')
-		if resp.Body != nil && resp.Body != http.NoBody && c.logBodyLimit > 0 {
-			b.WriteString("Response Body Preview:\n")
-			var truncated bool
-			var err error
-			var respBody []byte
-			respBody, truncated, resp.Body, err = readBodyPreviewAndRestore(resp.Body, c.logBodyLimit)
-			if err != nil {
-				return nil, errors.Tag(err)
-			}
-			b.WriteString(formatBodyPreview(respBody, truncated))
-		}
-		c.Logger.Info("Response", "body", b.String())
+		return nil
 	}
-	return nil, nil
+
+	body, err := responseLogText(resp, c.logBodyLimit)
+	if err != nil {
+		return errors.Tag(err)
+	}
+	c.Logger.Info("Response", "body", body)
+	return nil
+}
+
+// responseLogText 构造响应日志文本，并恢复被预览读取过的 Body。
+func responseLogText(resp *http.Response, limit int64) (string, error) {
+	var b strings.Builder
+	b.WriteString("Response Status: ")
+	b.WriteString(resp.Status)
+	b.WriteByte('\n')
+	if resp.Body == nil || resp.Body == http.NoBody || limit <= 0 {
+		return b.String(), nil
+	}
+
+	preview, truncated, restored, err := readBodyPreviewAndRestore(resp.Body, limit)
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	resp.Body = restored
+
+	b.WriteString("Response Body Preview:\n")
+	appendBodyPreview(&b, preview, truncated)
+	return b.String(), nil
 }
 
 // ============================ 响应处理方法 ============================
 
 // BeforeRequest 请求发送前的回调。
-//
-// 参数说明：
-//   - f：回调函数，返回 error 时中断请求
-//
-// 返回值：Curl 指针，支持链式调用
 func (c *Curl) BeforeRequest(f func(request *http.Request) error) *Curl {
 	if f == nil {
 		c.beforeRequest = nil
@@ -494,11 +478,6 @@ func (c *Curl) BeforeRequestContext(f func(ctx context.Context, request *http.Re
 }
 
 // BeforeClient 请求发送前的 Client 回调。
-//
-// 参数说明：
-//   - f：回调函数，返回 error 时中断请求
-//
-// 返回值：Curl 指针，支持链式调用
 func (c *Curl) BeforeClient(f func(client *http.Client) error) *Curl {
 	if f == nil {
 		c.beforeClient = nil
@@ -517,11 +496,6 @@ func (c *Curl) BeforeClientContext(f func(ctx context.Context, client *http.Clie
 }
 
 // AfterResponse 请求发送后的回调。
-//
-// 参数说明：
-//   - f：回调函数，isDone=true 时终止后续代码执行
-//
-// 返回值：Curl 指针，支持链式调用
 func (c *Curl) AfterResponse(f func(response *http.Response) (isDone bool, err error)) *Curl {
 	if f == nil {
 		c.afterResponse = nil
@@ -540,11 +514,6 @@ func (c *Curl) AfterResponseContext(f func(ctx context.Context, response *http.R
 }
 
 // AfterBody 请求发送后对 Response.Body 的处理回调。
-//
-// 参数说明：
-//   - f：回调函数，接收 body 字节数组
-//
-// 返回值：Curl 指针，支持链式调用
 func (c *Curl) AfterBody(f func(body []byte) error) *Curl {
 	if f == nil {
 		c.afterBody = nil
@@ -565,11 +534,6 @@ func (c *Curl) AfterBodyContext(f func(ctx context.Context, body []byte) error) 
 // AfterDone 请求完成后的回调。
 // 用于资源清理，如关闭连接等。
 // 注意：client、request、response 有可能为 nil。
-//
-// 参数说明：
-//   - f：回调函数
-//
-// 返回值：Curl 指针，支持链式调用
 func (c *Curl) AfterDone(f func(client *http.Client, request *http.Request, response *http.Response)) *Curl {
 	if f == nil {
 		c.afterDone = nil
@@ -590,11 +554,6 @@ func (c *Curl) AfterDoneContext(f func(ctx context.Context, client *http.Client,
 // ============================ 内部工具函数 ============================
 
 // DrainBody 读取 body 内容并恢复原始流。
-//
-// 参数说明：
-//   - b：io.ReadCloser
-//
-// 返回值：body 内容、恢复的 ReadCloser、错误信息
 func DrainBody(b io.ReadCloser) ([]byte, io.ReadCloser, error) {
 	if b == nil || b == http.NoBody {
 		return nil, http.NoBody, nil
@@ -628,23 +587,11 @@ func requestBodyPreview(req *http.Request, limit int64) ([]byte, bool, error) {
 }
 
 // containsStatusCode 检查状态码是否在列表中。
-//
-// 参数说明：
-//   - code：状态码
-//   - list：状态码列表
-//
-// 返回值：true 表示在列表中
 func containsStatusCode(code int, list []int) bool {
 	return slices.Contains(list, code)
 }
 
 // dumpRequestSafe 安全地获取请求详情预览。
-//
-// 参数说明：
-//   - req：HTTP 请求
-//   - limit：预览长度上限
-//
-// 返回值：预览字符串、错误信息
 func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 	dump, err := httputil.DumpRequestOut(req, false)
 	if err != nil {
@@ -679,19 +626,17 @@ func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 }
 
 // dumpResponseSafe 安全地获取响应详情预览。
-//
-// 参数说明：
-//   - resp：HTTP 响应
-//   - limit：预览长度上限
-//
-// 返回值：预览字符串、错误信息
 func dumpResponseSafe(resp *http.Response, limit int64) (string, error) {
+	if resp == nil {
+		return "<nil>", nil
+	}
+
 	dump, err := httputil.DumpResponse(resp, false)
 	if err != nil {
 		return "", errors.Tag(err)
 	}
 
-	if limit <= 0 || resp == nil || resp.Body == nil || resp.Body == http.NoBody {
+	if limit <= 0 || resp.Body == nil || resp.Body == http.NoBody {
 		return string(dump), nil
 	}
 
@@ -705,59 +650,57 @@ func dumpResponseSafe(resp *http.Response, limit int64) (string, error) {
 }
 
 // readBodyPreview 读取 body 预览内容。
-//
-// 参数说明：
-//   - r：Reader
-//   - limit：长度上限
-//
-// 返回值：预览内容、是否截断、错误信息
 func readBodyPreview(r io.Reader, limit int64) ([]byte, bool, error) {
-	lr := &io.LimitedReader{R: r, N: limit + 1}
-	buf, err := io.ReadAll(lr)
+	buf, truncated, err := readPreviewChunk(r, limit)
 	if err != nil {
 		return nil, false, errors.Tag(err)
 	}
-	truncated := int64(len(buf)) > limit
-	if truncated {
-		return buf[:limit], true, nil
-	}
-	return buf, false, nil
+	return trimPreview(buf, truncated, limit), truncated, nil
 }
 
 // readBodyPreviewAndRestore 读取预览内容并恢复原始流。
-//
-// 参数说明：
-//   - body：ReadCloser
-//   - limit：长度上限
-//
-// 返回值：预览内容、是否截断、恢复的 ReadCloser、错误信息
 func readBodyPreviewAndRestore(body io.ReadCloser, limit int64) ([]byte, bool, io.ReadCloser, error) {
-	lr := &io.LimitedReader{R: body, N: limit + 1}
-	buf, err := io.ReadAll(lr)
+	buf, truncated, err := readPreviewChunk(body, limit)
 	if err != nil {
 		return nil, false, body, errors.Tag(err)
-	}
-	truncated := int64(len(buf)) > limit
-	preview := buf
-	if truncated {
-		preview = buf[:limit]
 	}
 	restored := readCloser{
 		Reader: io.MultiReader(bytes.NewReader(buf), body),
 		Closer: body,
 	}
-	return preview, truncated, restored, nil
+	return trimPreview(buf, truncated, limit), truncated, restored, nil
 }
 
-// formatBodyPreview 将预览内容格式化为日志文本。
-func formatBodyPreview(preview []byte, truncated bool) string {
+// readPreviewChunk 读取 limit+1 字节，用额外 1 字节判断是否截断。
+func readPreviewChunk(r io.Reader, limit int64) ([]byte, bool, error) {
+	if limit <= 0 {
+		return nil, false, nil
+	}
+	lr := &io.LimitedReader{R: r, N: limit + 1}
+	buf, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, false, errors.Tag(err)
+	}
+	return buf, int64(len(buf)) > limit, nil
+}
+
+// trimPreview 返回对外展示的预览片段，截断时去掉用于探测的额外字节。
+func trimPreview(buf []byte, truncated bool, limit int64) []byte {
+	if truncated {
+		return buf[:limit]
+	}
+	return buf
+}
+
+// appendBodyPreview 写入日志 body 预览文本。
+func appendBodyPreview(b *strings.Builder, preview []byte, truncated bool) {
 	if len(preview) == 0 {
-		return ""
+		return
 	}
-	if !truncated {
-		return string(preview)
+	b.Write(preview)
+	if truncated {
+		b.WriteString("\n...[truncated]")
 	}
-	return string(preview) + "\n...[truncated]"
 }
 
 // readCloser 将恢复后的 Reader 和原始 Closer 组合成 io.ReadCloser。
@@ -767,21 +710,16 @@ type readCloser struct {
 }
 
 // formatDumpWithBody 组装日志内容。
-//
-// 参数说明：
-//   - header：头部内容
-//   - label：标签
-//   - body：body 内容
-//   - truncated：是否截断
-//
-// 返回值：组装后的字符串
 func formatDumpWithBody(header, label string, body []byte, truncated bool) string {
 	if len(body) == 0 {
 		return header
 	}
-	b := header + "\n" + label + ":\n" + string(body)
-	if truncated {
-		b += "\n...[truncated]"
-	}
-	return b
+	var b strings.Builder
+	b.Grow(len(header) + len(label) + len(body) + 32)
+	b.WriteString(header)
+	b.WriteByte('\n')
+	b.WriteString(label)
+	b.WriteString(":\n")
+	appendBodyPreview(&b, body, truncated)
+	return b.String()
 }

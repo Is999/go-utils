@@ -566,7 +566,7 @@ func TestDomain(t *testing.T) {
 	}
 }
 
-func TestPassWord(t *testing.T) {
+func TestPassword(t *testing.T) {
 	type args struct {
 		value string
 		min   uint8
@@ -590,18 +590,18 @@ func TestPassWord(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.PassWord(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
-				t.Errorf("PassWord() WrapError = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
+			if err := utils.Password(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
+				t.Errorf("Password() WrapError = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
 			} else {
 				if err != nil {
-					//t.Logf("PassWord() WrapError = %v, length = %v", WrapError, len(tt.args.value))
+					//t.Logf("Password() WrapError = %v, length = %v", WrapError, len(tt.args.value))
 				}
 			}
 		})
 	}
 }
 
-func TestPassWord2(t *testing.T) {
+func TestStrongPassword(t *testing.T) {
 	type args struct {
 		value string
 		min   uint8
@@ -628,18 +628,18 @@ func TestPassWord2(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.PassWord2(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
-				t.Errorf("PassWord2() WrapError = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
+			if err := utils.StrongPassword(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
+				t.Errorf("StrongPassword() WrapError = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
 			} else {
 				if err != nil {
-					//t.Logf("PassWord2() WrapError = %v, length = %v", WrapError, len(tt.args.value))
+					//t.Logf("StrongPassword() WrapError = %v, length = %v", WrapError, len(tt.args.value))
 				}
 			}
 		})
 	}
 }
 
-func TestPassWord3(t *testing.T) {
+func TestStrongPasswordWithSymbols(t *testing.T) {
 	type args struct {
 		value string
 		min   uint8
@@ -665,11 +665,11 @@ func TestPassWord3(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.PassWord3(tt.args.value, 8, 12); (err == nil) != tt.want {
-				t.Errorf("PassWord3() WrapError = %v, want %v, length = %v", err, tt.want, len(tt.args.value))
+			if err := utils.StrongPasswordWithSymbols(tt.args.value, 8, 12); (err == nil) != tt.want {
+				t.Errorf("StrongPasswordWithSymbols() WrapError = %v, want %v, length = %v", err, tt.want, len(tt.args.value))
 			} else {
 				if err != nil {
-					//t.Logf("PassWord3() WrapError = %v, length = %v", WrapError, len(tt.args.value))
+					//t.Logf("StrongPasswordWithSymbols() WrapError = %v, length = %v", WrapError, len(tt.args.value))
 				}
 			}
 		})
@@ -735,21 +735,21 @@ func TestValidationErrorClassification(t *testing.T) {
 		},
 		{
 			name:       "password_charset",
-			run:        func() error { return utils.PassWord("ABC123#1cb", 8, 12) },
+			run:        func() error { return utils.Password("ABC123#1cb", 8, 12) },
 			wantReason: utils.ValidationReasonInvalidCharset,
 			wantMin:    8,
 			wantMax:    12,
 		},
 		{
 			name:       "password2_missing_lowercase",
-			run:        func() error { return utils.PassWord2("ABCE56789", 8, 12) },
+			run:        func() error { return utils.StrongPassword("ABCE56789", 8, 12) },
 			wantReason: utils.ValidationReasonMissingLowercase,
 			wantMin:    8,
 			wantMax:    12,
 		},
 		{
 			name:       "password3_missing_digit",
-			run:        func() error { return utils.PassWord3("ABC*-f&#xy", 8, 12) },
+			run:        func() error { return utils.StrongPasswordWithSymbols("ABC*-f&#xy", 8, 12) },
 			wantReason: utils.ValidationReasonMissingDigit,
 			wantMin:    8,
 			wantMax:    12,
@@ -795,17 +795,17 @@ func TestValidationErrorDefaultMessage(t *testing.T) {
 		},
 		{
 			name: "password_charset",
-			err:  utils.PassWord("ABC123#1cb", 8, 12),
+			err:  utils.Password("ABC123#1cb", 8, 12),
 			want: "必须包含大小写字母和数字的组合，不能使用特殊字符，长度在8-12之间",
 		},
 		{
 			name: "password2_missing_uppercase",
-			err:  utils.PassWord2("abce56789", 8, 12),
+			err:  utils.StrongPassword("abce56789", 8, 12),
 			want: "必须包含至少一个大写字母",
 		},
 		{
 			name: "password3_missing_digit",
-			err:  utils.PassWord3("ABC*-f&#xy", 8, 12),
+			err:  utils.StrongPasswordWithSymbols("ABC*-f&#xy", 8, 12),
 			want: "必须包含至少一个数字",
 		},
 	}
@@ -843,17 +843,17 @@ func TestValidationErrorMessageKey(t *testing.T) {
 		},
 		{
 			name: "password_charset",
-			err:  utils.PassWord("ABC123#1cb", 8, 12),
+			err:  utils.Password("ABC123#1cb", 8, 12),
 			want: "validation.invalid_charset",
 		},
 		{
 			name: "password2_missing_lowercase",
-			err:  utils.PassWord2("ABCE56789", 8, 12),
+			err:  utils.StrongPassword("ABCE56789", 8, 12),
 			want: "validation.missing_lowercase",
 		},
 		{
 			name: "password3_missing_digit",
-			err:  utils.PassWord3("ABC*-f&#xy", 8, 12),
+			err:  utils.StrongPasswordWithSymbols("ABC*-f&#xy", 8, 12),
 			want: "validation.missing_digit",
 		},
 	}

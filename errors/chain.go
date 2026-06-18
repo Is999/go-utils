@@ -4,29 +4,14 @@ package errors
 
 // Cause 返回错误链最底层的源错误。
 // 是 Source 的别名，功能完全相同。
-//
-// 参数说明：
-//   - err：错误对象
-//
-// 返回值：最底层的源错误，nil 错误返回 nil
 func Cause(err error) error { return Source(err) }
 
 // Root 返回错误链最底层的源错误。
 // 是 Source 的别名，功能完全相同。
-//
-// 参数说明：
-//   - err：错误对象
-//
-// 返回值：最底层的源错误，nil 错误返回 nil
 func Root(err error) error { return Source(err) }
 
 // HasStack 检查错误链路中是否已经存在追踪栈。
 // 用于判断是否需要重复采集栈信息，避免 Wrap 时重复调用 runtime.Callers。
-//
-// 参数说明：
-//   - err：错误对象
-//
-// 返回值：true 表示错误链中存在带栈追踪的错误
 func HasStack(err error) bool {
 	if err == nil {
 		return false
@@ -55,11 +40,6 @@ func HasStack(err error) bool {
 // Source 返回错误链最底层的源错误。
 // 沿错误链向下遍历，找到第一个不包含 unwrap 的错误节点。
 // 对 Join 多错误场景，返回第一个非 nil 分支的源错误。
-//
-// 参数说明：
-//   - err：错误对象
-//
-// 返回值：最底层的源错误
 func Source(err error) error {
 	if err == nil {
 		return nil
@@ -83,11 +63,6 @@ func Source(err error) error {
 
 // Sources 返回错误链中所有最终源错误。
 // 对 Join 多错误场景，返回所有分支的最底层错误。
-//
-// 参数说明：
-//   - err：错误对象
-//
-// 返回值：所有源错误的切片，按从左到右的顺序排列
 func Sources(err error) []error {
 	if err == nil {
 		return nil
@@ -120,11 +95,6 @@ func Sources(err error) []error {
 
 // Chain 返回错误链中的所有节点。
 // 对 Join 多错误场景，按从左到右的深度优先顺序返回所有节点。
-//
-// 参数说明：
-//   - err：错误对象
-//
-// 返回值：错误链中所有节点的切片
 func Chain(err error) []error {
 	if err == nil {
 		return nil
@@ -154,11 +124,6 @@ func Chain(err error) []error {
 
 // popError 从栈顶弹出一个错误。
 // 使用后进先出策略，模拟递归遍历。
-//
-// 参数说明：
-//   - stack：指向错误切片的指针
-//
-// 返回值：栈顶的错误对象
 func popError(stack *[]error) error {
 	last := len(*stack) - 1
 	current := (*stack)[last]
@@ -168,10 +133,6 @@ func popError(stack *[]error) error {
 
 // pushChildren 将子错误入栈。
 // 为保证深度优先遍历的正确顺序，从后向前遍历子错误切片入栈。
-//
-// 参数说明：
-//   - stack：指向错误切片的指针
-//   - children：子错误列表
 func pushChildren(stack *[]error, children []error) {
 	for i := len(children) - 1; i >= 0; i-- {
 		if children[i] != nil {
@@ -182,11 +143,6 @@ func pushChildren(stack *[]error, children []error) {
 
 // compactErrors 压缩错误列表，过滤 nil 错误。
 // 使用原地压缩算法，无 nil 时直接返回原切片，避免堆分配。
-//
-// 参数说明：
-//   - errs：错误列表
-//
-// 返回值：过滤 nil 后的错误列表
 func compactErrors(errs []error) []error {
 	if len(errs) == 0 {
 		return nil
@@ -210,11 +166,6 @@ func compactErrors(errs []error) []error {
 
 // hasStackMulti 检查多错误列表中是否存在带栈追踪的错误。
 // 用于检测 errors.Join 包裹的场景。
-//
-// 参数说明：
-//   - children：子错误列表
-//
-// 返回值：true 表示存在带栈追踪的错误
 func hasStackMulti(children []error) bool {
 	var stackBuf [8]error
 	stack := stackBuf[:0]
@@ -248,11 +199,6 @@ func hasStackMulti(children []error) bool {
 
 // sourceMulti 在多错误场景下查找源错误。
 // 返回第一个非 nil 分支的最底层错误。
-//
-// 参数说明：
-//   - err：Join 多错误
-//
-// 返回值：第一个分支的源错误
 func sourceMulti(err error, children []error) error {
 	var stackBuf [8]error
 	stack := stackBuf[:0]
@@ -281,10 +227,6 @@ func sourceMulti(err error, children []error) error {
 }
 
 // unwrapNode 解析单分支或多分支错误节点。
-//
-// 返回值：
-//   - []error：errors.Join 等多分支错误节点。
-//   - error：单分支下一个错误节点。
 func unwrapNode(err error) ([]error, error) {
 	switch e := err.(type) {
 	case *stackError:

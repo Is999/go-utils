@@ -7,7 +7,7 @@ import (
 	"github.com/Is999/go-utils"
 )
 
-func TestZeroPadding(t *testing.T) {
+func TestZeroPad(t *testing.T) {
 	type args struct {
 		data      []byte
 		blockSize int
@@ -26,14 +26,14 @@ func TestZeroPadding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.ZeroPadding(tt.args.data, tt.args.blockSize); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ZeroPadding() = %v, want %v", got, tt.want)
+			if got := utils.ZeroPad(tt.args.data, tt.args.blockSize); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ZeroPad() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestZeroUnPadding(t *testing.T) {
+func TestZeroUnpad(t *testing.T) {
 	type args struct {
 		data []byte
 	}
@@ -52,13 +52,13 @@ func TestZeroUnPadding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := utils.ZeroUnPadding(tt.args.data)
+			got, err := utils.ZeroUnpad(tt.args.data)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ZeroUnPadding() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ZeroUnpad() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ZeroUnPadding() got = %v, want %v", got, tt.want)
+				t.Errorf("ZeroUnpad() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

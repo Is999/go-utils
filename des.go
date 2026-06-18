@@ -17,19 +17,19 @@ func DES(key string, opts ...CipherOption) (*Cipher, error) {
 	default:
 		return nil, errors.Errorf("DES 密钥长度必须是 8 字节，3DES 密钥长度必须是 24 字节，当前长度: %d", len(key))
 	case 24:
-		return DES3(key, opts...)
+		return TripleDES(key, opts...)
 	case 8:
 	}
 
 	return NewCipher(key, des.NewCipher, opts...)
 }
 
-// DES3 创建 3DES 分组密码封装。
+// TripleDES 创建 3DES 分组密码封装。
 //
 // 安全说明：3DES 仅用于旧协议兼容，新系统应优先使用 AES-GCM。
 //
 //	key 秘钥
-func DES3(key string, opts ...CipherOption) (*Cipher, error) {
+func TripleDES(key string, opts ...CipherOption) (*Cipher, error) {
 	if len(key) != 24 {
 		return nil, errors.Errorf("3DES 密钥长度必须是 24 字节，当前长度: %d", len(key))
 	}

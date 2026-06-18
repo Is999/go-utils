@@ -41,6 +41,30 @@ func TestMonthDay(t *testing.T) {
 	}
 }
 
+func TestCheckDate(t *testing.T) {
+	tests := []struct {
+		name  string
+		year  int
+		month int
+		day   int
+		want  bool
+	}{
+		{name: "valid leap day", year: 2024, month: 2, day: 29, want: true},
+		{name: "invalid common year leap day", year: 2023, month: 2, day: 29, want: false},
+		{name: "invalid small month day", year: 2024, month: 4, day: 31, want: false},
+		{name: "invalid month", year: 2024, month: 13, day: 1, want: false},
+		{name: "invalid day", year: 2024, month: 1, day: 0, want: false},
+		{name: "invalid year", year: 0, month: 1, day: 1, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := utils.CheckDate(tt.year, tt.month, tt.day); got != tt.want {
+				t.Fatalf("CheckDate(%d, %d, %d) = %v, want %v", tt.year, tt.month, tt.day, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDateInfo(t *testing.T) {
 	type args struct {
 		s []string
@@ -173,7 +197,7 @@ func TestTimeFormatNilLocationAndNegativeUnixNano(t *testing.T) {
 	}
 }
 
-func TestStrtotime(t *testing.T) {
+func TestParseTime(t *testing.T) {
 	type args struct {
 		e []string
 	}
@@ -198,24 +222,24 @@ func TestStrtotime(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, err := utils.Strtotime(utils.Local(), tt.args.e...); (err == nil) == tt.wantErr {
-				t.Errorf("Strtotime() = %v, want %v, WrapError = %v", got.UnixNano(), tt.wantErr, err)
+			if got, err := utils.ParseTime(utils.Local(), tt.args.e...); (err == nil) == tt.wantErr {
+				t.Errorf("ParseTime() = %v, want %v, WrapError = %v", got.UnixNano(), tt.wantErr, err)
 			} else if !tt.wantErr {
-				//t.Logf("Strtotime() unxNano %v, time %v", got.UnixNano(), got.Format(utils.DateNanosecond))
+				//t.Logf("ParseTime() unxNano %v, time %v", got.UnixNano(), got.Format(utils.DateNanosecond))
 			}
 		})
 	}
 }
 
-func TestStrtotimeParsesRFC3339NanoVariableLength(t *testing.T) {
+func TestParseTimeRFC3339NanoVariableLength(t *testing.T) {
 	tests := []string{
 		"2023-03-13T14:40:01Z",
 		"2023-03-13T14:40:01.124685076Z",
 	}
 	for _, tt := range tests {
 		t.Run(tt, func(t *testing.T) {
-			if _, err := utils.Strtotime(utils.UTC(), tt); err != nil {
-				t.Fatalf("Strtotime(%q) error = %v", tt, err)
+			if _, err := utils.ParseTime(utils.UTC(), tt); err != nil {
+				t.Fatalf("ParseTime(%q) error = %v", tt, err)
 			}
 		})
 	}
