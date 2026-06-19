@@ -12,40 +12,9 @@ golang 帮助函数
 
 ### 使用说明
 
-1. utils 包已按“生产默认安全、历史兼容显式开启”的原则整理；落地生产前仍需结合业务协议、密钥管理、日志合规和调用方并发模型做最终评审。
-2. 版本要求 Go 1.26。
-3. 本版本按 Go 命名规范做破坏性改名，不保留旧名 wrapper；调用方请按下方迁移表替换。
+1. 版本要求 Go 1.26。
 
 ------
-
-### 破坏性 API 迁移表
-
-| 旧 API | 新 API | 说明 |
-| --- | --- | --- |
-| `errors.Type[T]` | `errors.AsType[T]` | 对齐 Go 1.26 `errors.AsType` 泛型语义。 |
-| `PassWord` | `Password` | 基础密码格式校验。 |
-| `PassWord2` | `StrongPassword` | 强密码校验，不允许特殊符号。 |
-| `PassWord3` | `StrongPasswordWithSymbols` | 强密码校验，允许特殊符号。 |
-| `UniqID` / `UniqId` | `UniqueID` | 使用完整单词，保留 ID initialism。 |
-| `SecureUniqID` | `SecureUniqueID` | 密码学安全随机 ID。 |
-| `RandStr` | `RandomLetters` | 使用英文字母字符集。 |
-| `RandStr2` | `RandomID` | 首字符为字母，后续为字母数字。 |
-| `RandStr3` | `RandomString` | 自定义字符集随机字符串。 |
-| `SecureRandStr*` | `SecureRandomLetters` / `SecureRandomID` / `SecureRandomString` | 密码学安全随机字符串。 |
-| `McryptMode` | `CipherMode` | 加密模式类型。 |
-| `Padding` / `UnPadding` | `Pad` / `Unpad` | 填充和去填充函数类型。 |
-| `NoPadding` / `NoUnPadding` | `NoPad` / `NoUnpad` | 不填充策略。 |
-| `Pkcs7Padding` / `Pkcs7UnPadding` | `PKCS7Pad` / `PKCS7Unpad` | Go initialism 规范。 |
-| `ZeroPadding` / `ZeroUnPadding` | `ZeroPad` / `ZeroUnpad` | 零填充策略。 |
-| `DES3` | `TripleDES` | 语义更明确。 |
-| `UrlPath` | `URLPath` | URL initialism 规范；旧名已删除。 |
-| `*RequestId` | `*RequestID` | ID initialism 规范；旧名已删除。 |
-| `ReSetHeader` / `ReSetParams` | `ResetHeader` / `ResetParams` | 动词拼写规范。 |
-| `DelHeaders` / `DelParams` / `DelCookies` / `DelFiles` | `DeleteHeaders` / `DeleteParams` / `DeleteCookies` / `DeleteFiles` | 动词完整清晰。 |
-| `Md5` / `Sha1` / `Sha256` / `Sha512` | `MD5` / `SHA1` / `SHA256` / `SHA512` | 摘要算法 initialism 规范。 |
-| `Str2Int` / `Str2Int64` / `Str2Float` | `ToInt` / `ToInt64` / `ToFloat64` | 简洁转换命名。 |
-| `StrRev` | `ReverseString` | 语义明确。 |
-| `Strtotime` | `ParseTime` | 与标准库 parse 语境一致。 |
 
 ### 模块结论
 
@@ -272,35 +241,7 @@ fmt.Sprintf("%#v", err) // 等同于 TraceJSON
 
 ------
 
-### 历史变更
-
-1. 版本要求 Go 1.26
-2. 移除了1.21 版本前的Max、Min 两个函数，推荐使用golang 内置函数 max、min
-3. 移除了1.21 版本前的Logger 文件，使用标准库中 log/slog
-4. Curl 和 Response 记录日志方式使用了标准库 log/slog记录日志
-5. 根据1.21版本 log/slog 增加了errors文件，实现了LogValuer 接口，对error的日志追踪
-6. utils中返回的error 统一使用了WrapError, 支持error记录追踪
-7. RSA加密解密增加了对长文本的支持，增加了对PEM key 去除头尾标记和还原头尾标记方法
-8. math/rand 改1.22版本 math/rand/v2, 部分函数形参 rand.Source 改为*rand.Rand
-9. ParseTime函数增强，支持更多时间格式自动解析（毫秒、微秒、纳秒格式）
-10. Response模块使用 Header 方法（修复 Herder 拼写错误，当前仅保留 Header 方法）
-11. 修复types.go中"有符合"拼写错误，更正为"有符号"
-12. 新增 Retry 函数，支持带指数退避的重试机制
-13. 新增 Once 结构体，线程安全的带重试机制的一次性执行
-14. 新增泛型对象池 Pool[T]，基于 sync.Pool 封装，支持自定义重置函数
-15. 新增 SumSlice 切片求和、SumMap Map值求和函数
-16. 新增 Configure 全局配置入口，支持自定义 JSON 编解码器和 Logger
-17. 新增 GetFunctionName 获取函数名函数
-18. 修复 IsFile 对不存在路径错误返回 true 的bug
-19. 修复 tar.go/zip.go 中 strings.TrimRight 误用为 strings.TrimSuffix
-20. 修复 cipher.go 中 Decrypt 注释错误（"加密"更正为"解密"）
-21. 修复 response.go 中 Content-Disposition filename 未加引号导致含空格文件名异常
-22. 修复 file.go 中路径分隔符硬编码问题，改用 filepath.Separator
-23. 优化 rsa.go 中 strings.Index 为更符合语义的 strings.Contains，strings.Replace 为 strings.ReplaceAll
-
 # Go常用标准库方法及utils包帮助函数
-
->
 开发中使用频率较高的Go标准库中的方法及utils包中的帮助方法。utils包中的方法都可以在单元测试中找到使用方法示例。版本要求 >=
 1.26版本。
 
