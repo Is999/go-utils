@@ -255,22 +255,8 @@ func parseTrustedProxy(value string) (netip.Prefix, error) {
 // addrFromIP 将标准库 net.IP 转成 netip.Addr。
 // 该函数用于兼容公开的 TrustedProxies.Contains(net.IP)，同时让内部热路径使用零分配值类型。
 func addrFromIP(ip net.IP) (netip.Addr, bool) {
-	if ip == nil {
-		return netip.Addr{}, false
-	}
-	if ipv4 := ip.To4(); ipv4 != nil {
-		return netip.AddrFrom4([4]byte{ipv4[0], ipv4[1], ipv4[2], ipv4[3]}), true
-	}
-	ipv6 := ip.To16()
-	if ipv6 == nil {
-		return netip.Addr{}, false
-	}
-	return netip.AddrFrom16([16]byte{
-		ipv6[0], ipv6[1], ipv6[2], ipv6[3],
-		ipv6[4], ipv6[5], ipv6[6], ipv6[7],
-		ipv6[8], ipv6[9], ipv6[10], ipv6[11],
-		ipv6[12], ipv6[13], ipv6[14], ipv6[15],
-	}), true
+	addr, ok := netip.AddrFromSlice(ip)
+	return addr.Unmap(), ok
 }
 
 // isTrustedProxyAddr 判断来源地址是否可被视为默认可信代理。

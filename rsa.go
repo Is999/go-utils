@@ -496,7 +496,7 @@ func RemovePEMHeaders(pemText string) string {
 	var b strings.Builder
 	b.Grow(len(pemText))
 	for line := range strings.SplitSeq(pemText, "\n") {
-		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
+		line = strings.TrimSpace(line)
 		upper := strings.ToUpper(line)
 		if strings.HasPrefix(upper, "-----BEGIN ") || strings.HasPrefix(upper, "-----END ") {
 			continue

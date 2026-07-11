@@ -1654,10 +1654,10 @@ func Size(filepath string) (int64, error)
 
 ------
 
-#### func [utils.SizeFormat](https://github.com/Is999/go-utils/blob/master/file.go#L584)
+#### func [utils.FormatFileSize](https://github.com/Is999/go-utils/blob/master/file.go#L584)
 
 ```go
-func SizeFormat(size int64, decimals uint) string 
+func FormatFileSize(size int64, decimals uint) string
 ```
 
 | 参数         | 描述            |
@@ -2382,10 +2382,10 @@ func FormatFloat(f float64, fmt byte, prec, bitSize int) string
 
 ------
 
-#### func [utils.NumberFormat](https://github.com/Is999/go-utils/blob/master/misce.go#L39)
+#### func [utils.FormatNumber](https://github.com/Is999/go-utils/blob/master/misce.go#L39)
 
 ```go
-func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) string 
+func FormatNumber(number float64, decimals uint, decPoint, thousandsSep string) string
 ```
 
 | 参数           | 描述        |
@@ -2531,10 +2531,10 @@ func HexDec(str string) (int64, error)
 
 ------
 
-#### func [utils.IsHas](https://github.com/Is999/go-utils/blob/master/slices.go#L10)
+#### func [utils.Contains](https://github.com/Is999/go-utils/blob/master/slices.go#L10)
 
 ```go
-func IsHas[T comparable](v T, s []T) bool
+func Contains[T comparable](v T, s []T) bool
 ```
 
 备注：检查s中是否存在v。1.21版本以上推荐使用标准库 slices.Contains(s,v)
@@ -3369,10 +3369,10 @@ func AddTime(t time.Time, addTimes ...string) (time.Time, error)
 
 ------
 
-#### func [utils.DateInfo](https://github.com/Is999/go-utils/blob/master/time.go#L185)
+#### func [utils.TimeDetails](https://github.com/Is999/go-utils/blob/master/time.go#L185)
 
 ```go
-func DateInfo(t time.Time) map[string]interface{}
+func TimeDetails(t time.Time) map[string]interface{}
 ```
 
 备注：获取日期信息。
@@ -3907,16 +3907,16 @@ http.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Reques
 
 ------
 
-#### func [utils.Json](https://github.com/Is999/go-utils/blob/master/response.go#L298)
+#### func [utils.JSON](https://github.com/Is999/go-utils/blob/master/response.go#L298)
 
 ```go
-// Json 响应Json数据
-func Json(w http.ResponseWriter, opts ...ResponseOption) *Response
+// JSON 响应 JSON 数据
+func JSON(w http.ResponseWriter, opts ...ResponseOption) *Response
 
-// Success 成功响应返回Json数据
+// Success 成功响应返回 JSON 数据
 func (r *Response) Success(code int, data any, message ...string)
 
-// Fail 失败响应返回Json数据
+// Fail 失败响应返回 JSON 数据
 func (r *Response) Fail(code int, message string, data ...any)
 ```
 
@@ -3941,15 +3941,15 @@ http.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
 
   if queryParam == "fail" {
     // 错误响应
-	utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
+	utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
     return
   }
   // 成功响应
-  utils.Json(w).Success(1000, user)
+  utils.JSON(w).Success(1000, user)
 })
 ```
 
-备注：响应JSON数据，响应成功：Json().Success()，响应失败：Json().Fail()。
+备注：响应 JSON 数据，响应成功：JSON().Success()，响应失败：JSON().Fail()。
 
 ------
 
@@ -3962,11 +3962,11 @@ http.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
 http.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
 
   // 响应html数据
-  utils.View(w).Html("<p>这是一个<b style=\"color: red\">段落!</b></p>")
+  utils.View(w).HTML("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 })
 ```
 
-备注：响应HTML文本 View().Html()。
+备注：响应 HTML 文本 View().HTML()。
 
 ------
 
@@ -3989,11 +3989,11 @@ http.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
   }
 
   // 响应xml数据
-  utils.View(w).Xml(user)
+  utils.View(w).XML(user)
 })
 ```
 
-备注：响应XML文本 View().Xml()。
+备注：响应 XML 文本 View().XML()。
 
 ------
 

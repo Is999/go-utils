@@ -2,9 +2,10 @@ package utils
 
 import (
 	"context"
-	"fmt"
+	"math"
 	"math/rand/v2"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Is999/go-utils/errors"
@@ -30,13 +31,17 @@ func Ternary[T any](expr bool, trueVal, falseVal T) T {
 	return falseVal
 }
 
-// NumberFormat 以千位分隔符方式格式化一个数字
+// FormatNumber 以千位分隔符方式格式化数字。
 //
 //	number 要格式化的数字
 //	decimals 保留几位小数
 //	decPoint 小数点[.]
 //	thousandsSep 千位分隔符[,]
-func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) string {
+func FormatNumber(number float64, decimals uint, decPoint, thousandsSep string) string {
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return strconv.FormatFloat(number, 'f', -1, 64)
+	}
+
 	// 负数处理
 	neg := false
 	if number < 0 {
@@ -46,7 +51,7 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 
 	// 格式化并保留指定小数位
 	dec := int(decimals)
-	str := fmt.Sprintf("%."+strconv.Itoa(dec)+"f", number)
+	str := strconv.FormatFloat(number, 'f', dec, 64)
 
 	// 默认分割(无千分位分割)
 	if decPoint == "." && thousandsSep == "" {
@@ -56,43 +61,34 @@ func NumberFormat(number float64, decimals uint, decPoint, thousandsSep string) 
 		return str
 	}
 
-	// 分割整数和小数部分
-	prefix, suffix := "", ""
+	prefix, suffix := str, ""
 	if dec > 0 {
 		l := len(str)
 		prefix = str[:l-(dec+1)]
 		suffix = str[l-dec:]
-	} else {
-		prefix = str
 	}
 
-	sep := []byte(thousandsSep)
-	n, l1, l2 := 0, len(prefix), len(sep)
-
-	// 千分位分割符数量
-	c := (l1 - 1) / 3
-	tmp := make([]byte, l2*c+l1)
-	pos := len(tmp) - 1
-	for i := l1 - 1; i >= 0; i, n, pos = i-1, n+1, pos-1 {
-		if l2 > 0 && n > 0 && n%3 == 0 {
-			for j := range sep {
-				tmp[pos] = sep[l2-j-1]
-				pos--
-			}
-		}
-		tmp[pos] = prefix[i]
-	}
-
-	s := string(tmp)
-	if dec > 0 {
-		s += decPoint + suffix
-	}
-
+	groups := (len(prefix) - 1) / 3
+	var b strings.Builder
+	b.Grow(len(prefix) + groups*len(thousandsSep) + len(decPoint) + len(suffix) + 1)
 	if neg {
-		s = "-" + s
+		b.WriteByte('-')
 	}
 
-	return s
+	first := len(prefix) % 3
+	if first == 0 {
+		first = 3
+	}
+	b.WriteString(prefix[:first])
+	for i := first; i < len(prefix); i += 3 {
+		b.WriteString(thousandsSep)
+		b.WriteString(prefix[i : i+3])
+	}
+	if dec > 0 {
+		b.WriteString(decPoint)
+		b.WriteString(suffix)
+	}
+	return b.String()
 }
 
 // Retry 尝试执行 fn，如果 fn 返回错误则按指数退避策略重试。
@@ -119,35 +115,22 @@ func RetryContext(ctx context.Context, maxRetries uint8, fn func(ctx context.Con
 // retryContext 是 Retry/RetryContext 的统一实现。
 func retryContext(ctx context.Context, maxRetries uint8, fnName string, fn func(ctx context.Context, tries int) error) error {
 	ctx = ensureContext(ctx)
-	var (
-		err   error
-		tries = 0
-	)
 	if maxRetries == 0 {
 		maxRetries = 1
 	}
-	for {
-		tries++
+
+	var err error
+	for tries := 1; tries <= int(maxRetries); tries++ {
 		if err = fn(ctx, tries); err == nil {
-			break
+			return nil
 		}
-
-		// 判断退出条件
-		if tries >= int(maxRetries) {
-			break
-		}
-
-		// 延迟重试
-		if err = waitRetry(ctx, tries); err != nil {
-			return errors.Tag(err)
+		if tries < int(maxRetries) {
+			if err = waitRetry(ctx, tries); err != nil {
+				return errors.Tag(err)
+			}
 		}
 	}
-
-	if err != nil {
-		// 重试失败，返回错误信息
-		return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries)
-	}
-	return nil
+	return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries)
 }
 
 // ensureContext 归一化 context，避免调用方传入 nil 导致 panic。
@@ -160,7 +143,6 @@ func ensureContext(ctx context.Context) context.Context {
 
 // waitRetry 等待下一次重试窗口，同时响应 context 取消。
 func waitRetry(ctx context.Context, attempt int) error {
-	ctx = ensureContext(ctx)
 	delay := retryDelay(attempt)
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
@@ -176,10 +158,6 @@ func waitRetry(ctx context.Context, attempt int) error {
 // retryDelay 计算第 attempt 次失败后的重试等待时间。
 // 为降低并发失败时的重试雪崩风险，会在指数退避的基础上附加小幅随机抖动。
 func retryDelay(attempt int) time.Duration {
-	if attempt <= 0 {
-		return retryBaseDelay / 2
-	}
-
 	// 指数退避从 retryBaseDelay 开始，attempt=1 表示第一次失败后的等待。
 	delay := retryBaseDelay
 	for i := 1; i < attempt && delay < retryMaxDelay; i++ {
@@ -191,8 +169,5 @@ func retryDelay(attempt int) time.Duration {
 
 	// 使用 equal jitter：保留一半确定性延迟，另一半随机化。
 	half := delay / 2
-	if half <= 0 {
-		return delay
-	}
 	return half + time.Duration(rand.Int64N(int64(half)))
 }

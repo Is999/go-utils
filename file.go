@@ -179,7 +179,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 	}
 
 	// 处理文件匹配
-	var fc fs.WalkDirFunc = func(filePath string, d fs.DirEntry, err error) error {
+	fc := func(filePath string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return errors.Tag(err)
 		}
@@ -218,15 +218,13 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 		}
 
 		// 遍历当前目录所有目录和文件
-		for _, v := range entries {
-			err = fc(filepath.Join(path, v.Name()), v, nil)
-			if err != nil {
-				break
+		for _, entry := range entries {
+			if err := fc(filepath.Join(path, entry.Name()), entry, nil); err != nil {
+				return files, err
 			}
 		}
-
 	}
-	return files, err
+	return files, nil
 }
 
 // newFindMatcher 将 FindFiles 的匹配参数编译为文件名匹配函数。
@@ -238,20 +236,41 @@ func newFindMatcher(match []string) (func(string) bool, error) {
 		if match[0] == "*" {
 			return func(string) bool { return true }, nil
 		}
-		rules := []string{match[0]}
-		return func(name string) bool { return hasExactRule(name, rules) }, nil
+		rule := match[0]
+		return func(name string) bool { return name == rule }, nil
 	}
 
-	rules := append([]string(nil), match[1:]...)
+	rules := match[1:]
 	switch match[0] {
 	case "*":
 		return func(string) bool { return true }, nil
 	case "p":
-		return func(name string) bool { return hasPrefixRule(name, rules) }, nil
+		return func(name string) bool {
+			for _, rule := range rules {
+				if strings.HasPrefix(name, rule) {
+					return true
+				}
+			}
+			return false
+		}, nil
 	case "s":
-		return func(name string) bool { return hasSuffixRule(name, rules) }, nil
+		return func(name string) bool {
+			for _, rule := range rules {
+				if strings.HasSuffix(name, rule) {
+					return true
+				}
+			}
+			return false
+		}, nil
 	case "e":
-		return func(name string) bool { return hasExactRule(name, rules) }, nil
+		return func(name string) bool {
+			for _, rule := range rules {
+				if name == rule {
+					return true
+				}
+			}
+			return false
+		}, nil
 	case "r":
 		compiles := make([]*regexp.Regexp, 0, len(rules))
 		for _, expr := range rules {
@@ -261,50 +280,17 @@ func newFindMatcher(match []string) (func(string) bool, error) {
 			}
 			compiles = append(compiles, compile)
 		}
-		return func(name string) bool { return hasRegexpRule(name, compiles) }, nil
+		return func(name string) bool {
+			for _, compile := range compiles {
+				if compile.MatchString(name) {
+					return true
+				}
+			}
+			return false
+		}, nil
 	default:
 		return nil, errors.Errorf("match第一个参数[%s]错误的规则", match[0])
 	}
-}
-
-// hasPrefixRule 判断文件名是否命中任一前缀规则。
-func hasPrefixRule(name string, rules []string) bool {
-	for _, rule := range rules {
-		if strings.HasPrefix(name, rule) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasSuffixRule 判断文件名是否命中任一后缀规则。
-func hasSuffixRule(name string, rules []string) bool {
-	for _, rule := range rules {
-		if strings.HasSuffix(name, rule) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasRegexpRule 判断文件名是否命中任一正则规则。
-func hasRegexpRule(name string, rules []*regexp.Regexp) bool {
-	for _, rule := range rules {
-		if rule.MatchString(name) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasExactRule 判断文件名是否命中任一精确规则。
-func hasExactRule(name string, rules []string) bool {
-	for _, rule := range rules {
-		if rule == name {
-			return true
-		}
-	}
-	return false
 }
 
 // Scan 使用scan扫描文件每一行数据
@@ -315,17 +301,14 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error {
 
 	// 设置buf和maxTokenSize
 	if len(size) > 0 && size[0] > bufio.MaxScanTokenSize {
-		maxTokenSize := size[0]
-		if int64(maxTokenSize) > (GB * 4) {
-			maxTokenSize = int(GB * 4)
-		}
+		maxTokenSize := int(min(int64(size[0]), int64(GB*4)))
 		scan.Buffer(make([]byte, bufio.MaxScanTokenSize), maxTokenSize)
 	}
 
 	var n = 0 // 行号
 	for scan.Scan() {
 		n++
-		if err := handle(n, scan.Bytes(), scan.Err()); err != nil {
+		if err := handle(n, scan.Bytes(), nil); err != nil {
 			if errors.Is(err, DONE) {
 				return nil
 			}
@@ -338,29 +321,24 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error {
 // Line 读取一行数据: 读取大文件大行数据性能略优于Scan
 func Line(r io.Reader, handle ReadLine) error {
 	reader := bufio.NewReaderSize(r, bufio.MaxScanTokenSize)
-	var n = 0 // 行号
+	n := 1 // 行号
 	for {
-		n++
 		line, isPrefix, err := reader.ReadLine()
-
-		// 大行数据未读取完不加行号
-		if isPrefix {
-			n--
-		}
-
-		// 处理数据
-		if err == nil {
-			if err := handle(n, line, !isPrefix); err != nil {
-				if errors.Is(err, DONE) {
-					return nil
-				}
-				return errors.Tag(err)
-			}
-		} else {
+		if err != nil {
 			if err == io.EOF {
-				err = nil
+				return nil
 			}
 			return errors.Tag(err)
+		}
+
+		if err := handle(n, line, !isPrefix); err != nil {
+			if errors.Is(err, DONE) {
+				return nil
+			}
+			return errors.Tag(err)
+		}
+		if !isPrefix {
+			n++
 		}
 	}
 }
@@ -373,7 +351,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 		if n > 0 {
 			if err := handle(n, block[:n]); err != nil {
 				if errors.Is(err, DONE) {
-					err = nil
+					return nil
 				}
 				return errors.Tag(err)
 			}
@@ -381,7 +359,7 @@ func Read(r io.Reader, handle ReadBlock) error {
 
 		if err != nil {
 			if err == io.EOF {
-				err = nil
+				return nil
 			}
 			return errors.Tag(err)
 		}
@@ -419,17 +397,18 @@ func WithWritePerm(perm os.FileMode) WriteOption {
 // 内部使用同目录临时文件 + Sync + Close + Rename，避免直接 O_TRUNC 截断目标文件。
 func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error {
 	return writeFileAtomic(fileName, perm, func(file *os.File) error {
-		if _, err := file.Write(data); err != nil {
-			return errors.Tag(err)
-		}
-		return nil
+		_, err := file.Write(data)
+		return errors.Tag(err)
 	})
 }
 
 // WriteStringAtomic 原子写入完整字符串内容。
 // 适用于希望以字符串形式原子覆盖目标文件的场景。
 func WriteStringAtomic(fileName, data string, perm os.FileMode) error {
-	return WriteFileAtomic(fileName, []byte(data), perm)
+	return writeFileAtomic(fileName, perm, func(file *os.File) error {
+		_, err := file.WriteString(data)
+		return errors.Tag(err)
+	})
 }
 
 // NewWrite 返回一个WriteFile实例
@@ -478,9 +457,9 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 	// 打开文件标识
 	flag := os.O_CREATE | os.O_WRONLY
 	if cfg.isAppend {
-		flag = flag | os.O_APPEND
+		flag |= os.O_APPEND
 	} else {
-		flag = flag | os.O_TRUNC
+		flag |= os.O_TRUNC
 	}
 
 	// 打开文件没有则创建
@@ -517,7 +496,7 @@ func (f *WriteFile) WriteString(data string) (int, error) {
 		return 0, errors.Tag(err)
 	}
 
-	//写入数据
+	// 写入数据
 	n, err := file.WriteString(data)
 	return n, errors.Tag(err)
 }
@@ -532,7 +511,7 @@ func (f *WriteFile) Write(data []byte) (int, error) {
 		return 0, errors.Tag(err)
 	}
 
-	//写入数据
+	// 写入数据
 	n, err := file.Write(data)
 	return n, errors.Tag(err)
 }
@@ -577,11 +556,11 @@ func (f *WriteFile) Close() error {
 	return errors.Tag(file.Close())
 }
 
-// SizeFormat 文件大小格式化已可读式显示文件大小
+// FormatFileSize 将字节数格式化为易读的文件大小。
 //
 //	size 文件实际大小(Byte)
 //	decimals 保留几位小数
-func SizeFormat(size int64, decimals uint) string {
+func FormatFileSize(size int64, decimals uint) string {
 	for _, unit := range [...]struct {
 		size   int64  // 单位字节数
 		suffix string // 单位后缀
@@ -594,7 +573,7 @@ func SizeFormat(size int64, decimals uint) string {
 		{KB, "K"},
 	} {
 		if size >= unit.size {
-			return NumberFormat(float64(size)/float64(unit.size), decimals, ".", ",") + unit.suffix
+			return FormatNumber(float64(size)/float64(unit.size), decimals, ".", ",") + unit.suffix
 		}
 	}
 	return strconv.FormatInt(size, 10) + "B"

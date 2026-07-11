@@ -9,7 +9,7 @@ import (
 	"github.com/Is999/go-utils"
 )
 
-func TestIsHas(t *testing.T) {
+func TestContains(t *testing.T) {
 	type args[T utils.Ordered] struct {
 		s   T
 		arr []T
@@ -28,7 +28,7 @@ func TestIsHas(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.IsHas(tt.args.s, tt.args.arr); got != tt.want {
+			if got := utils.Contains(tt.args.s, tt.args.arr); got != tt.want {
 				t.Errorf("Has() = %v, want %v", got, tt.want)
 			}
 		})
@@ -41,8 +41,8 @@ func TestIsHas(t *testing.T) {
 	}
 	for _, tt1 := range tests1 {
 		t.Run(tt1.name, func(t *testing.T) {
-			if got1 := utils.IsHas(tt1.args.s, tt1.args.arr); got1 != tt1.want {
-				t.Errorf("IsHas() = %v, want %v", got1, tt1.want)
+			if got1 := utils.Contains(tt1.args.s, tt1.args.arr); got1 != tt1.want {
+				t.Errorf("Contains() = %v, want %v", got1, tt1.want)
 			}
 		})
 	}
@@ -54,8 +54,8 @@ func TestIsHas(t *testing.T) {
 	}
 	for _, tt2 := range tests2 {
 		t.Run(tt2.name, func(t *testing.T) {
-			if got2 := utils.IsHas(tt2.args.s, tt2.args.arr); got2 != tt2.want {
-				t.Errorf("IsHas() = %v, want %v", got2, tt2.want)
+			if got2 := utils.Contains(tt2.args.s, tt2.args.arr); got2 != tt2.want {
+				t.Errorf("Contains() = %v, want %v", got2, tt2.want)
 			}
 		})
 	}
@@ -69,8 +69,8 @@ func TestIsHas(t *testing.T) {
 
 	for _, tt3 := range tests3 {
 		t.Run(tt3.name, func(t *testing.T) {
-			if got3 := utils.IsHas(tt3.args.s, tt3.args.arr); got3 != tt3.want {
-				t.Errorf("IsHas() = %v, want %v", got3, tt3.want)
+			if got3 := utils.Contains(tt3.args.s, tt3.args.arr); got3 != tt3.want {
+				t.Errorf("Contains() = %v, want %v", got3, tt3.want)
 			}
 		})
 	}

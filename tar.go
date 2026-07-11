@@ -100,10 +100,9 @@ func AddFileToTar(tarWriter *tar.Writer, fileToCompress string, baseDir string) 
 			archiveBaseDir = filepath.Join(baseDir, archiveBaseDir)
 		}
 		return addDirectoryToTar(tarWriter, fileToCompress, fileInfo, archiveBaseDir)
-	} else {
-		// 压缩文件
-		return addSingleFileToTar(tarWriter, fileToCompress, fileInfo, baseDir)
 	}
+	// 压缩文件
+	return addSingleFileToTar(tarWriter, fileToCompress, fileInfo, baseDir)
 }
 
 // addSingleFileToTar 添加单个文件到tar
@@ -170,16 +169,14 @@ func addDirectoryToTar(tarWriter *tar.Writer, directoryToCompress string, fileIn
 		filePath := filepath.Join(directoryToCompress, file.Name())
 		if file.IsDir() {
 			// 递归地压缩子目录
-			err = addDirectoryToTar(tarWriter, filePath, info, filepath.Join(baseDir, file.Name()))
-			if err != nil {
+			if err = addDirectoryToTar(tarWriter, filePath, info, filepath.Join(baseDir, file.Name())); err != nil {
 				return errors.Tag(err)
 			}
-		} else {
-			// 压缩单个文件
-			err = addSingleFileToTar(tarWriter, filePath, info, baseDir)
-			if err != nil {
-				return errors.Tag(err)
-			}
+			continue
+		}
+		// 压缩单个文件
+		if err = addSingleFileToTar(tarWriter, filePath, info, baseDir); err != nil {
+			return errors.Tag(err)
 		}
 	}
 

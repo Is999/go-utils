@@ -94,7 +94,7 @@ func TestResponseWriteHeaderOnce(t *testing.T) {
 func TestResponseSuccessRespectsStatusCode(t *testing.T) {
 	w := httptest.NewRecorder()
 
-	utils.Json(w, utils.WithStatusCode(http.StatusCreated)).Success(1000, map[string]string{"id": "1"})
+	utils.JSON(w, utils.WithStatusCode(http.StatusCreated)).Success(1000, map[string]string{"id": "1"})
 
 	res := w.Result()
 	defer res.Body.Close()
@@ -106,10 +106,10 @@ func TestResponseSuccessRespectsStatusCode(t *testing.T) {
 	}
 }
 
-func TestJsonRespectsExplicitContentType(t *testing.T) {
+func TestJSONRespectsExplicitContentType(t *testing.T) {
 	w := httptest.NewRecorder()
 
-	utils.Json(w, utils.WithContentType("application/problem+json")).Fail(4000, "bad request")
+	utils.JSON(w, utils.WithContentType("application/problem+json")).Fail(4000, "bad request")
 
 	res := w.Result()
 	defer res.Body.Close()
@@ -139,7 +139,7 @@ func TestResponseContentTypeNormalization(t *testing.T) {
 	}
 }
 
-func TestResponseTextHtmlXMLAndHeader(t *testing.T) {
+func TestResponseTextHTMLXMLAndHeader(t *testing.T) {
 	text := httptest.NewRecorder()
 	utils.View(text, utils.WithHeader(func(header http.Header) {
 		header.Set("X-Test", "yes")
@@ -155,7 +155,7 @@ func TestResponseTextHtmlXMLAndHeader(t *testing.T) {
 	}
 
 	html := httptest.NewRecorder()
-	utils.View(html).Html("<b>ok</b>")
+	utils.View(html).HTML("<b>ok</b>")
 	if got := html.Header().Get(utils.HeaderContentType); got != "text/html; charset=utf-8" {
 		t.Fatalf("html content type = %q", got)
 	}
@@ -165,7 +165,7 @@ func TestResponseTextHtmlXMLAndHeader(t *testing.T) {
 		XMLName xml.Name `xml:"node"`
 		Name    string   `xml:"name"`
 	}
-	utils.View(xmlResp).Xml(node{Name: "codex"})
+	utils.View(xmlResp).XML(node{Name: "codex"})
 	if !strings.Contains(xmlResp.Body.String(), "<name>codex</name>") {
 		t.Fatalf("xml body = %q", xmlResp.Body.String())
 	}
@@ -229,6 +229,33 @@ func TestResponseFileRequestMethods(t *testing.T) {
 	}
 }
 
+func TestResponseHeadWithExplicitStatusHasNoBody(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "response-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodHead, "/file", nil)
+	utils.View(w).StatusCode(http.StatusCreated).ShowRequest(req, file.Name())
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status code = %d, want %d", w.Code, http.StatusCreated)
+	}
+	if got := w.Header().Get("Content-Length"); got != "5" {
+		t.Fatalf("Content-Length = %q, want %q", got, "5")
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("HEAD body length = %d, want 0", w.Body.Len())
+	}
+}
+
 func TestResponseShowRejectsDirectory(t *testing.T) {
 	w := httptest.NewRecorder()
 
@@ -259,7 +286,7 @@ func TestRedirectFallsBackToFoundForNonRedirectStatus(t *testing.T) {
 func TestResponseFailUsesBadRequestByDefault(t *testing.T) {
 	w := httptest.NewRecorder()
 
-	utils.Json(w).Fail(4001, "bad request")
+	utils.JSON(w).Fail(4001, "bad request")
 
 	res := w.Result()
 	defer res.Body.Close()
@@ -285,7 +312,7 @@ func TestResponseJSONFastPathMatchesStandardEscaping(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	utils.Json(w).Success(1000, data, message)
+	utils.JSON(w).Success(1000, data, message)
 
 	if got := w.Body.String(); got != string(expectedBody) {
 		t.Fatalf("response body = %q, want %q", got, string(expectedBody))
@@ -301,7 +328,7 @@ func BenchmarkResponseText(b *testing.B) {
 func BenchmarkResponseJSONSuccess(b *testing.B) {
 	data := map[string]string{"id": "1", "name": "codex"}
 	for i := 0; i < b.N; i++ {
-		utils.Json(newDiscardResponseWriter()).Success(1000, data)
+		utils.JSON(newDiscardResponseWriter()).Success(1000, data)
 	}
 }
 

@@ -65,7 +65,7 @@ func TestCheckDate(t *testing.T) {
 	}
 }
 
-func TestDateInfo(t *testing.T) {
+func TestTimeDetails(t *testing.T) {
 	type args struct {
 		s []string
 		t time.Time
@@ -90,10 +90,10 @@ func TestDateInfo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := utils.AddTime(tt.args.t, tt.args.s...)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("DateInfo() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("TimeDetails() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			utils.MapRange(utils.DateInfo(got), func(key string, value any) bool {
+			utils.MapRange(utils.TimeDetails(got), func(key string, value any) bool {
 				//t.Logf("%v %v\n", key, value)
 				return true
 			})
@@ -269,8 +269,12 @@ func TestEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, err := utils.Equal(tt.args.layout, tt.args.t1, tt.args.t2); err != nil && got != tt.want {
-				t.Errorf("Equal() = %v, want %v, WrapError %v", got, tt.want, err)
+			got, err := utils.Equal(tt.args.layout, tt.args.t1, tt.args.t2)
+			if err != nil {
+				t.Fatalf("Equal() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Equal() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -300,8 +304,12 @@ func TestAfter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, err := utils.After(tt.args.layout, tt.args.t1, tt.args.t2); err != nil && got != tt.want {
-				t.Errorf("After() = %v, want %v, WrapError %v", got, tt.want, err)
+			got, err := utils.After(tt.args.layout, tt.args.t1, tt.args.t2)
+			if err != nil {
+				t.Fatalf("After() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("After() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -331,8 +339,12 @@ func TestBefore(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, err := utils.Before(tt.args.layout, tt.args.t1, tt.args.t2); err != nil && got != tt.want {
-				t.Errorf("Before() = %v, want %v, WrapError %v", got, tt.want, err)
+			got, err := utils.Before(tt.args.layout, tt.args.t1, tt.args.t2)
+			if err != nil {
+				t.Fatalf("Before() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Before() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -357,8 +369,12 @@ func TestSub(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, err := utils.Sub(tt.args.layout, tt.args.t1, tt.args.t2); err != nil && got.Nanoseconds() != tt.want {
-				t.Errorf("Sub() = %v, want %v, WrapError %v", got, tt.want, err)
+			got, err := utils.Sub(tt.args.layout, tt.args.t1, tt.args.t2)
+			if err != nil {
+				t.Fatalf("Sub() error = %v", err)
+			}
+			if got.Nanoseconds() != tt.want {
+				t.Errorf("Sub() = %v, want %v", got.Nanoseconds(), tt.want)
 			}
 		})
 	}

@@ -371,6 +371,16 @@ func TestWrappingPreservesSentinelForIs(t *testing.T) {
 	}
 }
 
+func TestWithContextKeepsValuesAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(errors.WithContextErr(context.Background(), "request_id", "r-1"))
+	cancel()
+
+	trace := errors.TraceJSON(errors.WithContext(ctx, io.EOF))
+	if !strings.Contains(trace, `"request_id":"r-1"`) {
+		t.Fatalf("WithContext() lost values after cancellation: %s", trace)
+	}
+}
+
 func TestJoinWrappingPreservesAllSentinelsForIs(t *testing.T) {
 	thirdPartyNil := stderrors.New("redis: nil")
 	err := errors.WithCode(
@@ -617,6 +627,23 @@ func TestWithCode(t *testing.T) {
 	trace := errors.TraceJSON(err)
 	if !strings.Contains(trace, `"code":409`) {
 		t.Fatalf("TraceJSON() should contain code, got %s", trace)
+	}
+}
+
+// TestHasCodeTraversesWholeChain 验证业务码查询覆盖单链和 Join 的全部节点。
+func TestHasCodeTraversesWholeChain(t *testing.T) {
+	nested := errors.WithCode(errors.WithCode(io.EOF, 40002), 40001)
+	if !errors.HasCode(nested, 40002) {
+		t.Fatal("HasCode() should match code in the inner error")
+	}
+
+	err := errors.Join(
+		errors.WithCode(io.EOF, 40001),
+		errors.WithCode(io.ErrUnexpectedEOF, 40002),
+	)
+
+	if !errors.HasCode(err, 40002) {
+		t.Fatal("HasCode() should match code in the second joined branch")
 	}
 }
 
@@ -979,6 +1006,32 @@ func TestRecommendedJoinUsage(t *testing.T) {
 	sources := errors.Sources(err)
 	if len(sources) != 2 {
 		t.Fatalf("Sources() len = %d, want 2", len(sources))
+	}
+}
+
+// TestTraceJoinChildContext 验证 slog 输出保留 Join 子错误的上下文字段。
+func TestTraceJoinChildContext(t *testing.T) {
+	old := errors.TraceEnabled()
+	defer errors.SetTraceEnabled(old)
+	errors.SetTraceEnabled(false)
+
+	ctx := errors.WithContextErr(context.Background(), "request_id", "r-1")
+	err := errors.Join(errors.WithContext(ctx, io.EOF), io.ErrUnexpectedEOF)
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
+		ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
+			if attr.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return attr
+		},
+	}))
+	logger.Error("joined failed", "trace", errors.Trace(err))
+
+	logLine := strings.TrimSpace(buf.String())
+	if !strings.Contains(logLine, `"ctx":{"request_id":"r-1"}`) {
+		t.Fatalf("Trace() joined child should preserve context, got %s", logLine)
 	}
 }
 

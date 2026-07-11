@@ -85,9 +85,6 @@ func (c *Cipher) DecryptGCMString(encrypt string, decode DecodeString, additiona
 
 // newGCM 创建 GCM AEAD 实例。
 func (c *Cipher) newGCM() (cipher.AEAD, error) {
-	if c.block == nil {
-		return nil, errors.New("请先设置密钥")
-	}
 	if c.block.BlockSize() != 16 {
 		return nil, errors.New("GCM 仅支持 16 字节分组算法，例如 AES")
 	}

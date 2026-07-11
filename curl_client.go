@@ -71,8 +71,6 @@ type Curl struct {
 	transportDirty     bool                                                                                           // 传输层配置是否已变更；仅在代理/TLS 配置变化时重建 Transport
 	cookies            map[string]*http.Cookie                                                                        // Cookie 配置
 	params             url.Values                                                                                     // URL 查询参数或 POST Form 参数
-	encodedParams      string                                                                                         // 已编码参数缓存，数据来源于 params.Encode，供重复请求复用
-	paramsDirty        bool                                                                                           // 参数缓存是否失效；Set/Add/Del/GetParams 暴露可变 map 后置为 true
 	body               io.Reader                                                                                      // 请求体
 	statusCode         []int                                                                                          // 可接受的状态码列表（除 200 以外需要特殊处理的状态码）
 	beforeRequest      func(ctx context.Context, request *http.Request) error                                         // 请求发送前的回调，可对 Request 进行自定义处理
@@ -153,7 +151,7 @@ func WithCurlLogger(logger Logger) CurlOption {
 // WithCurlDefLogOutput 设置默认日志输出开关。
 func WithCurlDefLogOutput(enable bool) CurlOption {
 	return func(c *Curl) {
-		c.SetDefLogOutput(enable)
+		c.SetDefaultLogOutput(enable)
 	}
 }
 
@@ -292,9 +290,9 @@ func WithCurlLogBodyLimit(limit int64) CurlOption {
 
 // ============================ 生命周期方法 ============================
 
-// SetDefLogOutput 设置默认日志输出开关。
+// SetDefaultLogOutput 设置默认日志输出开关。
 // true：打印 INFO 及以下级别日志；false：禁止打印默认日志。
-func (c *Curl) SetDefLogOutput(enable bool) *Curl {
+func (c *Curl) SetDefaultLogOutput(enable bool) *Curl {
 	c.defLogOutput = enable
 	return c
 }
@@ -314,7 +312,7 @@ func (c *Curl) CloseIdleConnections() {
 		c.cli.CloseIdleConnections()
 		c.cli.Transport = nil
 	}
-	c.markTransportDirty()
+	c.transportDirty = true
 }
 
 // SetRequestID 设置请求唯一标识。
@@ -379,8 +377,6 @@ func (c *Curl) Clone() (*Curl, error) {
 		transportDirty:     c.transportDirty,
 		cookies:            cloneCookies(c.cookies),
 		params:             cloneURLValues(c.params),
-		encodedParams:      c.encodedParams,
-		paramsDirty:        c.paramsDirty,
 		body:               body,
 		statusCode:         append([]int(nil), c.statusCode...),
 		beforeRequest:      c.beforeRequest,
@@ -419,7 +415,7 @@ func (c *Curl) Get(url string) (err error) {
 
 // GetContext 发起带 context 的 GET 请求。
 func (c *Curl) GetContext(ctx context.Context, url string) (err error) {
-	url = buildURLWithEncodedParams(url, c.encodedQueryParams())
+	url = buildURL(url, c.params.Encode())
 	return c.SendContext(ctx, http.MethodGet, url, c.body)
 }
 
@@ -430,7 +426,7 @@ func (c *Curl) Post(url string) (err error) {
 
 // PostContext 发起带 context 的 POST 请求。
 func (c *Curl) PostContext(ctx context.Context, url string) (err error) {
-	url = buildURLWithEncodedParams(url, c.encodedQueryParams())
+	url = buildURL(url, c.params.Encode())
 	return c.SendContext(ctx, http.MethodPost, url, c.body)
 }
 
@@ -442,7 +438,7 @@ func (c *Curl) PostForm(url string) error {
 // PostFormContext 发起带 context 的 POST Form 请求。
 func (c *Curl) PostFormContext(ctx context.Context, url string) error {
 	return c.SetContentType("application/x-www-form-urlencoded").
-		SendContext(ctx, http.MethodPost, url, strings.NewReader(c.encodedQueryParams()))
+		SendContext(ctx, http.MethodPost, url, strings.NewReader(c.params.Encode()))
 }
 
 // Put 发起 PUT 请求。
@@ -452,7 +448,7 @@ func (c *Curl) Put(url string) (err error) {
 
 // PutContext 发起带 context 的 PUT 请求。
 func (c *Curl) PutContext(ctx context.Context, url string) (err error) {
-	url = buildURLWithEncodedParams(url, c.encodedQueryParams())
+	url = buildURL(url, c.params.Encode())
 	return c.SendContext(ctx, http.MethodPut, url, c.body)
 }
 
@@ -463,7 +459,7 @@ func (c *Curl) Patch(url string) (err error) {
 
 // PatchContext 发起带 context 的 PATCH 请求。
 func (c *Curl) PatchContext(ctx context.Context, url string) (err error) {
-	url = buildURLWithEncodedParams(url, c.encodedQueryParams())
+	url = buildURL(url, c.params.Encode())
 	return c.SendContext(ctx, http.MethodPatch, url, c.body)
 }
 
@@ -474,6 +470,7 @@ func (c *Curl) Head(url string) error {
 
 // HeadContext 发起带 context 的 HEAD 请求。
 func (c *Curl) HeadContext(ctx context.Context, url string) error {
+	url = buildURL(url, c.params.Encode())
 	return c.SendContext(ctx, http.MethodHead, url, nil)
 }
 
@@ -484,7 +481,7 @@ func (c *Curl) Delete(url string) (err error) {
 
 // DeleteContext 发起带 context 的 DELETE 请求。
 func (c *Curl) DeleteContext(ctx context.Context, url string) (err error) {
-	url = buildURLWithEncodedParams(url, c.encodedQueryParams())
+	url = buildURL(url, c.params.Encode())
 	return c.SendContext(ctx, http.MethodDelete, url, c.body)
 }
 
@@ -495,7 +492,7 @@ func (c *Curl) Options(url string) (err error) {
 
 // OptionsContext 发起带 context 的 OPTIONS 请求。
 func (c *Curl) OptionsContext(ctx context.Context, url string) (err error) {
-	url = buildURLWithEncodedParams(url, c.encodedQueryParams())
+	url = buildURL(url, c.params.Encode())
 	return c.SendContext(ctx, http.MethodOptions, url, c.body)
 }
 
@@ -594,29 +591,12 @@ func cloneReadSeeker(reader io.ReadSeeker) (io.Reader, error) {
 	return bytes.NewReader(data), nil
 }
 
-// buildURL 构建完整的 URL，将 params 追加为查询参数。
-func buildURL(baseURL string, params url.Values) string {
-	if len(params) == 0 {
-		return baseURL
-	}
-	return buildURLWithEncodedParams(baseURL, params.Encode())
-}
-
-// buildURLWithEncodedParams 构建完整 URL，并复用调用方已经编码好的查询串。
-// URL 合法性由 http.NewRequest 统一校验，避免每次追加参数时重复解析。
-func buildURLWithEncodedParams(baseURL, encodedParams string) string {
+// buildURL 将已编码的查询参数追加到 URL，并保留 fragment。
+func buildURL(baseURL, encodedParams string) string {
 	if encodedParams == "" {
 		return baseURL
 	}
-	return appendEncodedQuery(baseURL, encodedParams)
-}
 
-// appendEncodedQuery 将已经编码好的查询参数追加到 URL 中。
-//
-// buildURL 的新增参数来自 url.Values.Encode，已经完成转义。
-// 原 URL 的 query 不重新解析，避免在每次请求前重复分配 map 和切片。
-// fragment 必须保留在 URL 最末尾，因此追加点位于 # 之前。
-func appendEncodedQuery(baseURL, encodedParams string) string {
 	fragment := ""
 	queryTarget := baseURL
 	if idx := strings.IndexByte(baseURL, '#'); idx >= 0 {

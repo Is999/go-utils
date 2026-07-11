@@ -177,30 +177,12 @@ func WithContext(ctx context.Context, err error) error {
 	if err == nil || ctx == nil {
 		return err
 	}
-	values := extractContextValues(ctx)
+	// values 由包内私有 context key 持有且只读，直接复用可避免二次拷贝。
+	values, _ := ctx.Value(contextValuesKey{}).([]string)
 	if len(values) == 0 {
 		return err
 	}
 	return &contextError{err: err, values: values}
-}
-
-// extractContextValues 从 context 中提取所有通过 WithContextErr 存储的键值对。
-// 使用 select 非阻塞方式检查 ctx 是否已取消，避免死锁。
-func extractContextValues(ctx context.Context) []string {
-	var result []string
-	select {
-	case <-ctx.Done():
-		return result
-	default:
-	}
-	if values := ctx.Value(contextValuesKey{}); values != nil {
-		if kv, ok := values.([]string); ok {
-			for i := 0; i < len(kv); i += 2 {
-				result = append(result, kv[i], kv[i+1])
-			}
-		}
-	}
-	return result
 }
 
 // contextValuesKey 是用于在 context 中存储错误相关键值对的 key 类型。
@@ -211,8 +193,7 @@ type contextValuesKey struct{}
 // 存储的值后续会被 WithContext 自动提取并附加到错误链。
 // 适用于在业务处理链中传递请求级标识（如 user_id、request_id）。
 func WithContextErr(ctx context.Context, key, value string) context.Context {
-	kv := []string{key, value}
-	return context.WithValue(normalizeContext(ctx), contextValuesKey{}, kv)
+	return context.WithValue(normalizeContext(ctx), contextValuesKey{}, []string{key, value})
 }
 
 // WithContextErrs 批量将多对键值存储到 context 中。
@@ -237,10 +218,7 @@ func WithContextErrsE(ctx context.Context, kvs ...string) (context.Context, erro
 	if len(kvs)%2 != 0 {
 		return parent, Errorf("WithContextErrsE 参数必须成对出现，当前参数个数=%d", len(kvs))
 	}
-	kv := make([]string, 0, len(kvs))
-	for i := 0; i < len(kvs); i += 2 {
-		kv = append(kv, kvs[i], kvs[i+1])
-	}
+	kv := append([]string(nil), kvs...)
 	return context.WithValue(parent, contextValuesKey{}, kv), nil
 }
 
@@ -369,7 +347,9 @@ func HasMsg(err error, msg string) bool {
 	stack := stackBuf[:0]
 	stack = append(stack, err)
 	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
-		current := popError(&stack)
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
 		if current == nil {
 			continue
 		}
@@ -379,7 +359,7 @@ func HasMsg(err error, msg string) bool {
 		}
 		switch {
 		case len(info.children) > 0:
-			pushChildren(&stack, info.children)
+			stack = pushChildren(stack, info.children)
 		case info.next != nil:
 			stack = append(stack, info.next)
 		}

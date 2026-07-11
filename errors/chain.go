@@ -72,7 +72,9 @@ func Sources(err error) []error {
 	stack := stackBuf[:0]
 	stack = append(stack, err)
 	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
-		current := popError(&stack)
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
 		if current == nil {
 			continue
 		}
@@ -80,7 +82,7 @@ func Sources(err error) []error {
 		switch {
 		case len(children) > 0:
 			before := len(stack)
-			pushChildren(&stack, children)
+			stack = pushChildren(stack, children)
 			if len(stack) == before {
 				sources = append(sources, current)
 			}
@@ -104,7 +106,9 @@ func Chain(err error) []error {
 	stack := stackBuf[:0]
 	stack = append(stack, err)
 	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
-		current := popError(&stack)
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
 		if current == nil {
 			continue
 		}
@@ -112,7 +116,7 @@ func Chain(err error) []error {
 		children, next := unwrapNode(current)
 		switch {
 		case len(children) > 0:
-			pushChildren(&stack, children)
+			stack = pushChildren(stack, children)
 		case next != nil:
 			stack = append(stack, next)
 		}
@@ -122,23 +126,15 @@ func Chain(err error) []error {
 
 // ============================ 内部辅助函数 ============================
 
-// popError 从栈顶弹出一个错误。
-// 使用后进先出策略，模拟递归遍历。
-func popError(stack *[]error) error {
-	last := len(*stack) - 1
-	current := (*stack)[last]
-	*stack = (*stack)[:last]
-	return current
-}
-
 // pushChildren 将子错误入栈。
 // 为保证深度优先遍历的正确顺序，从后向前遍历子错误切片入栈。
-func pushChildren(stack *[]error, children []error) {
+func pushChildren(stack, children []error) []error {
 	for i := len(children) - 1; i >= 0; i-- {
 		if children[i] != nil {
-			*stack = append(*stack, children[i])
+			stack = append(stack, children[i])
 		}
 	}
+	return stack
 }
 
 // compactErrors 压缩错误列表，过滤 nil 错误。
@@ -169,9 +165,11 @@ func compactErrors(errs []error) []error {
 func hasStackMulti(children []error) bool {
 	var stackBuf [8]error
 	stack := stackBuf[:0]
-	pushChildren(&stack, children)
+	stack = pushChildren(stack, children)
 	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
-		current := popError(&stack)
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
 		if current == nil {
 			continue
 		}
@@ -188,7 +186,7 @@ func hasStackMulti(children []error) bool {
 			children, next := unwrapNode(current)
 			switch {
 			case len(children) > 0:
-				pushChildren(&stack, children)
+				stack = pushChildren(stack, children)
 			case next != nil:
 				stack = append(stack, next)
 			}
@@ -202,13 +200,15 @@ func hasStackMulti(children []error) bool {
 func sourceMulti(err error, children []error) error {
 	var stackBuf [8]error
 	stack := stackBuf[:0]
-	pushChildren(&stack, children)
+	stack = pushChildren(stack, children)
 	if len(stack) == 0 {
 		return err
 	}
 	var last error
 	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
-		current := popError(&stack)
+		lastIndex := len(stack) - 1
+		current := stack[lastIndex]
+		stack = stack[:lastIndex]
 		if current == nil {
 			continue
 		}
@@ -216,7 +216,7 @@ func sourceMulti(err error, children []error) error {
 		children, next := unwrapNode(current)
 		switch {
 		case len(children) > 0:
-			pushChildren(&stack, children)
+			stack = pushChildren(stack, children)
 		case next != nil:
 			stack = append(stack, next)
 		default:

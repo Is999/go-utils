@@ -6,8 +6,8 @@ const (
 	smallSliceLinearThreshold = 8
 )
 
-// IsHas 检查 s 中是否存在 v。1.21 版本以上推荐使用标准库 slices.Contains(s, v)。
-func IsHas[T comparable](v T, s []T) bool {
+// Contains 检查 s 中是否存在 v。1.21 版本以上推荐使用标准库 slices.Contains(s, v)。
+func Contains[T comparable](v T, s []T) bool {
 	for i := range s {
 		if v == s[i] {
 			return true
@@ -53,7 +53,7 @@ func UniqueInto[T comparable](dst, s []T) []T {
 	}
 	if len(s) <= smallSliceLinearThreshold {
 		for i := range s {
-			if !containsComparable(out, s[i]) {
+			if !Contains(s[i], out) {
 				out = append(out, s[i])
 			}
 		}
@@ -100,7 +100,7 @@ func DiffInto[T comparable](dst, s1, s2 []T) []T {
 	}
 	if len(s2) <= smallSliceLinearThreshold {
 		for i := range s1 {
-			if !containsComparable(s2, s1[i]) {
+			if !Contains(s1[i], s2) {
 				out = append(out, s1[i])
 			}
 		}
@@ -139,7 +139,7 @@ func IntersectInto[T comparable](dst, s1, s2 []T) []T {
 	}
 	if len(s2) <= smallSliceLinearThreshold {
 		for i := range s1 {
-			if containsComparable(s2, s1[i]) {
+			if Contains(s1[i], s2) {
 				out = append(out, s1[i])
 			}
 		}
@@ -157,17 +157,6 @@ func IntersectInto[T comparable](dst, s1, s2 []T) []T {
 		}
 	}
 	return out
-}
-
-// containsComparable 在线性集合中查找 target。
-// 该方法仅服务短切片降级路径，业务边界是 smallSliceLinearThreshold 内避免创建 map。
-func containsComparable[T comparable](s []T, target T) bool {
-	for i := range s {
-		if s[i] == target {
-			return true
-		}
-	}
-	return false
 }
 
 // SumSlice 求和

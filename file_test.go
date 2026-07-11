@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -150,9 +151,9 @@ func TestIsExist(t *testing.T) {
 				t.Errorf("IsExist() = %v, want %v", got, tt.want)
 			}
 			if size, err := utils.Size(tt.args.path); (err != nil) == tt.want {
-				t.Errorf("Size() path = %v, size = %v, WrapError %v", tt.args.path, utils.SizeFormat(size, 4), err)
+				t.Errorf("Size() path = %v, size = %v, WrapError %v", tt.args.path, utils.FormatFileSize(size, 4), err)
 			} else {
-				//t.Logf("Size() path = %v, size = %d, Humane = %v", tt.args.path, size, SizeFormat(size, 4))
+				//t.Logf("Size() path = %v, size = %d, Humane = %v", tt.args.path, size, FormatFileSize(size, 4))
 			}
 		})
 	}
@@ -452,6 +453,34 @@ func TestLine(t *testing.T) {
 	}
 }
 
+func TestLineKeepsPhysicalLineNumberAcrossLongLineChunks(t *testing.T) {
+	input := strings.Repeat("a", 70*1024) + "\nsecond"
+	expectedLine := 1
+	completedLines := 0
+	callbacks := 0
+
+	err := utils.Line(strings.NewReader(input), func(line int, _ []byte, done bool) error {
+		callbacks++
+		if line != expectedLine {
+			t.Fatalf("Line() callback line = %d, want %d", line, expectedLine)
+		}
+		if done {
+			expectedLine++
+			completedLines++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Line() error = %v", err)
+	}
+	if callbacks < 3 {
+		t.Fatalf("Line() callbacks = %d, want at least 3", callbacks)
+	}
+	if completedLines != 2 {
+		t.Fatalf("Line() completed lines = %d, want 2", completedLines)
+	}
+}
+
 // go test -bench=Line$ -run ^$  -count 5 -benchmem
 func BenchmarkLine(t *testing.B) {
 	type args struct {
@@ -704,7 +733,7 @@ func TestWrite(t *testing.T) {
 	}
 }
 
-func TestSizeFormat(t *testing.T) {
+func TestFormatFileSize(t *testing.T) {
 	tests := []struct {
 		name string
 		size int64
@@ -720,9 +749,9 @@ func TestSizeFormat(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := utils.SizeFormat(tt.size, 4)
+			got := utils.FormatFileSize(tt.size, 4)
 			if got != tt.want {
-				t.Errorf("SizeFormat(%d) = %v, want %v", tt.size, got, tt.want)
+				t.Errorf("FormatFileSize(%d) = %v, want %v", tt.size, got, tt.want)
 			}
 		})
 	}

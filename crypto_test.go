@@ -276,6 +276,69 @@ func TestCipherBlockModesNoPadRejectPartialBlockWithoutPanic(t *testing.T) {
 	}
 }
 
+func TestCipherNoPadEmptyRoundTrip(t *testing.T) {
+	c, err := utils.AES(
+		"1234567812345678",
+		utils.WithIV("abcdefgh12345678"),
+		utils.WithAllowUnsafeECB(true),
+		utils.WithAllowUnsafeStreamMode(true),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	modes := []struct {
+		name string
+		mode utils.CipherMode
+	}{
+		{name: "ECB", mode: utils.ECB},
+		{name: "CBC", mode: utils.CBC},
+		{name: "CTR", mode: utils.CTR},
+		{name: "CFB", mode: utils.CFB},
+		{name: "OFB", mode: utils.OFB},
+	}
+	for _, tt := range modes {
+		t.Run(tt.name, func(t *testing.T) {
+			encrypted, err := c.EncryptBytes(nil, tt.mode, utils.NoPad)
+			if err != nil {
+				t.Fatalf("EncryptBytes() error = %v", err)
+			}
+			decrypted, err := c.DecryptBytes(encrypted, tt.mode, utils.NoUnpad)
+			if err != nil {
+				t.Fatalf("DecryptBytes() error = %v", err)
+			}
+			if len(decrypted) != 0 {
+				t.Fatalf("DecryptBytes() length = %d, want 0", len(decrypted))
+			}
+		})
+	}
+}
+
+func TestNilCipherStreamModesReturnError(t *testing.T) {
+	var c *utils.Cipher
+	cases := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "CTR", run: func() error { _, err := c.EncryptCTR(nil, utils.NoPad); return err }},
+		{name: "CFB", run: func() error { _, err := c.EncryptCFB(nil, utils.NoPad); return err }},
+		{name: "OFB", run: func() error { _, err := c.EncryptOFB(nil, utils.NoPad); return err }},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("Encrypt%s() panicked: %v", tt.name, recovered)
+				}
+			}()
+			if err := tt.run(); err == nil {
+				t.Fatalf("Encrypt%s() error = nil, want key error", tt.name)
+			}
+		})
+	}
+}
+
 func TestCipherRejectsImplicitKeyIVByDefault(t *testing.T) {
 	c, err := utils.AES("1234567812345678")
 	if err != nil {

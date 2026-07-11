@@ -437,6 +437,13 @@ func buildLogObject(err error, depth int, withTrace bool) map[string]any {
 	if info.hasMsg {
 		obj["msg"] = info.msg
 	}
+	if len(info.ctxKeys) > 0 {
+		ctx := make(map[string]string, len(info.ctxKeys)/2)
+		for i := 0; i < len(info.ctxKeys); i += 2 {
+			ctx[info.ctxKeys[i]] = info.ctxKeys[i+1]
+		}
+		obj["ctx"] = ctx
+	}
 	if withTrace && len(info.trace) > 0 {
 		obj["trace"] = info.trace
 	}

@@ -15,18 +15,12 @@ import (
 // initTransport 初始化 HTTP Transport。
 // 配置代理、TLS 证书、不安全验证等传输层选项。
 func (c *Curl) initTransport() error {
-	// 确保 Client 已初始化
-	if c.cli == nil {
-		c.cli = &http.Client{}
-	}
-
-	// 传输层配置未发生变化时，直接复用现有 Transport 与连接池。
-	if c.cli.Transport != nil && !c.transportDirty {
-		return nil
-	}
-
-	// 仅在代理/TLS 配置变化时重建 Transport，避免每次请求都丢失连接复用收益。
-	if c.cli.Transport != nil && c.transportDirty {
+	if c.cli.Transport != nil {
+		// 传输层配置未发生变化时，直接复用现有 Transport 与连接池。
+		if !c.transportDirty {
+			return nil
+		}
+		// 仅在代理/TLS 配置变化时重建 Transport，避免每次请求都丢失连接复用收益。
 		c.cli.CloseIdleConnections()
 	}
 
@@ -56,7 +50,7 @@ func (c *Curl) initTransport() error {
 
 // applyTransportProxy 应用 HTTP 代理配置。
 func (c *Curl) applyTransportProxy(tr *http.Transport) error {
-	if len(c.proxyURL) == 0 {
+	if c.proxyURL == "" {
 		return nil
 	}
 	if c.defLogOutput {
@@ -73,7 +67,7 @@ func (c *Curl) applyTransportTLS(tr *http.Transport) error {
 		}
 		ensureTLSConfig(tr).InsecureSkipVerify = true
 	}
-	if len(c.rootCAs) > 0 {
+	if c.rootCAs != "" {
 		if c.defLogOutput {
 			c.Logger.Debug("RootCAs()")
 		}
@@ -81,7 +75,7 @@ func (c *Curl) applyTransportTLS(tr *http.Transport) error {
 			return errors.Tag(err)
 		}
 	}
-	if len(c.cert) > 0 && len(c.key) > 0 {
+	if c.cert != "" && c.key != "" {
 		if c.defLogOutput {
 			c.Logger.Debug("Certificate()")
 		}
@@ -90,14 +84,6 @@ func (c *Curl) applyTransportTLS(tr *http.Transport) error {
 		}
 	}
 	return nil
-}
-
-// markTransportDirty 标记传输层配置已变更。
-// 下一次发请求时会按最新配置重建 Transport，其余请求继续复用现有连接池。
-func (c *Curl) markTransportDirty() {
-	if c != nil {
-		c.transportDirty = true
-	}
 }
 
 // defaultHTTPTransport 返回标准库默认 Transport 的可修改副本。
@@ -113,15 +99,10 @@ func defaultHTTPTransport() (*http.Transport, error) {
 	return cloned, nil
 }
 
-// defaultTLSConfig 返回生产默认 TLS 配置。
-func defaultTLSConfig() *tls.Config {
-	return &tls.Config{MinVersion: tls.VersionTLS12}
-}
-
 // ensureTLSConfig 返回可写 TLS 配置，缺失时使用生产默认配置。
 func ensureTLSConfig(transport *http.Transport) *tls.Config {
 	if transport.TLSClientConfig == nil {
-		transport.TLSClientConfig = defaultTLSConfig()
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	return transport.TLSClientConfig
 }

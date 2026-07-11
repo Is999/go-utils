@@ -11,11 +11,6 @@ type slogLogger struct {
 	l *slog.Logger // 底层 slog Logger，nil 时使用 slog.Default()。
 }
 
-// newSlogLogger 创建默认 slog Logger 适配器。
-func newSlogLogger() *slogLogger {
-	return &slogLogger{}
-}
-
 // logger 返回当前可用的 slog Logger。
 func (s *slogLogger) logger() *slog.Logger {
 	if s.l != nil {
@@ -43,24 +38,7 @@ func (s *slogLogger) With(args ...any) Logger {
 
 // Enabled 将自定义 LogLevel 转换为 slog.Level 进行判断
 func (s *slogLogger) Enabled(ctx context.Context, level LogLevel) bool {
-	return s.logger().Enabled(ctx, toSlogLevel(level))
-}
-
-// toSlogLevel 将自定义 LogLevel 转换为 slog.Level
-func toSlogLevel(level LogLevel) slog.Level {
-	switch level {
-	case LevelDebug:
-		return slog.LevelDebug
-	case LevelInfo:
-		return slog.LevelInfo
-	case LevelWarn:
-		return slog.LevelWarn
-	case LevelError:
-		return slog.LevelError
-	default:
-		// 对于自定义级别，直接转换（假设用户知道 slog 的级别语义）
-		return slog.Level(level)
-	}
+	return s.logger().Enabled(ctx, slog.Level(level))
 }
 
 // Log 获取全局 Logger 实例。

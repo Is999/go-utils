@@ -60,7 +60,7 @@ func (f *Form) SetParam(key, value string) *Form {
 // SetParams 批量设置表单字段。
 func (f *Form) SetParams(params map[string]string) *Form {
 	for key, value := range params {
-		f.SetParam(key, value)
+		f.Params.Set(key, value)
 	}
 	return f
 }
@@ -76,8 +76,8 @@ func (f *Form) AddParam(key string, values ...string) *Form {
 // AddParams 批量添加表单字段值。
 func (f *Form) AddParams(params map[string][]string) *Form {
 	for key, values := range params {
-		if len(values) > 0 {
-			f.AddParam(key, values...)
+		for _, value := range values {
+			f.Params.Add(key, value)
 		}
 	}
 	return f
@@ -99,7 +99,7 @@ func (f *Form) SetFile(fieldName, filePath string) *Form {
 // SetFiles 批量设置文件字段。
 func (f *Form) SetFiles(files map[string]string) *Form {
 	for name, path := range files {
-		f.SetFile(name, path)
+		f.Files.Set(name, path)
 	}
 	return f
 }
@@ -115,8 +115,8 @@ func (f *Form) AddFile(fieldName string, filePath ...string) *Form {
 // AddFiles 批量添加文件字段。
 func (f *Form) AddFiles(files map[string][]string) *Form {
 	for name, paths := range files {
-		if len(paths) > 0 {
-			f.AddFile(name, paths...)
+		for _, path := range paths {
+			f.Files.Add(name, path)
 		}
 	}
 	return f
@@ -189,12 +189,10 @@ func (f *Form) createFormFile(writer *multipart.Writer, fieldName, filePath stri
 // writeMultipart 将表单参数与文件按 multipart/form-data 规范流式写入 writer。
 func (f *Form) writeMultipart(writer *multipart.Writer) error {
 	// 处理普通表单字段
-	if f.Params != nil {
-		for key, values := range f.Params {
-			for _, value := range values {
-				if err := writer.WriteField(key, value); err != nil {
-					return errors.Tag(err)
-				}
+	for key, values := range f.Params {
+		for _, value := range values {
+			if err := writer.WriteField(key, value); err != nil {
+				return errors.Tag(err)
 			}
 		}
 	}

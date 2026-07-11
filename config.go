@@ -52,20 +52,12 @@ func defaultOptions() *options {
 			useStandard: true,
 		},
 		// 设置日志(三方日志库)，若未设置则默认使用 log/slog(标准库)。
-		logger: newSlogLogger(),
+		logger: &slogLogger{},
 	}
 }
 
 // currentConfig 返回当前生效的全局配置快照。
 func currentConfig() *options {
-	if cfg := configValue.Load(); cfg != nil {
-		return cfg
-	}
-
-	cfg := defaultOptions()
-	if configValue.CompareAndSwap(nil, cfg) {
-		return cfg
-	}
 	return configValue.Load()
 }
 

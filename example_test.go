@@ -27,7 +27,7 @@ func registerRedirectExample(mux *http.ServeMux) {
 	})
 }
 
-func ExampleJson() {
+func ExampleJSON() {
 	mux := http.NewServeMux()
 	registerJSONExample(mux)
 }
@@ -49,12 +49,12 @@ func registerJSONExample(mux *http.ServeMux) {
 
 		if queryParam == "fail" {
 			// 错误响应
-			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail")
+			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail")
 			return
 		}
 
 		// 成功响应
-		utils.Json(w).Success(10000, user)
+		utils.JSON(w).Success(10000, user)
 	})
 }
 
@@ -68,7 +68,7 @@ func registerViewExample(mux *http.ServeMux) {
 	mux.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
 
 		// 响应html数据
-		utils.View(w).Html("<p>这是一个<b style=\"color: red\">段落!</b></p>")
+		utils.View(w).HTML("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 	})
 
 	// 响应xml
@@ -85,7 +85,7 @@ func registerViewExample(mux *http.ServeMux) {
 		}
 
 		// 响应xml数据
-		utils.View(w).Xml(user)
+		utils.View(w).XML(user)
 	})
 
 	// 响应text

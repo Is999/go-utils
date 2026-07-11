@@ -49,7 +49,7 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 	if err != nil {
 		return err
 	}
-	if err = c.prepareClient(ctx); err != nil {
+	if err := c.prepareClient(ctx); err != nil {
 		return err
 	}
 	resp, err = c.sendWithRetry(ctx, req)
@@ -84,7 +84,9 @@ func (c *Curl) finishRequest(ctx context.Context, req *http.Request, resp *http.
 		c.Logger.Debug("Close Response Body")
 	}
 	if err := resp.Body.Close(); err != nil {
-		c.Logger.Error("Body.Close()", "err", err.Error())
+		if c.defLogOutput {
+			c.Logger.Error("Body.Close()", "err", err.Error())
+		}
 	}
 }
 
@@ -241,7 +243,9 @@ func (c *Curl) sendWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 			break
 		}
 		if i < maxRetry {
-			c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error())
+			if c.defLogOutput {
+				c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error())
+			}
 			if err = waitRetry(ctx, i); err != nil {
 				return nil, errors.Tag(err)
 			}
@@ -266,7 +270,7 @@ func (c *Curl) handleResponse(ctx context.Context, resp *http.Response) (done bo
 			return false, errors.Tag(err)
 		}
 	}
-	if resp.StatusCode != http.StatusOK && !containsStatusCode(resp.StatusCode, c.statusCode) {
+	if resp.StatusCode != http.StatusOK && !slices.Contains(c.statusCode, resp.StatusCode) {
 		return false, errors.Errorf("response error StatusCode: statusCode=%d, Status=%s", resp.StatusCode, resp.Status)
 	}
 	if c.afterResponse != nil {
@@ -327,7 +331,7 @@ type reusableReadSeeker struct {
 
 // setRequestGetBody 为可安全重放的请求体补充 GetBody，保证日志预览和传输重试不会共享读取游标。
 func setRequestGetBody(req *http.Request, body io.Reader) error {
-	if req == nil || req.GetBody != nil || body == nil {
+	if req.GetBody != nil || body == nil {
 		return nil
 	}
 
@@ -398,9 +402,13 @@ func setRequestGetBodyFromBytes(req *http.Request, data []byte) {
 // logRequest 记录请求日志（非 dump 模式）。
 func (c *Curl) logRequest(method, url string, req *http.Request) {
 	var b strings.Builder
-	b.WriteString(method + ": " + url + "\n")
+	b.Grow(len(method) + len(url) + 3)
+	b.WriteString(method)
+	b.WriteString(": ")
+	b.WriteString(url)
+	b.WriteByte('\n')
 
-	if req != nil && req.Body != nil && req.Body != http.NoBody && c.logBodyLimit > 0 {
+	if req.Body != nil && req.Body != http.NoBody && c.logBodyLimit > 0 {
 		b.WriteString("Request Body Preview:\n")
 		reqBody, truncated, err := requestBodyPreview(req, c.logBodyLimit)
 		if err != nil {
@@ -414,11 +422,6 @@ func (c *Curl) logRequest(method, url string, req *http.Request) {
 
 // logResponse 记录响应日志，并在读取预览后恢复 Body。
 func (c *Curl) logResponse(resp *http.Response) error {
-	if resp == nil {
-		c.Logger.Info("Response", "body", "<nil>")
-		return nil
-	}
-
 	if c.dump {
 		dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
 		if err != nil {
@@ -572,9 +575,6 @@ func DrainBody(b io.ReadCloser) ([]byte, io.ReadCloser, error) {
 // requestBodyPreview 获取请求体预览内容。
 // 仅对支持 GetBody 的请求体读取预览，避免阻塞流式 body。
 func requestBodyPreview(req *http.Request, limit int64) ([]byte, bool, error) {
-	if req == nil || req.Body == nil || req.Body == http.NoBody || limit <= 0 {
-		return nil, false, nil
-	}
 	if req.GetBody == nil {
 		return []byte("[skipped: non-rewindable]"), false, nil
 	}
@@ -584,11 +584,6 @@ func requestBodyPreview(req *http.Request, limit int64) ([]byte, bool, error) {
 	}
 	defer body.Close()
 	return readBodyPreview(body, limit)
-}
-
-// containsStatusCode 检查状态码是否在列表中。
-func containsStatusCode(code int, list []int) bool {
-	return slices.Contains(list, code)
 }
 
 // dumpRequestSafe 安全地获取请求详情预览。
@@ -616,21 +611,12 @@ func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 	if err != nil {
 		return "", errors.Tag(err)
 	}
-	restored, err := req.GetBody()
-	if err != nil {
-		return "", errors.Tag(err)
-	}
-	req.Body = restored
 
 	return formatDumpWithBody(string(dump), "Request Body", preview, truncated), nil
 }
 
 // dumpResponseSafe 安全地获取响应详情预览。
 func dumpResponseSafe(resp *http.Response, limit int64) (string, error) {
-	if resp == nil {
-		return "<nil>", nil
-	}
-
 	dump, err := httputil.DumpResponse(resp, false)
 	if err != nil {
 		return "", errors.Tag(err)

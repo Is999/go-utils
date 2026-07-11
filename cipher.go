@@ -145,14 +145,9 @@ func (c *Cipher) setKey(key string, block CipherBlock) error {
 	return nil
 }
 
-// isSetKey 判断密钥和分组密码是否已经设置。
-func (c *Cipher) isSetKey() bool {
-	return c != nil && len(c.key) > 0 && c.block != nil
-}
-
 // check 校验加密器是否可用。
 func (c *Cipher) check() error {
-	if !c.isSetKey() {
+	if c == nil || len(c.key) == 0 || c.block == nil {
 		return errors.New("请先设置密钥")
 	}
 	return nil
@@ -200,7 +195,7 @@ func (c *Cipher) DecryptECB(data []byte, unpad Unpad) ([]byte, error) {
 	if err := c.checkUnsafeECB(); err != nil {
 		return nil, errors.Tag(err)
 	}
-	if err := c.validateBlockCiphertext(data); err != nil {
+	if err := c.validateBlockCiphertext(data, isNoUnpadFunc(unpad)); err != nil {
 		return nil, errors.Tag(err)
 	}
 	if unpad == nil {
@@ -229,7 +224,7 @@ func (c *Cipher) EncryptCBC(data []byte, padding Pad) ([]byte, error) {
 
 // DecryptCBC 使用 CBC 模式解密。
 func (c *Cipher) DecryptCBC(data []byte, unpad Unpad) ([]byte, error) {
-	body, iv, err := c.prepareBlockDecrypt(data)
+	body, iv, err := c.prepareBlockDecrypt(data, isNoUnpadFunc(unpad))
 	if err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -466,6 +461,9 @@ func (c *Cipher) validateBlockPlaintext(data []byte) error {
 
 // checkUnsafeStreamMode 校验是否允许使用非认证流模式。
 func (c *Cipher) checkUnsafeStreamMode(modeName string) error {
+	if c == nil {
+		return errors.New("请先设置密钥")
+	}
 	if c.allowUnsafeStreamMode {
 		return nil
 	}
@@ -508,8 +506,8 @@ func (c *Cipher) prepareBlockEncrypt(data []byte, padding Pad) (paddingData, out
 	return paddingData, out, out, iv, nil
 }
 
-// prepareBlockDecrypt 为 CBC/CTR/CFB/OFB 等模式准备解密数据。
-func (c *Cipher) prepareBlockDecrypt(data []byte) (body, iv []byte, err error) {
+// prepareBlockDecrypt 为 CBC 模式准备解密数据。
+func (c *Cipher) prepareBlockDecrypt(data []byte, allowEmpty bool) (body, iv []byte, err error) {
 	if err = c.check(); err != nil {
 		return nil, nil, errors.Tag(err)
 	}
@@ -517,14 +515,14 @@ func (c *Cipher) prepareBlockDecrypt(data []byte) (body, iv []byte, err error) {
 	if err != nil {
 		return nil, nil, errors.Tag(err)
 	}
-	if err = c.validateBlockCiphertext(body); err != nil {
+	if err = c.validateBlockCiphertext(body, allowEmpty); err != nil {
 		return nil, nil, errors.Tag(err)
 	}
 	return body, iv, nil
 }
 
 // prepareStreamDecrypt 为 CTR/CFB/OFB 等流模式准备解密数据。
-func (c *Cipher) prepareStreamDecrypt(data []byte) (body, iv []byte, err error) {
+func (c *Cipher) prepareStreamDecrypt(data []byte, allowEmpty bool) (body, iv []byte, err error) {
 	if err = c.check(); err != nil {
 		return nil, nil, errors.Tag(err)
 	}
@@ -532,7 +530,7 @@ func (c *Cipher) prepareStreamDecrypt(data []byte) (body, iv []byte, err error) 
 	if err != nil {
 		return nil, nil, errors.Tag(err)
 	}
-	if len(body) == 0 {
+	if len(body) == 0 && !allowEmpty {
 		return nil, nil, errors.New("密文不能为空")
 	}
 	return body, iv, nil
@@ -550,7 +548,7 @@ func (c *Cipher) encryptStream(data []byte, padding Pad, newStream func(cipher.B
 
 // decryptStream 使用流模式执行解密。
 func (c *Cipher) decryptStream(data []byte, unpad Unpad, newStream func(cipher.Block, []byte) cipher.Stream) ([]byte, error) {
-	body, iv, err := c.prepareStreamDecrypt(data)
+	body, iv, err := c.prepareStreamDecrypt(data, isNoUnpadFunc(unpad))
 	if err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -618,7 +616,7 @@ func (c *Cipher) decryptStreamTo(dst, data []byte, unpad Unpad, newStream func(c
 		return append(dst, decrypted...), nil
 	}
 
-	body, iv, err := c.prepareStreamDecrypt(data)
+	body, iv, err := c.prepareStreamDecrypt(data, isNoUnpadFunc(unpad))
 	if err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -680,9 +678,9 @@ func (c *Cipher) splitCiphertextIV(data []byte) ([]byte, []byte, error) {
 }
 
 // validateBlockCiphertext 校验分组密文是否合法。
-func (c *Cipher) validateBlockCiphertext(data []byte) error {
+func (c *Cipher) validateBlockCiphertext(data []byte, allowEmpty bool) error {
 	blockSize := c.block.BlockSize()
-	if len(data) == 0 {
+	if len(data) == 0 && !allowEmpty {
 		return errors.New("密文不能为空")
 	}
 	if len(data)%blockSize != 0 {

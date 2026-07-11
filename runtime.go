@@ -14,24 +14,16 @@ type Frame struct {
 
 // RuntimeInfo 获取运行时行号、方法名、文件地址
 func RuntimeInfo(skip int) *Frame {
-	info := new(Frame)
 	pc, file, line, ok := runtime.Caller(skip)
 	if !ok {
-		info.File = "Unknown File"
-		info.Line = 0
-		return info
+		return &Frame{File: "Unknown File"}
 	}
 
 	fPC := runtime.FuncForPC(pc)
 	if fPC == nil {
-		info.Func = "Unknown Function"
-		return info
+		return &Frame{Func: "Unknown Function"}
 	}
-
-	info.File = file
-	info.Line = line
-	info.Func = fPC.Name()
-	return info
+	return &Frame{Func: fPC.Name(), File: file, Line: line}
 }
 
 // GetFunctionName 获取函数名（普通函数、结构体方法或匿名函数）

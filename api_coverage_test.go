@@ -74,7 +74,7 @@ func TestCurlConfigAndMethods(t *testing.T) {
 		InsecureSkipVerify(true).
 		SetRootCAs("").
 		SetCertKey("", "").
-		SetDefLogOutput(false).
+		SetDefaultLogOutput(false).
 		SetLogBodyLimit(8)
 
 	if !c.HasHeader("X-Test") || len(c.GetHeaderValues("X-List")) != 2 {
@@ -94,7 +94,7 @@ func TestCurlConfigAndMethods(t *testing.T) {
 	}
 
 	c.DeleteHeaders("X-More").DeleteParams("kind").DeleteCookies("sid")
-	c.ResetHeader(http.Header{"X-Test": []string{"yes"}})
+	c.ResetHeaders(http.Header{"X-Test": []string{"yes"}})
 	c.ResetParams(url.Values{"reset": []string{"1"}})
 	c.SetCookies(&http.Cookie{Name: "sid", Value: "2"}).ClearCookies()
 	c.CloseIdleConnections()

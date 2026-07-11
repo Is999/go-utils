@@ -88,10 +88,8 @@ func (r *Once) doContext(ctx context.Context, fnName string, f func(ctx context.
 	r.err = err
 	r.done = true
 	r.running = false
-	if r.waitCh != nil {
-		close(r.waitCh)
-		r.waitCh = nil
-	}
+	close(r.waitCh)
+	r.waitCh = nil
 	r.mu.Unlock()
 	return err
 }
@@ -109,9 +107,7 @@ func (r *Once) Reset() {
 		}
 		waitCh := r.waitCh
 		r.mu.Unlock()
-		if waitCh != nil {
-			<-waitCh
-		}
+		<-waitCh
 	}
 }
 
@@ -130,13 +126,11 @@ func (r *Once) doWithRetryContext(ctx context.Context, fnName string, f func(ctx
 		if err == nil {
 			return nil
 		}
-		if attempt >= maxRetries {
-			break
-		}
-
-		// 使用有上限的指数退避，避免失败风暴下重试间隔失控。
-		if err = waitRetry(ctx, attempt); err != nil {
-			return errors.Tag(err)
+		if attempt < maxRetries {
+			// 使用有上限的指数退避，避免失败风暴下重试间隔失控。
+			if err = waitRetry(ctx, attempt); err != nil {
+				return errors.Tag(err)
+			}
 		}
 	}
 	return errors.Wrapf(err, "%s 尝试 %d 次后依然失败", fnName, maxRetries)

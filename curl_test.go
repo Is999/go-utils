@@ -60,16 +60,16 @@ func TestGet(t *testing.T) {
 		}
 
 		if r.URL.Query().Get("success") == "false" {
-			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail", user)
+			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail", user)
 			return
 		}
-		utils.Json(w).Success(10000, user)
+		utils.JSON(w).Success(10000, user)
 	})
 	server := httptest.NewServer(serveMux)
 	defer server.Close()
 
 	// 创建一个curl，开启默认日志
-	curl := utils.NewCurl().SetDefLogOutput(true)
+	curl := utils.NewCurl().SetDefaultLogOutput(true)
 
 	type args struct {
 		url         string
@@ -215,13 +215,13 @@ func TestPost(t *testing.T) {
 	serveMux.HandleFunc("/curl/post", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
 		if r.Method != http.MethodPost {
-			utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
+			utils.JSON(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
 			return
 		}
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Failed to read request body")
+			utils.JSON(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Failed to read request body")
 			return
 		}
 		slog.Info("Received POST", "body", string(body))
@@ -229,10 +229,10 @@ func TestPost(t *testing.T) {
 		user := new(User)
 		utils.Unmarshal(body, user)
 		if r.URL.Query().Get("success") == "false" {
-			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
+			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
 			return
 		}
-		utils.Json(w).Success(1000, user)
+		utils.JSON(w).Success(1000, user)
 	})
 	server := httptest.NewServer(serveMux)
 	defer server.Close()
@@ -386,11 +386,11 @@ func TestPostForm(t *testing.T) {
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("/curl/form", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
+			utils.JSON(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
 			return
 		}
 		if err := r.ParseForm(); err != nil {
-			utils.Json(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
+			utils.JSON(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
 			return
 		}
 		slog.Info("Received POST FORM", "form", r.Form)
@@ -403,10 +403,10 @@ func TestPostForm(t *testing.T) {
 		info["hobby"] = r.Form["hobby"]
 
 		if r.URL.Query().Get("success") == "false" {
-			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
+			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
 			return
 		}
-		utils.Json(w).Success(1000, info)
+		utils.JSON(w).Success(1000, info)
 	})
 	server := httptest.NewServer(serveMux)
 	defer server.Close()
@@ -446,7 +446,7 @@ func TestPostForm(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 开启默认日志
-			curl.SetDefLogOutput(true)
+			curl.SetDefaultLogOutput(true)
 
 			// 设置请求ID
 			curl.SetRequestID()
@@ -491,11 +491,11 @@ func TestPostFile(t *testing.T) {
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("/curl/file", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			utils.Json(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
+			utils.JSON(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
 			return
 		}
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
-			utils.Json(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
+			utils.JSON(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
 			return
 		}
 
@@ -512,14 +512,14 @@ func TestPostFile(t *testing.T) {
 
 		_, fileHeader, err := r.FormFile("json_file")
 		if err != nil {
-			utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
+			utils.JSON(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
 			return
 		}
 		info["json_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
 
 		_, fileHeader, err = r.FormFile("env_file")
 		if err != nil {
-			utils.Json(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
+			utils.JSON(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
 			return
 		}
 		info["env_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
@@ -532,10 +532,10 @@ func TestPostFile(t *testing.T) {
 		info["files"] = filesInfo
 
 		if r.URL.Query().Get("success") == "false" {
-			utils.Json(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
+			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
 			return
 		}
-		utils.Json(w).Success(1000, info)
+		utils.JSON(w).Success(1000, info)
 	})
 	server := httptest.NewServer(serveMux)
 	defer server.Close()
@@ -756,6 +756,76 @@ func TestRetryRewindsRequestBody(t *testing.T) {
 	}
 }
 
+func TestCurlHeadIncludesParams(t *testing.T) {
+	query := make(chan url.Values, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query <- r.URL.Query()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	err := utils.NewCurl(utils.WithCurlLogger(curlTestLogger{})).
+		SetParams(map[string]string{"page": "2"}).
+		Head(server.URL)
+	if err != nil {
+		t.Fatalf("Head() error = %v", err)
+	}
+	if got := (<-query).Get("page"); got != "2" {
+		t.Fatalf("HEAD query page = %q, want %q", got, "2")
+	}
+}
+
+func TestCurlDisabledDefaultLogsSuppressInternalErrors(t *testing.T) {
+	t.Run("retry", func(t *testing.T) {
+		logger := &countLogger{}
+		rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("temporary transport error")
+		})
+
+		err := utils.NewCurl(
+			utils.WithCurlLogger(logger),
+			utils.WithCurlDefLogOutput(false),
+			utils.WithCurlMaxRetry(2),
+		).BeforeClient(func(client *http.Client) error {
+			client.Transport = rt
+			return nil
+		}).Get("http://example.test/retry")
+		if err == nil {
+			t.Fatal("Get() error = nil, want transport error")
+		}
+		if got := logger.calls.Load(); got != 0 {
+			t.Fatalf("logger calls = %d, want 0", got)
+		}
+	})
+
+	t.Run("body close", func(t *testing.T) {
+		logger := &countLogger{}
+		rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     make(http.Header),
+				Body:       closeErrorBody{Reader: strings.NewReader("ok")},
+				Request:    req,
+			}, nil
+		})
+
+		err := utils.NewCurl(
+			utils.WithCurlLogger(logger),
+			utils.WithCurlDefLogOutput(false),
+		).BeforeClient(func(client *http.Client) error {
+			client.Transport = rt
+			return nil
+		}).Get("http://example.test/close")
+		if err != nil {
+			t.Fatalf("Get() error = %v", err)
+		}
+		if got := logger.calls.Load(); got != 0 {
+			t.Fatalf("logger calls = %d, want 0", got)
+		}
+	})
+}
+
 func TestCurlBytesBufferBodyCanBeSentRepeatedly(t *testing.T) {
 	const payload = "buffer-body"
 
@@ -813,8 +883,8 @@ func TestBuildURLPreservesFragmentAndEmptyParams(t *testing.T) {
 	}
 }
 
-func TestCurlParamCacheInvalidatesOnMutation(t *testing.T) {
-	// srv 回显 GET 查询串或 POST Form body，用于验证缓存编码结果不会跨参数变更复用旧值。
+func TestCurlParamsReflectExternalMutation(t *testing.T) {
+	// srv 回显 GET 查询串或 POST Form body，用于验证请求始终读取当前参数。
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)
@@ -852,8 +922,8 @@ func TestCurlParamCacheInvalidatesOnMutation(t *testing.T) {
 		t.Fatalf("second query = %q, values=%v, err=%v", gotBody, values, err)
 	}
 
-	// params 是 GetParams 暴露给调用方的可变 map，直接修改后也必须让缓存失效。
-	params := curl.GetParams()
+	// params 是 Params 暴露给调用方的可变 map，直接修改后必须用于下一次请求。
+	params := curl.Params()
 	params.Set("page", "3")
 	params.Set("q", "中文 空格")
 	if err := curl.PostForm(srv.URL); err != nil {
@@ -861,6 +931,15 @@ func TestCurlParamCacheInvalidatesOnMutation(t *testing.T) {
 	}
 	if values, err := url.ParseQuery(gotBody); err != nil || values.Get("page") != "3" || values.Get("q") != "中文 空格" {
 		t.Fatalf("form body = %q, values=%v, err=%v", gotBody, values, err)
+	}
+
+	// 调用方可长期持有 Params 返回的 map，后续修改也必须反映到下一次请求。
+	params.Set("page", "4")
+	if err := curl.Get(srv.URL); err != nil {
+		t.Fatalf("third Get() error = %v", err)
+	}
+	if values, err := url.ParseQuery(gotBody); err != nil || values.Get("page") != "4" {
+		t.Fatalf("third query = %q, values=%v, err=%v", gotBody, values, err)
 	}
 }
 
@@ -952,10 +1031,10 @@ func TestCurlCloneDeepCopiesRequestState(t *testing.T) {
 		SetStatusCode(http.StatusAccepted).
 		SetRequestID("req-clone")
 
-	if got := base.GetHeader().Get("X-Base"); got != "base" {
+	if got := base.Header().Get("X-Base"); got != "base" {
 		t.Fatalf("base header = %q, want base", got)
 	}
-	if got := base.GetParams().Get("page"); got != "1" {
+	if got := base.Params().Get("page"); got != "1" {
 		t.Fatalf("base param = %q, want 1", got)
 	}
 	if got := base.GetCookie("sid").Value; got != "base" {
@@ -1045,10 +1124,10 @@ func TestCurlTemplateReuseWithNewRequest(t *testing.T) {
 	}
 	wg.Wait()
 
-	if got := base.GetHeader().Get("X-Req"); got != "" {
+	if got := base.Header().Get("X-Req"); got != "" {
 		t.Fatalf("base X-Req header = %q, want empty", got)
 	}
-	if got := base.GetParams().Get("id"); got != "" {
+	if got := base.Params().Get("id"); got != "" {
 		t.Fatalf("base id param = %q, want empty", got)
 	}
 }
@@ -1184,6 +1263,29 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+type countLogger struct {
+	calls atomic.Int64
+}
+
+func (l *countLogger) Debug(string, ...any) { l.calls.Add(1) }
+func (l *countLogger) Info(string, ...any)  { l.calls.Add(1) }
+func (l *countLogger) Warn(string, ...any)  { l.calls.Add(1) }
+func (l *countLogger) Error(string, ...any) { l.calls.Add(1) }
+func (l *countLogger) With(...any) utils.Logger {
+	return l
+}
+func (l *countLogger) Enabled(context.Context, utils.LogLevel) bool {
+	return true
+}
+
+type closeErrorBody struct {
+	io.Reader
+}
+
+func (closeErrorBody) Close() error {
+	return errors.New("close failed")
 }
 
 type trackingReadCloser struct {

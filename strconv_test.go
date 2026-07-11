@@ -98,7 +98,11 @@ func TestDecBin(t *testing.T) {
 			if bin == tt.want {
 				t.Errorf("DecBin() = %v, want %v", bin, tt.want)
 			}
-			if n, err := utils.BinDec(bin); err != nil && n != tt.args.number {
+			n, err := utils.BinDec(bin)
+			if err != nil {
+				t.Fatalf("BinDec() error = %v", err)
+			}
+			if n != tt.args.number {
 				t.Errorf("BinDec() = %v, want %v", n, tt.args.number)
 			}
 
@@ -107,7 +111,11 @@ func TestDecBin(t *testing.T) {
 			if oct == tt.want {
 				t.Errorf("DecOct() = %v, want %v", oct, tt.want)
 			}
-			if n, err := utils.OctDec(oct); err != nil && n != tt.args.number {
+			n, err = utils.OctDec(oct)
+			if err != nil {
+				t.Fatalf("OctDec() error = %v", err)
+			}
+			if n != tt.args.number {
 				t.Errorf("OctDec() = %v, want %v", n, tt.args.number)
 			}
 
@@ -116,29 +124,51 @@ func TestDecBin(t *testing.T) {
 			if hex == tt.want {
 				t.Errorf("DecHex() = %v, want %v", hex, tt.want)
 			}
-			if n, err := utils.HexDec(hex); err != nil && n != tt.args.number {
+			n, err = utils.HexDec(hex)
+			if err != nil {
+				t.Fatalf("HexDec() error = %v", err)
+			}
+			if n != tt.args.number {
 				t.Errorf("HexDec() = %v, want %v", n, tt.args.number)
 			}
 
 			// 二进制 八进制转换
-			if got, err := utils.BinOct(bin); err != nil {
-				t.Errorf("BinOct() = %v, want %v", got, tt.want)
-			} else if n, err := utils.OctBin(got); err != nil && n != bin {
-				t.Errorf("OctBin() = %v, want %v", n, bin)
+			octFromBin, err := utils.BinOct(bin)
+			if err != nil {
+				t.Fatalf("BinOct() error = %v", err)
+			}
+			binFromOct, err := utils.OctBin(octFromBin)
+			if err != nil {
+				t.Fatalf("OctBin() error = %v", err)
+			}
+			if binFromOct != bin {
+				t.Errorf("OctBin() = %v, want %v", binFromOct, bin)
 			}
 
 			// 二进制 十六进制转换
-			if got, err := utils.BinHex(bin); err != nil {
-				t.Errorf("BinHex() = %v, want %v", got, tt.want)
-			} else if n, err := utils.HexBin(got); err != nil && n != bin {
-				t.Errorf("HexBin() = %v, want %v", n, bin)
+			hexFromBin, err := utils.BinHex(bin)
+			if err != nil {
+				t.Fatalf("BinHex() error = %v", err)
+			}
+			binFromHex, err := utils.HexBin(hexFromBin)
+			if err != nil {
+				t.Fatalf("HexBin() error = %v", err)
+			}
+			if binFromHex != bin {
+				t.Errorf("HexBin() = %v, want %v", binFromHex, bin)
 			}
 
 			// 八进制 十六进制转换
-			if got, err := utils.OctHex(oct); err != nil {
-				t.Errorf("OctHex() = %v, want %v", got, tt.want)
-			} else if n, err := utils.HexOct(got); err != nil && n != bin {
-				t.Errorf("HexOct() = %v, want %v", n, bin)
+			hexFromOct, err := utils.OctHex(oct)
+			if err != nil {
+				t.Fatalf("OctHex() error = %v", err)
+			}
+			octFromHex, err := utils.HexOct(hexFromOct)
+			if err != nil {
+				t.Fatalf("HexOct() error = %v", err)
+			}
+			if octFromHex != oct {
+				t.Errorf("HexOct() = %v, want %v", octFromHex, oct)
 			}
 		})
 	}

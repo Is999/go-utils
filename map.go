@@ -1,8 +1,6 @@
 package utils
 
-import (
-	"sort"
-)
+import "slices"
 
 // MapKeys 获取map的所有key
 func MapKeys[K Ordered, V any](m map[K]V) []K {
@@ -26,16 +24,13 @@ func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V {
 		return vals
 	}
 
-	var keys Slice[K] = MapKeys(m)
-
-	// 排序
-	if len(isReverse) > 0 && isReverse[0] {
-		sort.Sort(sort.Reverse(keys))
-	} else {
-		sort.Sort(keys)
+	keys := MapKeys(m)
+	slices.Sort(keys)
+	if isReverse[0] {
+		slices.Reverse(keys)
 	}
 
-	vals := make([]V, keys.Len())
+	vals := make([]V, len(keys))
 	for i, key := range keys {
 		vals[i] = m[key]
 	}
@@ -47,13 +42,10 @@ func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V {
 //	f 函数接收key与value，返回一个bool值，如果f函数返回false则终止遍历
 //	isReverse 是否降序排列：true 降序，false 升序
 func MapRange[K Ordered, V any](m map[K]V, f func(key K, value V) bool, isReverse ...bool) {
-	var keys Slice[K] = MapKeys(m)
-
-	// 排序
+	keys := MapKeys(m)
+	slices.Sort(keys)
 	if len(isReverse) > 0 && isReverse[0] {
-		sort.Sort(sort.Reverse(keys))
-	} else {
-		sort.Sort(keys)
+		slices.Reverse(keys)
 	}
 
 	for _, key := range keys {
@@ -111,7 +103,7 @@ func MapIntersect[K comparable, V comparable](m1, m2 map[K]V) []V {
 
 // MapDiffKey 计算m1与m2的键差集即m1中有但m2中没有的键
 func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K {
-	var s = make([]K, 0, len(m1))
+	s := make([]K, 0, len(m1))
 	for k := range m1 {
 		if _, ok := m2[k]; !ok {
 			s = append(s, k)
@@ -122,7 +114,7 @@ func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K {
 
 // MapIntersectKey 计算m1与m2的键交集即m1与m2都有的键
 func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K {
-	var s = make([]K, 0, len(m1))
+	s := make([]K, 0, len(m1))
 	for k := range m1 {
 		if _, ok := m2[k]; ok {
 			s = append(s, k)

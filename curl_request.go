@@ -38,32 +38,6 @@ func (c *Curl) ensureParams() url.Values {
 	return c.params
 }
 
-// markParamsDirty 标记参数编码缓存失效。
-// params 是可变 map，任意 Set/Add/Delete 或暴露给调用方修改后，都必须让下次请求重新 Encode。
-func (c *Curl) markParamsDirty() {
-	c.paramsDirty = true
-	c.encodedParams = ""
-}
-
-// encodedQueryParams 返回当前参数的 URL 编码结果。
-// 缓存数据来源于 url.Values.Encode；参数未变更时复用上次结果，避免重复请求时反复排序与拼接。
-func (c *Curl) encodedQueryParams() string {
-	if len(c.params) == 0 {
-		c.encodedParams = ""
-		c.paramsDirty = false
-		return ""
-	}
-	if !c.paramsDirty {
-		return c.encodedParams
-	}
-
-	// encoded 是本次请求使用的稳定查询串；Encode 内部会按 key 排序，缓存后可保护重复请求热路径。
-	encoded := c.params.Encode()
-	c.encodedParams = encoded
-	c.paramsDirty = false
-	return encoded
-}
-
 // ensureCookies 返回可写 Cookie 映射。
 // Cookie 数据来源于 SetCookies/AddCookies；capacity 用于批量设置时预留容量，减少扩容。
 func (c *Curl) ensureCookies(capacity int) map[string]*http.Cookie {
@@ -77,8 +51,8 @@ func (c *Curl) ensureCookies(capacity int) map[string]*http.Cookie {
 	return c.cookies
 }
 
-// GetHeader 获取当前请求头配置。
-func (c *Curl) GetHeader() http.Header {
+// Header 获取当前请求头配置。
+func (c *Curl) Header() http.Header {
 	// 调用方读取完整 Header 时补齐懒生成的请求 ID，保持构造后可观察到链路头的兼容行为。
 	if c.requestID == "" {
 		c.SetRequestID()
@@ -104,8 +78,12 @@ func (c *Curl) SetHeader(key, value string) *Curl {
 
 // SetHeaders 批量设置请求头。
 func (c *Curl) SetHeaders(headers map[string]string) *Curl {
+	if len(headers) == 0 {
+		return c
+	}
+	header := c.ensureHeader()
 	for key, value := range headers {
-		c.SetHeader(key, value)
+		header.Set(key, value)
 	}
 	return c
 }
@@ -131,35 +109,25 @@ func (c *Curl) AddHeaders(headers map[string][]string) *Curl {
 
 // DeleteHeaders 删除指定的请求头。
 func (c *Curl) DeleteHeaders(keys ...string) *Curl {
-	if c.header == nil {
-		return c
-	}
 	for _, key := range keys {
 		c.header.Del(key)
 	}
 	return c
 }
 
-// ResetHeader 重置请求头。
+// ResetHeaders 重置请求头。
 // 如果 header 为 nil，清空所有现有请求头；否则替换为新的请求头。
-func (c *Curl) ResetHeader(header http.Header) *Curl {
+func (c *Curl) ResetHeaders(header http.Header) *Curl {
 	if header == nil {
-		if c.header == nil {
-			return c
-		}
-		for key := range c.header {
-			c.header.Del(key)
-		}
+		clear(c.header)
 		return c
 	}
 	c.header = header
 	return c
 }
 
-// GetParams 获取当前 URL 查询参数。
-func (c *Curl) GetParams() url.Values {
-	// 返回内部 map 后调用方可能直接修改，提前标脏以保证下一次发送请求不会复用旧编码结果。
-	c.markParamsDirty()
+// Params 获取当前 URL 查询参数。
+func (c *Curl) Params() url.Values {
 	return c.ensureParams()
 }
 
@@ -176,7 +144,6 @@ func (c *Curl) HasParam(key string) bool {
 // SetParam 设置单个查询参数。
 func (c *Curl) SetParam(key, value string) *Curl {
 	c.ensureParams().Set(key, value)
-	c.markParamsDirty()
 	return c
 }
 
@@ -189,7 +156,6 @@ func (c *Curl) SetParams(params map[string]string) *Curl {
 	for key, value := range params {
 		values.Set(key, value)
 	}
-	c.markParamsDirty()
 	return c
 }
 
@@ -198,9 +164,6 @@ func (c *Curl) AddParam(key string, values ...string) *Curl {
 	params := c.ensureParams()
 	for _, value := range values {
 		params.Add(key, value)
-	}
-	if len(values) > 0 {
-		c.markParamsDirty()
 	}
 	return c
 }
@@ -211,30 +174,21 @@ func (c *Curl) AddParams(params map[string][]string) *Curl {
 		return c
 	}
 	paramsValues := c.ensureParams()
-	changed := false
 	for key, list := range params {
 		if len(list) > 0 {
 			for _, value := range list {
 				paramsValues.Add(key, value)
 			}
-			changed = true
 		}
-	}
-	if changed {
-		c.markParamsDirty()
 	}
 	return c
 }
 
 // DeleteParams 删除指定的查询参数。
 func (c *Curl) DeleteParams(keys ...string) *Curl {
-	if len(c.params) == 0 || len(keys) == 0 {
-		return c
-	}
 	for _, key := range keys {
 		c.params.Del(key)
 	}
-	c.markParamsDirty()
 	return c
 }
 
@@ -242,17 +196,10 @@ func (c *Curl) DeleteParams(keys ...string) *Curl {
 // 如果 params 为 nil，清空所有现有参数；否则替换为新的参数。
 func (c *Curl) ResetParams(params url.Values) *Curl {
 	if params == nil {
-		if c.params == nil {
-			return c
-		}
-		for key := range c.params {
-			c.params.Del(key)
-		}
-		c.markParamsDirty()
+		clear(c.params)
 		return c
 	}
 	c.params = params
-	c.markParamsDirty()
 	return c
 }
 
@@ -313,9 +260,7 @@ func (c *Curl) DeleteCookies(cookieName ...string) *Curl {
 
 // ClearCookies 清空所有 Cookie。
 func (c *Curl) ClearCookies() *Curl {
-	for name := range c.cookies {
-		delete(c.cookies, name)
-	}
+	clear(c.cookies)
 	return c
 }
 
@@ -352,7 +297,7 @@ func (c *Curl) SetBasicAuth(username, password string) *Curl {
 // SetProxyURL 设置代理地址。
 func (c *Curl) SetProxyURL(proxyURL string) *Curl {
 	c.proxyURL = proxyURL
-	c.markTransportDirty()
+	c.transportDirty = true
 	return c
 }
 
@@ -360,14 +305,14 @@ func (c *Curl) SetProxyURL(proxyURL string) *Curl {
 // 注意：生产环境禁止使用，存在安全风险。
 func (c *Curl) InsecureSkipVerify(isSkip bool) *Curl {
 	c.insecureSkipVerify = isSkip
-	c.markTransportDirty()
+	c.transportDirty = true
 	return c
 }
 
 // SetRootCAs 设置根证书。
 func (c *Curl) SetRootCAs(rootCAs string) *Curl {
 	c.rootCAs = rootCAs
-	c.markTransportDirty()
+	c.transportDirty = true
 	return c
 }
 
@@ -375,7 +320,7 @@ func (c *Curl) SetRootCAs(rootCAs string) *Curl {
 func (c *Curl) SetCertKey(cert, key string) *Curl {
 	c.cert = cert
 	c.key = key
-	c.markTransportDirty()
+	c.transportDirty = true
 	return c
 }
 
@@ -392,12 +337,7 @@ func (c *Curl) SetStatusCode(statusCode ...int) *Curl {
 
 // GetStatusCode 获取当前允许通过校验的状态码列表副本。
 func (c *Curl) GetStatusCode() []int {
-	if len(c.statusCode) == 0 {
-		return nil
-	}
-	statusCode := make([]int, len(c.statusCode))
-	copy(statusCode, c.statusCode)
-	return statusCode
+	return append([]int(nil), c.statusCode...)
 }
 
 // SetMaxRetry 设置最大请求尝试次数。

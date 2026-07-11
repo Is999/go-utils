@@ -20,8 +20,8 @@ const (
 	defaultResponseStatus      = http.StatusOK                     // 默认 HTTP 状态码，调用方未显式设置时按成功响应处理
 	defaultJSONContentType     = "application/json; charset=utf-8" // JSON 响应默认 Content-Type，包含 UTF-8 字符集
 	defaultTextContentType     = "text/plain; charset=utf-8"       // 纯文本响应默认 Content-Type，避免每次 Text 调用重复规范化
-	defaultHTMLContentType     = "text/html; charset=utf-8"        // HTML 响应默认 Content-Type，避免每次 Html 调用重复规范化
-	defaultXMLContentType      = "application/xml; charset=utf-8"  // XML 响应默认 Content-Type，避免每次 Xml 调用重复规范化
+	defaultHTMLContentType     = "text/html; charset=utf-8"        // HTML 响应默认 Content-Type，避免每次 HTML 调用重复规范化
+	defaultXMLContentType      = "application/xml; charset=utf-8"  // XML 响应默认 Content-Type，避免每次 XML 调用重复规范化
 	defaultSuccessMessage      = "SUCCESS"                         // JSON 成功响应默认业务消息
 	headerContentType          = "Content-Type"                    // Content-Type 响应头名，用于声明 body 媒体类型
 	headerContentLength        = "Content-Length"                  // Content-Length 响应头名，用于文件手动输出时声明长度
@@ -35,7 +35,7 @@ const (
 // Response HTTP 响应构造器。
 //
 // 设计目标：
-//   - 易用：保留 Json(w).Success(...)、View(w).Text(...) 等链式调用。
+//   - 易用：保留 JSON(w).Success(...)、View(w).Text(...) 等链式调用。
 //   - 高性能：文本写入使用 io.WriteString，文件响应使用 http.ServeContent。
 //   - 稳定：统一管理状态码和响应头，避免重复 WriteHeader。
 //   - 安全：文件响应禁止目录输出，下载文件名会清洗 CR/LF 等危险字符。
@@ -67,9 +67,7 @@ func WithStatusCode(statusCode int) ResponseOption {
 // 对 image/*、application/octet-stream 等二进制类型保持原值，避免错误 charset。
 func WithContentType(contentType string) ResponseOption {
 	return func(r *Response) {
-		if r != nil {
-			r.ContentType(contentType)
-		}
+		r.ContentType(contentType)
 	}
 }
 
@@ -78,9 +76,7 @@ func WithContentType(contentType string) ResponseOption {
 // 回调为 nil 时不做任何操作，便于条件化配置。
 func WithHeader(f func(header http.Header)) ResponseOption {
 	return func(r *Response) {
-		if r != nil {
-			r.Header(f)
-		}
+		r.Header(f)
 	}
 }
 
@@ -145,8 +141,8 @@ func (r *Response) Text(data string) {
 	r.writeString(data)
 }
 
-// Html 响应 HTML 文本。
-func (r *Response) Html(data string) {
+// HTML 响应 HTML 文本。
+func (r *Response) HTML(data string) {
 	if r == nil {
 		return
 	}
@@ -154,16 +150,16 @@ func (r *Response) Html(data string) {
 	r.writeString(data)
 }
 
-// Xml 响应 XML 数据。
+// XML 响应 XML 数据。
 //
 // 使用 xml.Marshal 而不是 MarshalIndent，减少生产接口中的额外 CPU 和内存开销。
-func (r *Response) Xml(data any) {
+func (r *Response) XML(data any) {
 	if r == nil {
 		return
 	}
 	xmlData, err := xml.Marshal(data)
 	if err != nil {
-		r.serverError("Xml xml.Marshal", err, "data", data)
+		r.serverError("XML xml.Marshal", err, "data", data)
 		return
 	}
 	r.setContentType(defaultXMLContentType)
@@ -263,19 +259,6 @@ func (r *Response) ContentType(contentType string) *Response {
 	return r
 }
 
-// ensureContentType 在未设置 Content-Type 时写入默认类型。
-func (r *Response) ensureContentType(contentType string) *Response {
-	if r == nil || r.writer == nil {
-		return r
-	}
-	if r.writer.Header().Get(headerContentType) == "" {
-		if ct := normalizeContentType(contentType); ct != "" {
-			r.setContentType(ct)
-		}
-	}
-	return r
-}
-
 // Header 设置响应头。
 func (r *Response) Header(f func(header http.Header)) *Response {
 	if r == nil || r.writer == nil || f == nil {
@@ -294,10 +277,13 @@ func (r *Response) Encode() ([]byte, error) {
 	return Marshal(r.Body)
 }
 
-// Json 创建 JSON 响应构造器。
-func Json(w http.ResponseWriter, opts ...ResponseOption) *Response {
+// JSON 创建 JSON 响应构造器。
+func JSON(w http.ResponseWriter, opts ...ResponseOption) *Response {
 	resp := newResponse(w, http.StatusOK, opts...)
-	return resp.ensureContentType(defaultJSONContentType)
+	if resp.writer != nil && resp.writer.Header().Get(headerContentType) == "" {
+		resp.setContentType(defaultJSONContentType)
+	}
+	return resp
 }
 
 // View 创建文本/文件响应构造器。
@@ -310,7 +296,7 @@ func View(w http.ResponseWriter, opts ...ResponseOption) *Response {
 // url 为重定向地址。状态码仅接受 3xx，非 3xx 会回退为 302。
 func Redirect(w http.ResponseWriter, url string, opts ...ResponseOption) {
 	resp := newResponse(w, http.StatusFound, opts...)
-	if resp == nil || resp.writer == nil {
+	if resp.writer == nil {
 		return
 	}
 	if resp.statusCode < http.StatusMultipleChoices || resp.statusCode >= http.StatusBadRequest {
@@ -432,26 +418,21 @@ func validHTTPStatus(statusCode int) bool {
 }
 
 // setContentType 写入已规范化的 Content-Type。
-// 调用方负责传入业务需要的 charset；该方法不再重复 normalize，服务于 Text/Html/Xml/Json 热路径。
+// 调用方负责传入业务需要的 charset；该方法不再重复 normalize，服务于 Text/HTML/XML/JSON 热路径。
 func (r *Response) setContentType(contentType string) {
 	if r == nil || r.writer == nil || contentType == "" {
 		return
 	}
-	setHeaderValue(r.writer.Header(), headerContentType, contentType)
-}
-
-// setHeaderValue 覆盖单值响应头。
-// key 来自本包常量，已经是标准 HTTP Header 形式；直接写 map 可避开 Header.Set 的重复规范化开销。
-func setHeaderValue(header http.Header, key, value string) {
+	header := r.writer.Header()
 	if header == nil {
 		return
 	}
-	values := header[key] // values 是当前 header 已有的同名值列表，复用其底层数组可减少重复设置时的分配。
+	values := header[headerContentType] // 复用已有值的底层数组，减少重复设置时的分配。
 	if len(values) == 0 {
-		header[key] = []string{value}
+		header[headerContentType] = []string{contentType}
 		return
 	}
-	header[key] = append(values[:0], value)
+	header[headerContentType] = append(values[:0], contentType)
 }
 
 // writeJSON 将当前 Body 编码为 JSON 并写出。
@@ -543,7 +524,7 @@ func (r *Response) serveFile(req *http.Request, file *os.File, info os.FileInfo)
 	// 若调用方显式设置了非 200 状态码，则尊重该状态码并走手动复制路径。
 	// 常规文件响应使用 ServeContent，可自动处理 Content-Type、Content-Length、Last-Modified。
 	if r.statusSet && r.statusCode != http.StatusOK {
-		r.serveFileWithStatus(file, info)
+		r.serveFileWithStatus(req, file, info)
 		return
 	}
 
@@ -552,7 +533,7 @@ func (r *Response) serveFile(req *http.Request, file *os.File, info os.FileInfo)
 }
 
 // serveFileWithStatus 使用显式状态码输出文件内容。
-func (r *Response) serveFileWithStatus(file *os.File, info os.FileInfo) {
+func (r *Response) serveFileWithStatus(req *http.Request, file *os.File, info os.FileInfo) {
 	if r.writer.Header().Get(headerContentType) == "" {
 		ctype, err := FileType(file)
 		if err != nil {
@@ -563,6 +544,9 @@ func (r *Response) serveFileWithStatus(file *os.File, info os.FileInfo) {
 	}
 	r.writer.Header().Set(headerContentLength, strconv.FormatInt(info.Size(), 10))
 	r.writeHeader()
+	if req.Method == http.MethodHead {
+		return
+	}
 	if _, err := io.Copy(r.writer, file); err != nil {
 		r.logError("File io.Copy", err, "file", file.Name())
 	}
@@ -661,5 +645,5 @@ func safeAttachmentName(name string) string {
 
 // cleanHeaderValue 移除响应头值中的换行符，避免 CRLF 注入。
 func cleanHeaderValue(value string) string {
-	return strings.NewReplacer("\r", "", "\n", "").Replace(value)
+	return strings.ReplaceAll(strings.ReplaceAll(value, "\r", ""), "\n", "")
 }

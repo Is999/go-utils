@@ -3,6 +3,7 @@ package utils_test
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestTernary(t *testing.T) {
 	}
 }
 
-func TestNumberFormat(t *testing.T) {
+func TestFormatNumber(t *testing.T) {
 	type args struct {
 		number       float64
 		decimals     uint
@@ -75,12 +76,15 @@ func TestNumberFormat(t *testing.T) {
 		{name: "013", args: args{number: -4247312.5423197, decimals: 0, decPoint: ".", thousandsSep: ","}, want: "-4,247,313"},
 		{name: "014", args: args{number: -4247312.5423197, decimals: 5, decPoint: ".", thousandsSep: ","}, want: "-4,247,312.54232"},
 		{name: "015", args: args{number: -4247312.5423197, decimals: 9, decPoint: ".", thousandsSep: ","}, want: "-4,247,312.542319700"},
+		{name: "NaN", args: args{number: math.NaN(), decimals: 2, decPoint: ".", thousandsSep: ","}, want: "NaN"},
+		{name: "positive infinity", args: args{number: math.Inf(1), decimals: 2, decPoint: ".", thousandsSep: ","}, want: "+Inf"},
+		{name: "negative infinity", args: args{number: math.Inf(-1), decimals: 2, decPoint: ".", thousandsSep: ","}, want: "-Inf"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.NumberFormat(tt.args.number, tt.args.decimals, tt.args.decPoint, tt.args.thousandsSep); got != tt.want {
-				t.Errorf("NumberFormat() = %v, want %v", got, tt.want)
+			if got := utils.FormatNumber(tt.args.number, tt.args.decimals, tt.args.decPoint, tt.args.thousandsSep); got != tt.want {
+				t.Errorf("FormatNumber() = %v, want %v", got, tt.want)
 			}
 		})
 	}

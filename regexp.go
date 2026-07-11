@@ -67,7 +67,7 @@ const (
 )
 
 // ValidationError 表示结构化校验失败结果。
-// 业务侧应通过 errors.As 提取后，根据 Target/Reason 自行决定提示文案。
+// 业务侧应通过 errors.As 提取后，根据 Reason 自行决定提示文案。
 type ValidationError struct {
 	Reason ValidationReason // 校验失败原因
 	Min    uint8            // 最小长度约束
@@ -76,7 +76,7 @@ type ValidationError struct {
 
 // Error 返回默认中文提示文案。
 // 当业务侧未自定义提示时，该文案可以直接返回给终端用户；
-// 如业务侧已有国际化或错误码体系，仍建议优先使用 Target/Reason 自行映射。
+// 如业务侧已有国际化或错误码体系，仍建议优先使用 Reason 自行映射。
 func (e *ValidationError) Error() string {
 	if e == nil {
 		return ""
@@ -85,36 +85,10 @@ func (e *ValidationError) Error() string {
 }
 
 // DefaultMessage 返回默认中文提示文案。
-// 该方法适合作为兜底展示文案，也便于业务侧显式区分 Error() 与默认文案语义。
 func (e *ValidationError) DefaultMessage() string {
 	if e == nil {
 		return ""
 	}
-	return defaultValidationMessage(e)
-}
-
-// MessageKey 返回稳定的文案键。
-// 业务侧可基于该键做国际化映射、错误码映射或统一前端提示管理。
-func (e *ValidationError) MessageKey() string {
-	if e == nil {
-		return ""
-	}
-	return "validation." + string(e.Reason)
-}
-
-// newValidationError 创建一个结构化校验错误。
-// 内部统一收敛校验失败的 target、reason 和长度约束信息。
-func newValidationError(reason ValidationReason, min, max uint8) error {
-	return &ValidationError{
-		Reason: reason,
-		Min:    min,
-		Max:    max,
-	}
-}
-
-// defaultValidationMessage 根据目标类型和失败原因生成默认中文提示。
-// 该提示面向终端用户，要求简洁、自然且可直接展示。
-func defaultValidationMessage(e *ValidationError) string {
 	switch e.Reason {
 	case ValidationReasonLengthOutOfRange:
 		return fmt.Sprintf("长度在%d-%d之间", e.Min, e.Max)
@@ -136,6 +110,24 @@ func defaultValidationMessage(e *ValidationError) string {
 		return "输入不合法"
 	}
 	return fmt.Sprintf("输入不合法，长度必须在 %d 到 %d 个字符之间", e.Min, e.Max)
+}
+
+// MessageKey 返回稳定的文案键。
+// 业务侧可基于该键做国际化映射、错误码映射或统一前端提示管理。
+func (e *ValidationError) MessageKey() string {
+	if e == nil {
+		return ""
+	}
+	return "validation." + string(e.Reason)
+}
+
+// newValidationError 创建一个结构化校验错误。
+func newValidationError(reason ValidationReason, min, max uint8) error {
+	return &ValidationError{
+		Reason: reason,
+		Min:    min,
+		Max:    max,
+	}
 }
 
 // Empty 空字符串验证
@@ -374,13 +366,14 @@ func validDecimalNumber(value string, allowSign bool, maxDecimal int) bool {
 	if i >= len(value) {
 		return false
 	}
-	if value[i] == '0' {
+	switch {
+	case value[i] == '0':
 		i++
-	} else if isASCIIDigitNonZero(value[i]) {
+	case isASCIIDigitNonZero(value[i]):
 		for i < len(value) && isASCIIDigit(value[i]) {
 			i++
 		}
-	} else {
+	default:
 		return false
 	}
 

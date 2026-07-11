@@ -62,10 +62,9 @@ func AddFileToZip(zipWriter *zip.Writer, fileToCompress string, baseDir string) 
 			archiveBaseDir = filepath.Join(baseDir, archiveBaseDir)
 		}
 		return addDirectoryToZip(zipWriter, fileToCompress, fileInfo, archiveBaseDir)
-	} else {
-		// 压缩文件
-		return addSingleFileToZip(zipWriter, fileToCompress, fileInfo, baseDir)
 	}
+	// 压缩文件
+	return addSingleFileToZip(zipWriter, fileToCompress, fileInfo, baseDir)
 }
 
 // addSingleFileToZip 添加单个文件到zip
@@ -134,16 +133,14 @@ func addDirectoryToZip(zipWriter *zip.Writer, directoryToCompress string, fileIn
 		filePath := filepath.Join(directoryToCompress, file.Name())
 		if file.IsDir() {
 			// 递归地压缩子目录
-			err = addDirectoryToZip(zipWriter, filePath, info, filepath.Join(baseDir, file.Name()))
-			if err != nil {
+			if err = addDirectoryToZip(zipWriter, filePath, info, filepath.Join(baseDir, file.Name())); err != nil {
 				return errors.Tag(err)
 			}
-		} else {
-			// 压缩单个文件
-			err = addSingleFileToZip(zipWriter, filePath, info, baseDir)
-			if err != nil {
-				return errors.Tag(err)
-			}
+			continue
+		}
+		// 压缩单个文件
+		if err = addSingleFileToZip(zipWriter, filePath, info, baseDir); err != nil {
+			return errors.Tag(err)
 		}
 	}
 

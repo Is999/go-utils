@@ -34,7 +34,13 @@ var (
 
 // init 初始化字符串工具的包级缓存，当前只预计算 UniqueID 随机段使用的 base36 边界。
 func init() {
-	initUniqueIDBase36Bounds()
+	min, max := int64(1), int64(35)
+	for digits := 1; digits <= 12; digits++ {
+		uniqueIDMinBase36ByLen[digits] = min
+		uniqueIDMaxBase36ByLen[digits] = max
+		min *= 36
+		max = max*36 + 35
+	}
 }
 
 // Replacer 是可复用字符串替换器。
@@ -115,30 +121,18 @@ func Replace(s string, oldnew map[string]string) string {
 //		- 例如：等于-1时，表示截取到最后一个字符；等于-2时，表示截取到倒数第二个字符
 func Substr(str string, start, length int) string {
 	if isASCIIString(str) {
-		return substrASCII(str, start, length)
+		begin, end, ok := substrRange(len(str), start, length)
+		if !ok {
+			return ""
+		}
+		return str[begin:end]
 	}
-	return substrRunes(str, start, length)
-}
-
-// substrRunes 按 Unicode 字符截取非 ASCII 字符串，保持历史对中文等多字节字符按 rune 计数的行为。
-func substrRunes(str string, start, length int) string {
 	runes := []rune(str)
 	begin, end, ok := substrRange(len(runes), start, length)
 	if !ok {
 		return ""
 	}
 	return string(runes[begin:end])
-}
-
-// substrASCII 按 byte 下标截取纯 ASCII 字符串。
-//
-// 纯 ASCII 的 byte 数等于字符数，可直接切片避免 []rune 分配，是 Substr 的高频性能保护路径。
-func substrASCII(str string, start, length int) string {
-	begin, end, ok := substrRange(len(str), start, length)
-	if !ok {
-		return ""
-	}
-	return str[begin:end]
 }
 
 // substrRange 根据历史 Substr 语义计算截取范围。
@@ -159,7 +153,7 @@ func substrRange(size, start, length int) (int, int, bool) {
 		}
 	}
 
-	end := length
+	var end int
 	if length < 0 {
 		// 结束位置越过字符串头部时直接返回空，避免 size+length+1 在极端负数下溢出。
 		if length < -size {
@@ -245,7 +239,7 @@ func RandomID(n int, r ...*rand.Rand) string {
 //	alpha 生成随机字符串的种子
 //	r 随机种子 rand.NewSource(time.Now().UnixNano()) : 批量生成时传入r参数可提升生成随机数效率
 func RandomString(n int, alpha string, r ...*rand.Rand) string {
-	if n <= 0 || len(alpha) == 0 {
+	if n <= 0 || alpha == "" {
 		return ""
 	}
 	l := len(alpha)
@@ -290,7 +284,15 @@ func SecureRandomID(n int) (string, error) {
 
 // SecureRandomString 使用密码学安全随机源按自定义字符集生成字符串。
 func SecureRandomString(n int, alpha string) (string, error) {
-	return secureRandomString(n, alpha)
+	if n <= 0 || alpha == "" {
+		return "", nil
+	}
+
+	s := make([]byte, n)
+	if err := secureRandBytes(s, alpha); err != nil {
+		return "", errors.Tag(err)
+	}
+	return string(s), nil
 }
 
 // UniqueID 生成一个长度范围 16-32 位的唯一 ID 字符串（可排序字符串）。
@@ -319,23 +321,13 @@ func UniqueID(l uint8, r ...*rand.Rand) string {
 
 	// 生成UniqueID后半部分
 	total := int(l) - len(ts) // UniqueID后半部分需生成的字符长度
-	// 计算生成次数(int64转换36位字符串 最大值可转换12个长度的'z', total超出12位需多次生成)
-	n := total / 12
-
-	for i := 0; i <= n && total > 0; i++ {
-		// 计算随机生成最小值(min)和最大值(max), 并重新计算total值
-		// 最大随机值长度(int64转换36位字符串 最大值可转换12个长度的'z')
+	for total > 0 {
 		num := min(total, 12)
 		total -= num
 
-		// 复用预计算的 base36 边界，避免在高频 ID 生成路径里重复 strings.Repeat 和 ParseInt。
 		minInt := uniqueIDMinBase36ByLen[num]
 		maxInt := uniqueIDMaxBase36ByLen[num]
-
-		// 随机生成 minInt - maxInt 之间的数, 并转换成36位字符串
-		rv := strconv.FormatInt(Rand(minInt, maxInt, r...), 36)
-
-		b.WriteString(rv)
+		b.WriteString(strconv.FormatInt(Rand(minInt, maxInt, r...), 36))
 	}
 
 	return b.String()
@@ -355,40 +347,12 @@ func SecureUniqueID(l uint8) (string, error) {
 // RandSource 是兼容旧调用的可复用随机源；并发场景请通过 Rand/Random* 函数使用。
 var RandSource = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
 
-// initUniqueIDBase36Bounds 初始化 UniqueID 随机段的 base36 数值边界。
-//
-// 随机段一次最多生成 12 位 base36 字符，36^12-1 仍在 int64 范围内。
-// 索引 0 不使用，保留零值，调用方仅访问 1-12。
-func initUniqueIDBase36Bounds() {
-	var min int64 = 1
-	var max int64 = 35
-	for digits := 1; digits <= 12; digits++ {
-		uniqueIDMinBase36ByLen[digits] = min
-		uniqueIDMaxBase36ByLen[digits] = max
-		min *= 36
-		max = max*36 + 35
-	}
-}
-
-// secureRandomString 使用密码学安全随机源按字符集生成字符串。
-func secureRandomString(n int, alpha string) (string, error) {
-	if n <= 0 || len(alpha) == 0 {
-		return "", nil
-	}
-
-	s := make([]byte, n)
-	if err := secureRandBytes(s, alpha); err != nil {
-		return "", errors.Tag(err)
-	}
-	return string(s), nil
-}
-
 // secureRandBytes 使用密码学安全随机源填充目标字节切片。
 //
 // 常见字符集长度不超过 256 时，批量读取随机字节并做拒绝采样，避免每个字符一次 big.Int 分配。
 // 超过 256 的非常规字符集退回到 crand.Int，优先保证分布均匀和行为正确。
 func secureRandBytes(dst []byte, alpha string) error {
-	if len(dst) == 0 || len(alpha) == 0 {
+	if len(dst) == 0 || alpha == "" {
 		return nil
 	}
 	if len(alpha) == 1 {

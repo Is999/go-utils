@@ -52,9 +52,35 @@ func HasCode(err error, code int) bool {
 	if err == nil {
 		return false
 	}
-	var coder Coder
-	if errors.As(err, &coder) {
-		return coder.Code() == code
+	var stackBuf [8]error
+	stack := stackBuf[:0]
+	stack = append(stack, err)
+	for depth := 0; len(stack) > 0 && depth < maxChainDepth; depth++ {
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
+		if current == nil {
+			continue
+		}
+
+		coder, ok := current.(Coder)
+		if !ok {
+			// 保留第三方错误通过自定义 As 暴露 Coder 的既有语义。
+			if _, custom := current.(interface{ As(any) bool }); custom {
+				ok = errors.As(current, &coder)
+			}
+		}
+		if ok && coder.Code() == code {
+			return true
+		}
+
+		children, next := unwrapNode(current)
+		switch {
+		case len(children) > 0:
+			stack = pushChildren(stack, children)
+		case next != nil:
+			stack = append(stack, next)
+		}
 	}
 	return false
 }

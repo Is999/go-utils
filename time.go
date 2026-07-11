@@ -12,7 +12,7 @@ import (
 
 // Local 获取系统运行时区。
 func Local() *time.Location {
-	return time.Now().Location()
+	return time.Local
 }
 
 // CST 获取中国标准时区（东八区）。
@@ -78,17 +78,16 @@ var patterns = strings.NewReplacer(
 
 // MonthDay 获取指定年份月份的天数。
 func MonthDay(year int, month int) (days int) {
-	switch {
-	case month != 2 && (month == 4 || month == 6 || month == 9 || month == 11):
-		days = 30
-	case month != 2:
-		days = 31
-	case ((year%4) == 0 && (year%100) != 0) || (year%400) == 0:
-		days = 29
-	default:
-		days = 28
+	if month == 2 {
+		if year%4 == 0 && year%100 != 0 || year%400 == 0 {
+			return 29
+		}
+		return 28
 	}
-	return
+	if month == 4 || month == 6 || month == 9 || month == 11 {
+		return 30
+	}
+	return 31
 }
 
 // CheckDate 验证日期是否合法。
@@ -161,7 +160,7 @@ func parseAddTimeDelta(value string) (int, byte, error) {
 
 // ============================ 日期信息提取 ============================
 
-// DateInfo 获取时间的详细信息映射表。
+// TimeDetails 获取时间的详细信息映射表。
 //
 // 返回值字段说明：
 //   - year: 年份
@@ -182,28 +181,31 @@ func parseAddTimeDelta(value string) (int, byte, error) {
 //   - yearDay: 一年中第几天
 //   - date: 格式化日期 "2006-01-02 15:04:05"
 //   - dateNs: 格式化日期（纳秒精度）"2006-01-02T15:04:05.999999999Z07:00"
-func DateInfo(t time.Time) map[string]any {
-	param := make(map[string]any)
-
-	param["year"] = t.Year()
-	param["monthEn"] = t.Month().String()
-	param["month"] = int(t.Month())
-	param["day"] = t.Day()
-	param["hour"] = t.Hour()
-	param["minute"] = t.Minute()
-	param["second"] = t.Second()
-	param["millisecond"] = t.Nanosecond() / int(time.Millisecond)
-	param["microsecond"] = t.Nanosecond() / int(time.Microsecond)
-	param["nanosecond"] = t.Nanosecond()
-	param["unix"] = t.Unix()
-	param["unixNano"] = t.UnixNano()
-	param["weekDayEn"] = t.Weekday().String()
-	param["weekDay"] = int(t.Weekday())
-	_, param["yearWeek"] = t.ISOWeek()
-	param["yearDay"] = t.YearDay()
-	param["date"] = t.Format(time.DateTime)
-	param["dateNs"] = t.Format(time.RFC3339Nano)
-	return param
+func TimeDetails(t time.Time) map[string]any {
+	month := t.Month()
+	weekday := t.Weekday()
+	nanosecond := t.Nanosecond()
+	_, yearWeek := t.ISOWeek()
+	return map[string]any{
+		"year":        t.Year(),
+		"monthEn":     month.String(),
+		"month":       int(month),
+		"day":         t.Day(),
+		"hour":        t.Hour(),
+		"minute":      t.Minute(),
+		"second":      t.Second(),
+		"millisecond": nanosecond / int(time.Millisecond),
+		"microsecond": nanosecond / int(time.Microsecond),
+		"nanosecond":  nanosecond,
+		"unix":        t.Unix(),
+		"unixNano":    t.UnixNano(),
+		"weekDayEn":   weekday.String(),
+		"weekDay":     int(weekday),
+		"yearWeek":    yearWeek,
+		"yearDay":     t.YearDay(),
+		"date":        t.Format(time.DateTime),
+		"dateNs":      t.Format(time.RFC3339Nano),
+	}
 }
 
 // ============================ 时间格式化 ============================
@@ -302,24 +304,15 @@ func normalizeLocation(location *time.Location) *time.Location {
 
 // parseCompareTimes 解析时间比较函数的两个输入。
 func parseCompareTimes(layout, t1, t2 string) (time.Time, time.Time, error) {
-	tt1, err := parseCompareTime(layout, "t1", t1)
+	tt1, err := time.Parse(layout, t1)
 	if err != nil {
-		return time.Time{}, time.Time{}, errors.Tag(err)
+		return time.Time{}, time.Time{}, errors.Wrapf(err, "t1[%v] time parsing error", t1)
 	}
-	tt2, err := parseCompareTime(layout, "t2", t2)
+	tt2, err := time.Parse(layout, t2)
 	if err != nil {
-		return time.Time{}, time.Time{}, errors.Tag(err)
+		return time.Time{}, time.Time{}, errors.Wrapf(err, "t2[%v] time parsing error", t2)
 	}
 	return tt1, tt2, nil
-}
-
-// parseCompareTime 解析单个比较时间并保留底层解析错误。
-func parseCompareTime(layout, label, value string) (time.Time, error) {
-	t, err := time.Parse(layout, value)
-	if err != nil {
-		return time.Time{}, errors.Wrapf(err, "%s[%v] time parsing error", label, value)
-	}
-	return t, nil
 }
 
 // Before 比较 t1 是否在 t2 之前。

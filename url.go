@@ -7,21 +7,18 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// - 对URL字符转义 - url.QueryEscape(str)
-// - 对URL转义字符反转义 - url.QueryUnescape(str)
-
 // URLPath 组装带参数的完整 URL。
 // 将 params 中的查询参数合并到 urlPath 中，保留原有查询参数。
 func URLPath(urlPath string, params url.Values) (string, error) {
-	if len(params) > 0 {
-		u, err := url.Parse(urlPath)
-		if err != nil {
-			return "", errors.Tag(err)
-		}
-		query := u.Query()
-		maps.Copy(query, params)
-		u.RawQuery = query.Encode()
-		return u.String(), nil
+	if len(params) == 0 {
+		return urlPath, nil
 	}
-	return urlPath, nil
+	u, err := url.Parse(urlPath)
+	if err != nil {
+		return "", errors.Tag(err)
+	}
+	query := u.Query()
+	maps.Copy(query, params)
+	u.RawQuery = query.Encode()
+	return u.String(), nil
 }
