@@ -27,8 +27,8 @@ func TestResponse(t *testing.T) {
 		statusCode  int
 		contentType string
 	}{
-		{name: "json success", path: "/response/json", statusCode: http.StatusOK, contentType: utils.DefaultJSONContentType},
-		{name: "json fail", path: "/response/json?v=fail", statusCode: http.StatusNotAcceptable, contentType: utils.DefaultJSONContentType},
+		{name: "json success", path: "/response/json", statusCode: http.StatusOK, contentType: "application/json; charset=utf-8"},
+		{name: "json fail", path: "/response/json?v=fail", statusCode: http.StatusNotAcceptable, contentType: "application/json; charset=utf-8"},
 		{name: "html", path: "/response/html", statusCode: http.StatusOK, contentType: "text/html; charset=utf-8"},
 		{name: "xml", path: "/response/xml", statusCode: http.StatusOK, contentType: "application/xml; charset=utf-8"},
 		{name: "text", path: "/response/text", statusCode: http.StatusOK, contentType: "text/plain; charset=utf-8"},
@@ -49,7 +49,7 @@ func TestResponse(t *testing.T) {
 				t.Fatalf("status code = %d, want %d", res.StatusCode, tt.statusCode)
 			}
 			if tt.contentType != "" {
-				if got := res.Header.Get(utils.HeaderContentType); got != tt.contentType {
+				if got := res.Header.Get("Content-Type"); got != tt.contentType {
 					t.Fatalf("Content-Type = %q, want %q", got, tt.contentType)
 				}
 			}
@@ -68,7 +68,7 @@ func TestResponse(t *testing.T) {
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("redirect status code = %d, want %d", res.StatusCode, http.StatusFound)
 	}
-	if got := res.Header.Get(utils.HeaderLocation); got != "/response/json" {
+	if got := res.Header.Get("Location"); got != "/response/json" {
 		t.Fatalf("Location = %q, want /response/json", got)
 	}
 }
@@ -101,8 +101,8 @@ func TestResponseSuccessRespectsStatusCode(t *testing.T) {
 	if res.StatusCode != http.StatusCreated {
 		t.Fatalf("status code = %d, want %d", res.StatusCode, http.StatusCreated)
 	}
-	if got := res.Header.Get(utils.HeaderContentType); got != utils.DefaultJSONContentType {
-		t.Fatalf("Content-Type = %q, want %q", got, utils.DefaultJSONContentType)
+	if got := res.Header.Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want %q", got, "application/json; charset=utf-8")
 	}
 }
 
@@ -113,7 +113,7 @@ func TestJSONRespectsExplicitContentType(t *testing.T) {
 
 	res := w.Result()
 	defer res.Body.Close()
-	if got, want := res.Header.Get(utils.HeaderContentType), "application/problem+json; charset=utf-8"; got != want {
+	if got, want := res.Header.Get("Content-Type"), "application/problem+json; charset=utf-8"; got != want {
 		t.Fatalf("Content-Type = %q, want %q", got, want)
 	}
 }
@@ -132,8 +132,10 @@ func TestResponseContentTypeNormalization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.NormalizeContentType(tt.in); got != tt.want {
-				t.Fatalf("utils.NormalizeContentType(%q) = %q, want %q", tt.in, got, tt.want)
+			w := httptest.NewRecorder()
+			utils.JSON(w, utils.WithContentType(tt.in)).Success(1000, nil)
+			if got := w.Result().Header.Get("Content-Type"); got != tt.want {
+				t.Fatalf("Content-Type for %q = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -156,7 +158,7 @@ func TestResponseTextHTMLXMLAndHeader(t *testing.T) {
 
 	html := httptest.NewRecorder()
 	utils.View(html).HTML("<b>ok</b>")
-	if got := html.Header().Get(utils.HeaderContentType); got != "text/html; charset=utf-8" {
+	if got := html.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 		t.Fatalf("html content type = %q", got)
 	}
 
@@ -191,7 +193,7 @@ func TestResponseDownloadSanitizesFilename(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status code = %d, want %d", res.StatusCode, http.StatusOK)
 	}
-	disposition := res.Header.Get(utils.HeaderContentDisposition)
+	disposition := res.Header.Get("Content-Disposition")
 	if strings.ContainsAny(disposition, "\r\n") {
 		t.Fatalf("Content-Disposition contains CR/LF: %q", disposition)
 	}
@@ -278,7 +280,7 @@ func TestRedirectFallsBackToFoundForNonRedirectStatus(t *testing.T) {
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("status code = %d, want %d", res.StatusCode, http.StatusFound)
 	}
-	if got := res.Header.Get(utils.HeaderLocation); got != "/nextbad" {
+	if got := res.Header.Get("Location"); got != "/nextbad" {
 		t.Fatalf("Location = %q, want /nextbad", got)
 	}
 }

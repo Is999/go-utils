@@ -1,7 +1,6 @@
 package utils_test
 
 import (
-	"net/url"
 	"testing"
 
 	"github.com/Is999/go-utils"
@@ -9,7 +8,6 @@ import (
 
 var (
 	benchCurl *utils.Curl
-	benchURL  string
 	benchID   string
 	benchBody int
 )
@@ -20,19 +18,9 @@ func BenchmarkNew(b *testing.B) {
 	}
 }
 
-func BenchmarkGenerateUniqueID(b *testing.B) {
+func BenchmarkCurlRequestID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		benchID = utils.GenerateUniqueID(16)
-	}
-}
-
-func BenchmarkBuildURL(b *testing.B) {
-	params := url.Values{
-		"page": []string{"2"},
-		"q":    []string{"codex"},
-	}
-	for i := 0; i < b.N; i++ {
-		benchURL, _ = utils.BuildURL("https://example.com/search?lang=go", params)
+		benchID = utils.RandomID(16)
 	}
 }
 
