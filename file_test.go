@@ -1034,7 +1034,7 @@ func BenchmarkWrite(t *testing.B) {
 			for i := 0; i <= t.N; i++ {
 				// 写入带缓存(测试结果速度最快)
 				_, err := w.WriteBuf(func(write *bufio.Writer) (int, error) {
-					for range 10 {
+					for j := 0; j < 10; j++ {
 						_, err := write.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
 						if err != nil {
 							return 0, err

@@ -4,7 +4,7 @@ import (
 	crand "crypto/rand"
 	"io"
 	"math/big"
-	"math/rand/v2"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
@@ -215,17 +215,17 @@ func RandomID(n int, r ...*rand.Rand) string {
 	}
 	s := make([]byte, n)
 	if len(r) == 0 || r[0] == nil {
-		s[0] = ALPHA[rand.IntN(len(ALPHA))]
+		s[0] = ALPHA[rand.Intn(len(ALPHA))]
 		for i := 1; i < n; i++ {
-			s[i] = ALNUM[rand.IntN(len(ALNUM))]
+			s[i] = ALNUM[rand.Intn(len(ALNUM))]
 		}
 		return string(s)
 	}
 
 	randSourceMu.Lock()
-	s[0] = ALPHA[r[0].IntN(len(ALPHA))]
+	s[0] = ALPHA[r[0].Intn(len(ALPHA))]
 	for i := 1; i < n; i++ {
-		s[i] = ALNUM[r[0].IntN(len(ALNUM))]
+		s[i] = ALNUM[r[0].Intn(len(ALNUM))]
 	}
 	randSourceMu.Unlock()
 	return string(s)
@@ -245,15 +245,15 @@ func RandomString(n int, alpha string, r ...*rand.Rand) string {
 	l := len(alpha)
 	s := make([]byte, n)
 	if len(r) == 0 || r[0] == nil {
-		for i := range n {
-			s[i] = alpha[rand.IntN(l)]
+		for i := 0; i < n; i++ {
+			s[i] = alpha[rand.Intn(l)]
 		}
 		return string(s)
 	}
 
 	randSourceMu.Lock()
-	for i := range n {
-		s[i] = alpha[r[0].IntN(l)]
+	for i := 0; i < n; i++ {
+		s[i] = alpha[r[0].Intn(l)]
 	}
 	randSourceMu.Unlock()
 	return string(s)
@@ -345,7 +345,7 @@ func SecureUniqueID(l uint8) (string, error) {
 }
 
 // RandSource 是兼容旧调用的可复用随机源；并发场景请通过 Rand/Random* 函数使用。
-var RandSource = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
+var RandSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // secureRandBytes 使用密码学安全随机源填充目标字节切片。
 //

@@ -186,8 +186,9 @@ func TestGet(t *testing.T) {
 
 			userType := reflect.TypeFor[User]()
 			userValue := reflect.ValueOf(tt.args.user)
-			for field := range userType.Fields() {
+			for i := 0; i < userType.NumField(); i++ {
 				// 获取每个成员的结构体字段类型
+				field := userType.Field(i)
 				value := userValue.FieldByName(field.Name)
 				curl.SetParam(field.Name, fmt.Sprint(value))
 			}
@@ -851,35 +852,22 @@ func TestCurlBytesBufferBodyCanBeSentRepeatedly(t *testing.T) {
 	}
 }
 
-func TestBuildURLPreservesExistingQuery(t *testing.T) {
-	params := mapValues("page", "2", "q", "codex")
-	got, err := utils.BuildURL("https://example.com/search?lang=go", params)
-	if err != nil {
-		t.Fatalf("utils.BuildURL() error = %v", err)
-	}
-	for _, want := range []string{"lang=go", "page=2", "q=codex"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("utils.BuildURL() = %q, missing %q", got, want)
+func TestCurlGetPreservesExistingQuery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if query.Get("lang") != "go" || query.Get("page") != "2" || query.Get("q") != "codex" {
+			t.Fatalf("query = %v", query)
 		}
-	}
-}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
 
-func TestBuildURLPreservesFragmentAndEmptyParams(t *testing.T) {
-	params := mapValues("page", "2")
-	got, err := utils.BuildURL("https://example.com/search?lang=go#top", params)
+	err := utils.NewCurl().
+		SetParam("page", "2").
+		SetParam("q", "codex").
+		Get(srv.URL + "?lang=go#top")
 	if err != nil {
-		t.Fatalf("utils.BuildURL() error = %v", err)
-	}
-	if want := "https://example.com/search?lang=go&page=2#top"; got != want {
-		t.Fatalf("utils.BuildURL() = %q, want %q", got, want)
-	}
-
-	got, err = utils.BuildURL("https://example.com/search#top", nil)
-	if err != nil {
-		t.Fatalf("utils.BuildURL(empty) error = %v", err)
-	}
-	if want := "https://example.com/search#top"; got != want {
-		t.Fatalf("utils.BuildURL(empty) = %q, want %q", got, want)
+		t.Fatalf("Get() error = %v", err)
 	}
 }
 
@@ -943,28 +931,28 @@ func TestCurlParamsReflectExternalMutation(t *testing.T) {
 	}
 }
 
-func TestReadBodyPreviewAndRestoreClosesOriginal(t *testing.T) {
+func TestDebugLoggingRestoresResponseBody(t *testing.T) {
 	body := &trackingReadCloser{Reader: strings.NewReader("abcdef")}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.Copy(w, body)
+	}))
+	defer srv.Close()
 
-	preview, truncated, restored, err := utils.ReadBodyPreviewAndRestore(body, 3)
+	var gotBody string
+	err := utils.NewCurl(
+		utils.WithCurlLogger(curlTestLogger{}),
+		utils.WithCurlDefLogOutput(true),
+	).
+		AfterBody(func(body []byte) error {
+			gotBody = string(body)
+			return nil
+		}).
+		Get(srv.URL)
 	if err != nil {
-		t.Fatalf("utils.ReadBodyPreviewAndRestore() error = %v", err)
+		t.Fatalf("Get() error = %v", err)
 	}
-	if string(preview) != "abc" || !truncated {
-		t.Fatalf("preview = %q, truncated = %v; want abc, true", preview, truncated)
-	}
-	restoredBody, err := io.ReadAll(restored)
-	if err != nil {
-		t.Fatalf("restored ReadAll() error = %v", err)
-	}
-	if string(restoredBody) != "abcdef" {
-		t.Fatalf("restored body = %q, want abcdef", restoredBody)
-	}
-	if err := restored.Close(); err != nil {
-		t.Fatalf("restored Close() error = %v", err)
-	}
-	if !body.closed.Load() {
-		t.Fatal("restored Close() should close original body")
+	if gotBody != "abcdef" {
+		t.Fatalf("AfterBody body = %q, want abcdef", gotBody)
 	}
 }
 

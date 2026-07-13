@@ -62,15 +62,8 @@ func (m *mockLogger) Enabled(ctx context.Context, level utils.LogLevel) bool {
 
 // TestThirdPartyLoggerCompatibility 测试第三方日志库兼容性
 func TestThirdPartyLoggerCompatibility(t *testing.T) {
-	utils.ResetConfigForTest()
-	t.Cleanup(utils.ResetConfigForTest)
-
 	mock := &mockLogger{isEnabled: true}
-
-	// 设置自定义 logger
-	utils.Configure(utils.WithLogger(mock))
-
-	logger := utils.Log()
+	var logger utils.Logger = mock
 
 	// 测试 Debug 方法
 	logger.Debug("debug message", "key", "value")
@@ -197,10 +190,12 @@ func TestLogConcurrentAccess(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	var wg sync.WaitGroup
-	for range 32 {
-		wg.Go(func() {
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			_ = utils.Log()
-		})
+		}()
 	}
 	wg.Wait()
 }

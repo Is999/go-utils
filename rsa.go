@@ -495,7 +495,7 @@ func rsaKeyFileNames(path string, isPubPKCS8, isPriPKCS1 bool, now time.Time) []
 func RemovePEMHeaders(pemText string) string {
 	var b strings.Builder
 	b.Grow(len(pemText))
-	for line := range strings.SplitSeq(pemText, "\n") {
+	for _, line := range strings.Split(pemText, "\n") {
 		line = strings.TrimSpace(line)
 		upper := strings.ToUpper(line)
 		if strings.HasPrefix(upper, "-----BEGIN ") || strings.HasPrefix(upper, "-----END ") {

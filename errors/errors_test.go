@@ -491,9 +491,10 @@ func TestAsTypeDepthFirst(t *testing.T) {
 	if got != left {
 		t.Fatalf("AsType() = %v, want first depth-first match %v", got, left)
 	}
-	stdGot, stdOK := stderrors.AsType[*typedError](err)
+	var stdGot *typedError
+	stdOK := stderrors.As(err, &stdGot)
 	if stdOK != ok || stdGot != got {
-		t.Fatalf("AsType() = (%v, %v), std errors.AsType() = (%v, %v)", got, ok, stdGot, stdOK)
+		t.Fatalf("AsType() = (%v, %v), std errors.As() = (%v, %v)", got, ok, stdGot, stdOK)
 	}
 }
 
@@ -1095,9 +1096,11 @@ func TestConcurrentSafe(t *testing.T) {
 
 	var wg sync.WaitGroup
 	var failed atomic.Bool
-	for range 32 {
-		wg.Go(func() {
-			for range 200 {
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
 				_ = err.Error()
 				_ = fmt.Sprintf("%s", err)
 				_ = fmt.Sprintf("%+v", err)
@@ -1111,7 +1114,7 @@ func TestConcurrentSafe(t *testing.T) {
 					failed.Store(true)
 				}
 			}
-		})
+		}()
 	}
 	wg.Wait()
 

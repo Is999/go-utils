@@ -110,14 +110,16 @@ func TestOnce_Do_Concurrent(t *testing.T) {
 	errCh := make(chan error, 10)
 	var callCount atomic.Int32
 
-	for range 10 {
-		wg.Go(func() {
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			err := o.Do(func() error {
 				callCount.Add(1)
 				return nil
 			}, 3)
 			errCh <- err
-		})
+		}()
 	}
 
 	wg.Wait()

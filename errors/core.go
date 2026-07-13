@@ -329,12 +329,16 @@ func Is(err, target error) bool { return errors.Is(err, target) }
 func As(err error, target any) bool { return errors.As(err, target) }
 
 // AsType 从错误链中提取第一个类型为 T 的错误。
-// 语义对齐 Go 1.26 errors.AsType：按深度优先顺序遍历单链和多链错误。
+// 语义与标准库 errors.As 一致：按深度优先顺序遍历单链和多链错误。
 //
 // 类型参数说明：
 //   - T：目标错误类型，必须实现 error 接口
 func AsType[T error](err error) (T, bool) {
-	return errors.AsType[T](err)
+	var target T
+	if errors.As(err, &target) {
+		return target, true
+	}
+	return target, false
 }
 
 // HasMsg 检查错误链中是否包含指定的消息内容。

@@ -2,7 +2,7 @@ package utils
 
 import (
 	"math"
-	"math/rand/v2"
+	"math/rand"
 	"sync"
 )
 
@@ -22,7 +22,7 @@ func Rand(minInt, maxInt int64, r ...*rand.Rand) int64 {
 		if span == 0 {
 			return int64(rand.Uint64())
 		}
-		return int64(uint64(minInt) + rand.Uint64N(span))
+		return int64(uint64(minInt) + randUint64N(span, rand.Uint64))
 	}
 
 	randSourceMu.Lock()
@@ -31,9 +31,20 @@ func Rand(minInt, maxInt int64, r ...*rand.Rand) int64 {
 		randSourceMu.Unlock()
 		return int64(value)
 	}
-	value := r[0].Uint64N(span)
+	value := randUint64N(span, r[0].Uint64)
 	randSourceMu.Unlock()
 	return int64(uint64(minInt) + value)
+}
+
+// randUint64N 返回 [0, n) 内的随机数。
+func randUint64N(n uint64, next func() uint64) uint64 {
+	limit := ^uint64(0) - (^uint64(0) % n)
+	for {
+		v := next()
+		if v < limit {
+			return v % n
+		}
+	}
 }
 
 // Round 对 num 进行四舍五入，并保留指定小数位。

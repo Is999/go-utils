@@ -1,7 +1,7 @@
 package utils_test
 
 import (
-	"math/rand/v2"
+	"math/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -154,8 +154,8 @@ func TestUniqueIntoAndInPlace(t *testing.T) {
 func BenchmarkUnique(t *testing.B) {
 	var l = 200
 	var s1 = make([]int64, 0, l)
-	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
-	for range l {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < l; i++ {
 		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 	}
 	t.StartTimer()
@@ -173,8 +173,8 @@ func BenchmarkUniqueInto(t *testing.B) {
 	var s1 = make([]int64, 0, l)
 	// dst 是循环复用的结果缓冲区，用于衡量 Into 入口减少分配的收益。
 	var dst = make([]int64, 0, l)
-	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
-	for range l {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < l; i++ {
 		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 	}
 	t.ResetTimer()
@@ -236,8 +236,8 @@ func BenchmarkDiff(b *testing.B) {
 	var l = 200
 	var s1 = make([]int64, 0, l)
 	var s2 = make([]int64, 0, l)
-	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
-	for range 200 {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < 200; i++ {
 		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
 	}
@@ -258,8 +258,8 @@ func BenchmarkDiffInto(b *testing.B) {
 	var s2 = make([]int64, 0, l)
 	// dst 是循环复用的结果缓冲区，用于衡量减少结果切片分配后的性能。
 	var dst = make([]int64, 0, l)
-	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
-	for range 200 {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < 200; i++ {
 		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
 	}
@@ -324,8 +324,8 @@ func BenchmarkIntersect(b *testing.B) {
 	var s1 = make([]int64, 0, l)
 	// s2 是命中集合数据源，用于构造 membership 查询。
 	var s2 = make([]int64, 0, l)
-	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
-	for range 200 {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < 200; i++ {
 		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
 	}
@@ -345,8 +345,8 @@ func BenchmarkIntersectInto(b *testing.B) {
 	var s2 = make([]int64, 0, l)
 	// dst 是循环复用的结果缓冲区，用于衡量减少结果切片分配后的性能。
 	var dst = make([]int64, 0, l)
-	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
-	for range 200 {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < 200; i++ {
 		s1 = append(s1, utils.Rand(int64(l), int64(l)*2, r))
 		s2 = append(s2, utils.Rand(int64(l), int64(l)*2, r))
 	}

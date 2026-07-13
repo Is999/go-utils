@@ -3,7 +3,7 @@ package utils
 import (
 	"context"
 	"math"
-	"math/rand/v2"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -169,5 +169,5 @@ func retryDelay(attempt int) time.Duration {
 
 	// 使用 equal jitter：保留一半确定性延迟，另一半随机化。
 	half := delay / 2
-	return half + time.Duration(rand.Int64N(int64(half)))
+	return half + time.Duration(rand.Int63n(int64(half)))
 }
