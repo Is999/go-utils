@@ -2,9 +2,8 @@ package utils
 
 import "github.com/Is999/go-utils/errors"
 
-// ZeroPad 使用 0 字节填充到分组大小的整数倍。
-//
-// 注意：ZeroPad 无法区分明文末尾真实的 0 字节和填充字节，协议允许时优先使用 PKCS#7。
+// ZeroPad 返回独立的零填充结果，已对齐的数据仍追加一整块。
+// blockSize 不大于 0 时仅复制 data；去填充时无法保留明文原有的尾部零字节。
 func ZeroPad(data []byte, blockSize int) []byte {
 	if blockSize <= 0 {
 		return append([]byte(nil), data...)
@@ -15,13 +14,12 @@ func ZeroPad(data []byte, blockSize int) []byte {
 	return out
 }
 
-// ZeroUnpad 去除尾部 0 字节填充。
+// ZeroUnpad 去除全部尾部零字节，结果与 data 共享底层数组；空输入报错。
 func ZeroUnpad(data []byte) ([]byte, error) {
-	length := len(data)
-	if length == 0 {
+	end := len(data) // 去填充结果的排他结束索引。
+	if end == 0 {
 		return nil, errors.New("ZeroUnpad() data 参数长度必须大于 0")
 	}
-	end := length
 	for end > 0 && data[end-1] == 0 {
 		end--
 	}

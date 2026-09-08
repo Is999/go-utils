@@ -65,38 +65,35 @@ func TestCheckDate(t *testing.T) {
 	}
 }
 
-func TestTimeDetails(t *testing.T) {
-	type args struct {
-		s []string
-		t time.Time
-	}
+// TestAddTime 用固定 UTC 时间校验单位精度与参数累加顺序。
+func TestAddTime(t *testing.T) {
+	// 固定纳秒分量，使小时到纳秒的增量都能独立核对。
+	base := time.Date(2023, 3, 13, 14, 40, 1, 124685000, time.UTC)
 	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
+		name   string    // 单位或组合场景。
+		deltas []string  // 按给定顺序传入的增量。
+		want   time.Time // 保留 UTC 时区的精确结果。
 	}{
-		{name: "000", args: args{t: time.Now()}, wantErr: false},                                                                                    // 当前时间
-		{name: "001", args: args{s: []string{"+4H", "20I"}, t: time.Now()}, wantErr: false},                                                         // 当前时间+ 4小时20分钟
-		{name: "002", args: args{s: nil, t: time.Unix(1678718401, 0)}, wantErr: false},                                                              // 指定时间
-		{name: "003", args: args{s: nil, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                                      // 指定时间
-		{name: "004", args: args{s: []string{"76N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                          // 指定时间+ 76纳秒
-		{name: "005", args: args{s: []string{"-76N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                         // 指定时间- 76纳秒
-		{name: "006", args: args{s: []string{"7600N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                        // 指定时间+ 7.6微秒
-		{name: "007", args: args{s: []string{"7C", "600N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false},                                   // 指定时间+ 7.6微秒
-		{name: "008", args: args{s: []string{"-1D", "1M", "-1Y", "+4H", "20I", "30S", "76N"}, t: time.Unix(1678718401, 124685000)}, wantErr: false}, // 指定时间+
-		{name: "009", args: args{s: []string{"-1d", "1m", "-1y", "+4h", "20i", "30s", "76n"}, t: time.Unix(1678718401, 124685000)}, wantErr: false}, // 指定时间+
+		{name: "empty", want: base},
+		{name: "hours_minutes", deltas: []string{"+4H", "20I"}, want: time.Date(2023, 3, 13, 19, 0, 1, 124685000, time.UTC)},
+		{name: "positive_nanoseconds", deltas: []string{"76N"}, want: time.Date(2023, 3, 13, 14, 40, 1, 124685076, time.UTC)},
+		{name: "negative_nanoseconds", deltas: []string{"-76N"}, want: time.Date(2023, 3, 13, 14, 40, 1, 124684924, time.UTC)},
+		{name: "nanoseconds", deltas: []string{"7600N"}, want: time.Date(2023, 3, 13, 14, 40, 1, 124692600, time.UTC)},
+		{name: "microseconds_nanoseconds", deltas: []string{"7C", "600N"}, want: time.Date(2023, 3, 13, 14, 40, 1, 124692600, time.UTC)},
+		{name: "milliseconds", deltas: []string{"2L"}, want: time.Date(2023, 3, 13, 14, 40, 1, 126685000, time.UTC)},
+		{name: "uppercase_units", deltas: []string{"-1D", "1M", "-1Y", "+4H", "20I", "30S", "76N"}, want: time.Date(2022, 4, 12, 19, 0, 31, 124685076, time.UTC)},
+		{name: "lowercase_units", deltas: []string{"-1d", "1m", "-1y", "+4h", "20i", "30s", "76n"}, want: time.Date(2022, 4, 12, 19, 0, 31, 124685076, time.UTC)},
+		{name: "argument_order", deltas: []string{"1M", "-13D"}, want: time.Date(2023, 3, 31, 14, 40, 1, 124685000, time.UTC)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := utils.AddTime(tt.args.t, tt.args.s...)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("TimeDetails() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			got, err := utils.AddTime(base, tt.deltas...)
+			if err != nil {
+				t.Fatalf("AddTime() error = %v", err)
 			}
-			utils.MapRange(utils.TimeDetails(got), func(key string, value any) bool {
-				//t.Logf("%v %v\n", key, value)
-				return true
-			})
+			if !got.Equal(tt.want) || got.Location() != time.UTC {
+				t.Errorf("AddTime() = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }
@@ -118,6 +115,17 @@ func TestAddTimeRejectsInvalidInputWithoutPanic(t *testing.T) {
 }
 
 func TestDate(t *testing.T) {
+	t.Run("current", func(t *testing.T) {
+		// 调用可能跨秒，按输出精度检查前后时间区间。
+		before := time.Now().Truncate(time.Second)
+		got := utils.Date(utils.UTC(), "Y-m-d H:i:s")
+		after := time.Now()
+		parsed, err := time.ParseInLocation(time.DateTime, got, time.UTC)
+		if err != nil || parsed.Before(before) || parsed.After(after) {
+			t.Fatalf("Date() = %q, error = %v, want time in [%v, %v]", got, err, before, after)
+		}
+	})
+
 	type args struct {
 		format string
 		ts     []int64
@@ -127,7 +135,6 @@ func TestDate(t *testing.T) {
 		args args
 		want string
 	}{
-		{name: "001", args: args{format: "Y-m-d H:i:s"}, want: ""},
 		{name: "002", args: args{format: "Y-m-d H:i:s", ts: []int64{1678718401124685076}}, want: "2023-03-13 14:40:01"},
 		{name: "003", args: args{format: "Y-m-d H:i:s", ts: []int64{1678718401}}, want: "2023-03-13 14:40:01"},
 		{name: "004", args: args{format: "F-d/Y l Ah:i:s Pe", ts: []int64{1678718401}}, want: "March-13/2023 Monday PM02:40:01 +00:00UTC"},
@@ -138,16 +145,25 @@ func TestDate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.Date(utils.UTC(), tt.args.format, tt.args.ts...); tt.want != "" && got != tt.want {
+			if got := utils.Date(utils.UTC(), tt.args.format, tt.args.ts...); got != tt.want {
 				t.Errorf("Date() = %v, want %v", got, tt.want)
-			} else {
-				// t.Logf("Date() = %v\n", got)
 			}
 		})
 	}
 }
 
 func TestTimeFormat(t *testing.T) {
+	t.Run("current", func(t *testing.T) {
+		// 按固定 UTC+8 解析输出，区间判断允许调用跨秒。
+		before := time.Now().Truncate(time.Second)
+		got := utils.TimeFormat(utils.CST(), time.DateTime)
+		after := time.Now()
+		parsed, err := time.ParseInLocation(time.DateTime, got, time.FixedZone("CST", 8*60*60))
+		if err != nil || parsed.Before(before) || parsed.After(after) {
+			t.Fatalf("TimeFormat() = %q, error = %v, want time in [%v, %v]", got, err, before, after)
+		}
+	})
+
 	type args struct {
 		format string
 		ts     []int64
@@ -157,7 +173,6 @@ func TestTimeFormat(t *testing.T) {
 		args args
 		want string
 	}{
-		{name: "001", args: args{format: time.DateTime}, want: ""},
 		{name: "002", args: args{format: "2006-01-02 15:04:05.000000000", ts: []int64{1678718401124685076}}, want: "2023-03-13 22:40:01.124685076"}, // UnixNano纳秒
 		{name: "003", args: args{format: time.DateTime, ts: []int64{1678718401}}, want: "2023-03-13 22:40:01"},                                      // Unix秒
 		{name: "004", args: args{format: time.DateTime, ts: []int64{1678718401, 124685076}}, want: "2023-03-13 22:40:01"},                           // Unix秒 + 纳秒
@@ -173,10 +188,8 @@ func TestTimeFormat(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.TimeFormat(utils.CST(), tt.args.format, tt.args.ts...); tt.want != "" && got != tt.want {
+			if got := utils.TimeFormat(utils.CST(), tt.args.format, tt.args.ts...); got != tt.want {
 				t.Errorf("TimeFormat() = %v, want %v", got, tt.want)
-			} else {
-				// t.Logf("TimeFormat() = %v\n", got)
 			}
 		})
 	}
@@ -224,8 +237,6 @@ func TestParseTime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got, err := utils.ParseTime(utils.Local(), tt.args.e...); (err == nil) == tt.wantErr {
 				t.Errorf("ParseTime() = %v, want %v, WrapError = %v", got.UnixNano(), tt.wantErr, err)
-			} else if !tt.wantErr {
-				//t.Logf("ParseTime() unxNano %v, time %v", got.UnixNano(), got.Format(utils.DateNanosecond))
 			}
 		})
 	}
@@ -242,6 +253,77 @@ func TestParseTimeRFC3339NanoVariableLength(t *testing.T) {
 				t.Fatalf("ParseTime(%q) error = %v", tt, err)
 			}
 		})
+	}
+}
+
+func TestParseTimeAutoLayouts(t *testing.T) {
+	// 无时区日期使用调用方时区；RFC3339 自带的 Z/偏移不能被自动匹配顺序覆盖。
+	location := time.FixedZone("test", 8*60*60)
+	for _, tt := range []struct {
+		input string
+		want  time.Time
+	}{
+		{input: "2024-02-29", want: time.Date(2024, 2, 29, 0, 0, 0, 0, location)},
+		{input: "2024-02-29 13:14:15", want: time.Date(2024, 2, 29, 13, 14, 15, 0, location)},
+		{input: "2024-02-29T13:14:15Z", want: time.Date(2024, 2, 29, 13, 14, 15, 0, time.UTC)},
+		{input: "2024-02-29T1:14:15Z", want: time.Date(2024, 2, 29, 1, 14, 15, 0, time.UTC)},
+		{input: "2024-02-29T13:14:15.123+08:00", want: time.Date(2024, 2, 29, 13, 14, 15, 123000000, location)},
+	} {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := utils.ParseTime(location, tt.input)
+			_, gotOffset := got.Zone()
+			_, wantOffset := tt.want.Zone()
+			if err != nil || !got.Equal(tt.want) || gotOffset != wantOffset {
+				t.Fatalf("ParseTime(%q) = (%v, %v), want %v", tt.input, got, err, tt.want)
+			}
+		})
+	}
+	for _, input := range []string{"2024-02-30", "2024-02-29 25:14:15", "2024-02-29T13:14:15", "invalid"} {
+		if _, err := utils.ParseTime(location, input); err == nil || err.Error() != "Unparsable time format:"+input {
+			t.Fatalf("ParseTime(%q) error = %v, want unchanged parse error", input, err)
+		}
+	}
+}
+
+func TestTimeDetailsCalendarFields(t *testing.T) {
+	// 使用闰日和非零时分秒，验证返回字段保持 int 类型及调用方时区中的日历值。
+	value := time.Date(2024, 2, 29, 13, 14, 15, 123456789, time.FixedZone("test", 8*60*60))
+	details := utils.TimeDetails(value)
+	for key, want := range map[string]any{
+		"year": 2024, "month": 2, "day": 29, "monthEn": "February",
+		"hour": 13, "minute": 14, "second": 15,
+		"millisecond": 123, "microsecond": 123456, "nanosecond": 123456789,
+		"date": "2024-02-29 13:14:15", "dateNs": "2024-02-29T13:14:15.123456789+08:00",
+	} {
+		if got := details[key]; got != want {
+			t.Fatalf("TimeDetails()[%q] = %#v, want %#v", key, got, want)
+		}
+	}
+}
+
+func BenchmarkParseTimeAutoLayouts(b *testing.B) {
+	// 各自动匹配格式单独计量，时区构造放在计时范围之外。
+	location := time.FixedZone("test", 8*60*60)
+	for _, input := range []string{"2024-02-29", "2024-02-29 13:14:15", "2024-02-29T13:14:15Z"} {
+		b.Run(input, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if _, err := utils.ParseTime(location, input); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkTimeDetails(b *testing.B) {
+	// 保留完整公开返回值的构建成本，不单测日期拆分 helper。
+	value := time.Date(2024, 2, 29, 13, 14, 15, 123456789, time.FixedZone("test", 8*60*60))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		_ = utils.TimeDetails(value)
 	}
 }
 
@@ -361,8 +443,8 @@ func TestSub(t *testing.T) {
 		args args
 		want int64
 	}{
-		{name: "001", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-03-13"}, want: 0},               // t1 > t2 结果等于 0
-		{name: "002", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-03-14"}, want: -86400000000000}, // t1 > t2 结果小于 0
+		{name: "001", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-03-13"}, want: 0},               // t1 == t2，结果等于 0
+		{name: "002", args: args{layout: time.DateOnly, t1: "2023-03-13", t2: "2023-03-14"}, want: -86400000000000}, // t1 < t2，结果小于 0
 		{name: "004", args: args{layout: time.DateOnly, t1: "2023-03-14", t2: "2023-03-13"}, want: 86400000000000},  // t1 > t2 结果大于 0
 		{name: "005", args: args{layout: time.DateTime, t1: "2023-03-13 14:40:12", t2: "2023-03-13 14:40:01"}, want: 11000000000},
 		{name: "006", args: args{layout: "2006-01-02 15:04:05.000000000", t1: "2023-03-13 14:40:01.124685776", t2: "2023-03-13 14:40:01.124685076"}, want: 700},

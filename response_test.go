@@ -1,11 +1,19 @@
 package utils_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
+	"net/textproto"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -91,6 +99,150 @@ func TestResponseWriteHeaderOnce(t *testing.T) {
 	}
 }
 
+// TestResponseInformationalStatus 使用真实 HTTP 服务验证临时响应、最终状态和重复提交。
+// httptest.ResponseRecorder 只保留首次状态码，无法表达多次 1xx 后再提交最终响应。
+func TestResponseInformationalStatus(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(filePath, []byte("created"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	emptyPath := filepath.Join(t.TempDir(), "empty.txt")
+	if err := os.WriteFile(emptyPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		method     string // 默认 GET；HEAD 验证临时响应后的文件头不提交正文。
+		write      func(*utils.Response)
+		hints      []int
+		status     int
+		body       string
+		bodyPrefix bool // 错误响应包含运行时生成的追踪 ID，只核对固定前缀。
+	}{
+		{
+			name: "explicit final status",
+			write: func(r *utils.Response) {
+				r.Write(nil)
+				r.StatusCode(http.StatusProcessing).Write(nil)
+				r.StatusCode(http.StatusCreated).Text("created")
+			},
+			hints: []int{http.StatusEarlyHints, http.StatusProcessing}, status: http.StatusCreated, body: "created",
+		},
+		{
+			name:  "bytes commit implicit OK",
+			write: func(r *utils.Response) { r.Write([]byte("created")) },
+			hints: []int{http.StatusEarlyHints}, status: http.StatusOK, body: "created",
+		},
+		{
+			name:  "text commits implicit OK",
+			write: func(r *utils.Response) { r.Text("created") },
+			hints: []int{http.StatusEarlyHints}, status: http.StatusOK, body: "created",
+		},
+		{
+			name:  "file commits implicit OK",
+			write: func(r *utils.Response) { r.Show(filePath) },
+			hints: []int{http.StatusEarlyHints}, status: http.StatusOK, body: "created",
+		},
+		{
+			name:  "empty file commits OK",
+			write: func(r *utils.Response) { r.Show(emptyPath) },
+			hints: []int{http.StatusEarlyHints}, status: http.StatusOK,
+		},
+		{
+			name: "encoding failure after hints",
+			write: func(r *utils.Response) {
+				r.Write(nil)
+				r.XML(func() {})
+			},
+			hints: []int{http.StatusEarlyHints}, status: http.StatusInternalServerError,
+			body: "Response error, code-", bodyPrefix: true,
+		},
+		{
+			name:   "switching protocols is final",
+			write:  func(r *utils.Response) { r.StatusCode(http.StatusSwitchingProtocols).Write(nil) },
+			status: http.StatusSwitchingProtocols,
+		},
+		{
+			name: "HEAD permits final status", method: http.MethodHead,
+			write: func(r *utils.Response) {
+				r.ShowRequest(httptest.NewRequest(http.MethodHead, "/file", nil), filePath)
+				r.StatusCode(http.StatusCreated).Write(nil)
+			},
+			hints: []int{http.StatusEarlyHints}, status: http.StatusCreated,
+		},
+		{
+			name: "file after hints and text",
+			write: func(r *utils.Response) {
+				r.Text("first")
+				r.Show(filePath)
+			},
+			hints: []int{http.StatusEarlyHints}, status: http.StatusOK, body: "firstcreated",
+		},
+		{
+			name: "file after final status",
+			write: func(r *utils.Response) {
+				r.StatusCode(http.StatusOK).Text("first")
+				r.Show(filePath)
+			},
+			status: http.StatusOK, body: "firstcreated",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var serverLog bytes.Buffer // 额外的最终 WriteHeader 会被 net/http 记入服务日志。
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				r := utils.View(w).StatusCode(http.StatusEarlyHints)
+				tt.write(r)
+				r.StatusCode(http.StatusTeapot).Write(nil)
+			}))
+			server.Config.ErrorLog = log.New(&serverLog, "", 0)
+			server.Start()
+			defer server.Close()
+
+			var hints []int // 客户端按接收顺序记录全部临时响应。
+			ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+				Got1xxResponse: func(code int, _ textproto.MIMEHeader) error {
+					hints = append(hints, code)
+					return nil
+				},
+			})
+			method := tt.method
+			if method == "" {
+				method = http.MethodGet
+			}
+			req, err := http.NewRequestWithContext(ctx, method, server.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Close = true // 101 响应升级后的连接也随 handler 返回而关闭。
+			res, err := server.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(res.Body)
+			_ = res.Body.Close()
+			server.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(hints, tt.hints) || res.StatusCode != tt.status {
+				t.Fatalf("statuses = %v then %d, want %v then %d", hints, res.StatusCode, tt.hints, tt.status)
+			}
+			if tt.bodyPrefix {
+				if !strings.HasPrefix(string(body), tt.body) {
+					t.Fatalf("body = %q, want prefix %q", body, tt.body)
+				}
+			} else if string(body) != tt.body {
+				t.Fatalf("body = %q, want %q", body, tt.body)
+			}
+			if serverLog.Len() != 0 {
+				t.Fatalf("unexpected server log: %s", serverLog.String())
+			}
+		})
+	}
+}
+
 func TestResponseSuccessRespectsStatusCode(t *testing.T) {
 	w := httptest.NewRecorder()
 
@@ -167,8 +319,8 @@ func TestResponseTextHTMLXMLAndHeader(t *testing.T) {
 		XMLName xml.Name `xml:"node"`
 		Name    string   `xml:"name"`
 	}
-	utils.View(xmlResp).XML(node{Name: "codex"})
-	if !strings.Contains(xmlResp.Body.String(), "<name>codex</name>") {
+	utils.View(xmlResp).XML(node{Name: "alice"})
+	if !strings.Contains(xmlResp.Body.String(), "<name>alice</name>") {
 		t.Fatalf("xml body = %q", xmlResp.Body.String())
 	}
 }
@@ -297,11 +449,10 @@ func TestResponseFailUsesBadRequestByDefault(t *testing.T) {
 	}
 }
 
-func TestResponseJSONFastPathMatchesStandardEscaping(t *testing.T) {
-	// message 是包含 HTML 敏感字符、JS 行分隔符和非法 UTF-8 的业务消息，用于校验快路径与标准库完全一致。
+func TestResponseJSONMatchesStandardEscaping(t *testing.T) {
+	// 消息覆盖 HTML 敏感字符、JS 行分隔符和非法 UTF-8，作为公开响应格式的兼容边界。
 	message := "bad <>&\u2028" + string([]byte{0xff})
-	// data 是响应业务数据源，map 可覆盖 data 片段仍由 encoding/json 负责编码的边界。
-	data := map[string]string{"name": "<codex>&"}
+	data := map[string]string{"name": "<example>&"}
 	// expectedBody 是标准库对完整 Body 的编码结果，作为兼容性基准。
 	expectedBody, err := json.Marshal(utils.Body{
 		Success: true,
@@ -322,15 +473,42 @@ func TestResponseJSONFastPathMatchesStandardEscaping(t *testing.T) {
 }
 
 func BenchmarkResponseText(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	b.ResetTimer()
+	for range b.N {
 		utils.View(newDiscardResponseWriter()).Text("hello")
 	}
 }
 
 func BenchmarkResponseJSONSuccess(b *testing.B) {
-	data := map[string]string{"id": "1", "name": "codex"}
-	for i := 0; i < b.N; i++ {
+	data := map[string]string{"id": "1", "name": "alice"}
+	b.ResetTimer()
+	for range b.N {
 		utils.JSON(newDiscardResponseWriter()).Success(1000, data)
+	}
+}
+
+// BenchmarkResponseEncode 覆盖空数据、小对象和大文本，便于评估编码器的整体成本。
+func BenchmarkResponseEncode(b *testing.B) {
+	for name, data := range map[string]any{
+		"nil":  nil,
+		"map":  map[string]string{"id": "1", "name": "example"},
+		"text": strings.Repeat("example <>&", 1024),
+	} {
+		b.Run(name, func(b *testing.B) {
+			response := utils.Response{Body: utils.Body{
+				Success: true,
+				Code:    1000,
+				Message: "SUCCESS",
+				Data:    data,
+			}}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if _, err := response.Encode(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 

@@ -16,10 +16,10 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// DONE 完成终止
+// DONE 由读取回调返回时正常结束 Scan、Line 或 Read，支持 errors.Is 匹配。
 var DONE = errors.New("DONE")
 
-// IsDir 判断给定路径是否是一个目录
+// IsDir 跟随符号链接判断目录，Stat 失败时返回 false。
 func IsDir(path string) bool {
 	f, err := os.Stat(path)
 	if err != nil {
@@ -28,7 +28,7 @@ func IsDir(path string) bool {
 	return f.IsDir()
 }
 
-// IsFile 判断给定的文件路径名是否是一个文件
+// IsFile 跟随符号链接判断非目录项，包含特殊文件；Stat 失败时返回 false。
 func IsFile(filepath string) bool {
 	f, err := os.Stat(filepath)
 	if err != nil {
@@ -37,13 +37,13 @@ func IsFile(filepath string) bool {
 	return !f.IsDir()
 }
 
-// IsExist 判断一个文件（夹）是否存在
+// IsExist 仅在 Stat 确认路径不存在时返回 false，权限等其他错误仍返回 true。
 func IsExist(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil || !os.IsNotExist(err)
 }
 
-// Size 取得文件大小
+// Size 跟随符号链接返回 Stat 报告的字节数，目录大小由文件系统决定。
 func Size(filepath string) (int64, error) {
 	f, err := os.Stat(filepath)
 	if err != nil {
@@ -52,36 +52,28 @@ func Size(filepath string) (int64, error) {
 	return f.Size(), nil
 }
 
-// Copy 拷贝文件
-//
-//	src 拷贝的源文件
-//	dst 拷贝后的文件
+// Copy 写完同目录临时文件后替换 dst，并沿用源权限；目标父目录须已存在。
+// 源路径可跟随符号链接，目标符号链接及同一文件的硬链接会被拒绝。
 func Copy(src, dst string) error {
-	// 打开source文件
 	f1, err := os.Open(src)
 	if err != nil {
 		return errors.Tag(err)
 	}
 	defer f1.Close()
 
-	// 获取文件权限
 	stat, err := f1.Stat()
 	if err != nil {
 		return errors.Tag(err)
 	}
 
-	// 目标文件已存在时，先拒绝符号链接，并判断是否与源文件指向同一 inode，避免覆盖写把源文件截断。
+	// 先拒绝目标符号链接和同一文件，保留源数据。
 	dstInfo, err := os.Lstat(dst)
 	switch {
 	case err == nil:
 		if dstInfo.Mode()&os.ModeSymlink != 0 {
 			return errors.Errorf("Copy() 不允许目标文件为符号链接: dst=%s", dst)
 		}
-		dstStat, statErr := os.Stat(dst)
-		if statErr != nil {
-			return errors.Tag(statErr)
-		}
-		if os.SameFile(stat, dstStat) {
+		if os.SameFile(stat, dstInfo) {
 			return errors.Errorf("Copy 不允许源文件和目标文件相同: src=%s dst=%s", src, dst)
 		}
 	case os.IsNotExist(err):
@@ -90,26 +82,18 @@ func Copy(src, dst string) error {
 		return errors.Tag(err)
 	}
 
-	// 使用同目录临时文件 + Rename 原子替换，避免直接截断目标文件。
-	if err = writeFileAtomic(dst, stat.Mode(), func(file *os.File) error {
+	return errors.Tag(writeFileAtomic(dst, stat.Mode(), func(file *os.File) error {
 		_, copyErr := io.Copy(file, f1)
-		if copyErr != nil {
-			return errors.Tag(copyErr)
-		}
-		return nil
-	}); err != nil {
-		return errors.Tag(err)
-	}
-	return nil
+		return errors.Tag(copyErr)
+	}))
 }
 
-// writeFileAtomic 使用同目录临时文件完成原子写入。
-// 该方法会拒绝通过符号链接目录或符号链接目标写入，降低覆盖写越界和半写文件风险。
+// writeFileAtomic 通过同目录临时文件原子替换目标，回调只负责写入。
 func writeFileAtomic(fileName string, perm os.FileMode, write func(file *os.File) error) error {
 	dir := filepath.Dir(fileName)
 	var err error
 
-	// 拒绝目标路径链路中的符号链接，避免把内容写入符号链接指向的其它位置。
+	// 检查直接父目录和目标路径，后续 Lstat 保留原始路径的文件系统解析结果。
 	if err = assertNoSymlinkPath(dir, fileName); err != nil {
 		return errors.Wrapf(err, "writeFileAtomic() 校验路径失败: path=%s", fileName)
 	}
@@ -127,6 +111,7 @@ func writeFileAtomic(fileName string, perm os.FileMode, write func(file *os.File
 	}
 	tmpName := tmpFile.Name()
 	needCleanup := true
+	// 失败时清理临时文件，清理错误不覆盖首个失败原因。
 	defer func() {
 		if needCleanup {
 			_ = tmpFile.Close()
@@ -141,6 +126,7 @@ func writeFileAtomic(fileName string, perm os.FileMode, write func(file *os.File
 	if err = write(tmpFile); err != nil {
 		return errors.Wrapf(err, "writeFileAtomic() 写入临时文件失败: path=%s", fileName)
 	}
+	// 刷盘和关闭均成功后才替换目标，避免发布未完成的文件。
 	if err = tmpFile.Sync(); err != nil {
 		return errors.Wrapf(err, "writeFileAtomic() 刷盘失败: path=%s", fileName)
 	}
@@ -154,70 +140,56 @@ func writeFileAtomic(fileName string, perm os.FileMode, write func(file *os.File
 	return nil
 }
 
-// FileInfo 文件信息
+// FileInfo 记录遍历时的元数据及绝对路径，不跟踪文件后续变化。
 type FileInfo struct {
 	fs.FileInfo        // 原始文件信息
 	Path        string // 文件绝对路径
 }
 
-// FindFiles 获取目录下所有匹配文件
+// FindFiles 匹配文件名并返回绝对路径，遍历子项时忽略目录且不跟随目录符号链接。
+// depth 控制是否递归；遍历中途失败时同时返回已收集的结果。
 //
-//	path 目录
-//	depth 深度查找: true 采用filepath.WalkDir遍历; false 只在当前目录查找
-//	match 匹配规则:
-//	 - `无参` : 匹配所有文件名 FindFiles(path, depth)
-//	 - `*`   : 匹配所有文件名 FindFiles(path, depth, `*`)
-//	 - `文件完整名`      : 精准匹配文件名 FindFiles(path, depth, fullFileName)
-//	 - `e`, `文件完整名` : 精准匹配文件名 FindFiles(path, depth, `e`, fullFileName)
-//	 - `p`, `文件前缀名` : 匹配前缀文件名 FindFiles(path, depth, `p`, fileNamePrefix)
-//	 - `s`, `文件后缀名` : 匹配后缀文件名 FindFiles(path, depth, `s`, fileNameSuffix)
-//	 - `r`, `正则表达式` : 正则匹配文件名 FindFiles(path, depth, `r`, fileNameReg)
+// match 为空或首项为 "*" 时匹配全部，单个参数按完整文件名匹配；
+// 多参数以 e/p/s/r 指定完整名、前缀、后缀或正则，后续规则满足任一项即匹配。
 func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err error) {
 	matcher, err := newFindMatcher(match)
 	if err != nil {
 		return files, errors.Tag(err)
 	}
 
-	// 处理文件匹配
 	fc := func(filePath string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return errors.Tag(err)
 		}
 
-		if d.IsDir() {
+		// 先按名称筛选，未命中的条目无需读取元数据。
+		if d.IsDir() || !matcher(d.Name()) {
 			return nil
 		}
 
-		if matcher(d.Name()) {
-			info, err := d.Info()
-			if err != nil {
-				return errors.Tag(err)
-			}
-
-			// 获取绝对路径
-			absPath, err := filepath.Abs(filePath)
-			if err != nil {
-				return errors.Tag(err)
-			}
-			files = append(files, FileInfo{info, absPath})
+		info, err := d.Info()
+		if err != nil {
+			return errors.Tag(err)
 		}
+
+		absPath, err := filepath.Abs(filePath)
+		if err != nil {
+			return errors.Tag(err)
+		}
+		files = append(files, FileInfo{info, absPath})
 		return nil
 	}
 
-	// 深度模式或当前模式
 	if depth {
-		// 深度模式
 		if err = filepath.WalkDir(path, fc); err != nil {
 			return files, errors.Tag(err)
 		}
 	} else {
-		// 当前模式读取当前目录
 		entries, err := os.ReadDir(path)
 		if err != nil {
 			return files, errors.Tag(err)
 		}
 
-		// 遍历当前目录所有目录和文件
 		for _, entry := range entries {
 			if err := fc(filepath.Join(path, entry.Name()), entry, nil); err != nil {
 				return files, err
@@ -227,23 +199,19 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 	return files, nil
 }
 
-// newFindMatcher 将 FindFiles 的匹配参数编译为文件名匹配函数。
+// newFindMatcher 在遍历前编译规则；正则错误不会等到遇见文件时才返回。
 func newFindMatcher(match []string) (func(string) bool, error) {
 	switch {
-	case len(match) == 0:
+	// 通配规则忽略后续参数，与未提供规则时使用同一匹配逻辑。
+	case len(match) == 0 || match[0] == "*":
 		return func(string) bool { return true }, nil
 	case len(match) == 1:
-		if match[0] == "*" {
-			return func(string) bool { return true }, nil
-		}
 		rule := match[0]
 		return func(name string) bool { return name == rule }, nil
 	}
 
 	rules := match[1:]
 	switch match[0] {
-	case "*":
-		return func(string) bool { return true }, nil
 	case "p":
 		return func(name string) bool {
 			for _, rule := range rules {
@@ -293,13 +261,12 @@ func newFindMatcher(match []string) (func(string) bool, error) {
 	}
 }
 
-// Scan 使用scan扫描文件每一行数据
-//
-//	size 设置Scanner.maxTokenSize 的大小(默认值: 64*1024): 单行内容大于该值则无法读取
+// Scan 去掉 LF/CRLF 后逐行同步调用 handle，行号从 1 开始，切片仅在回调内有效。
+// size[0] 仅在大于默认 64 KiB 时生效，最多 4 GiB；上限还需容纳行尾分隔符。
+// 回调的 err 参数始终为 nil，读取错误由 Scan 返回；DONE 正常结束，r 由调用方关闭。
 func Scan(r io.Reader, handle ReadScan, size ...int) error {
 	scan := bufio.NewScanner(r)
 
-	// 设置buf和maxTokenSize
 	if len(size) > 0 && size[0] > bufio.MaxScanTokenSize {
 		maxTokenSize := int(min(int64(size[0]), int64(GB*4)))
 		scan.Buffer(make([]byte, bufio.MaxScanTokenSize), maxTokenSize)
@@ -318,21 +285,40 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error {
 	return errors.Tag(scan.Err())
 }
 
-// Line 读取一行数据: 读取大文件大行数据性能略优于Scan
+// Line 去掉 LF/CRLF 后按物理行同步调用 handle，长行的多个分块使用同一行号。
+// 切片仅在回调内有效；有效尾块先交给回调，回调错误或 DONE 优先于读取错误，r 由调用方关闭。
+// 末行恰好占满缓冲区时，可用空末块通知 lineDone=true。
 func Line(r io.Reader, handle ReadLine) error {
 	reader := bufio.NewReaderSize(r, bufio.MaxScanTokenSize)
-	n := 1 // 行号
+	n := 1           // 行号
+	pending := false // 前一块尚未结束本行，后续空 EOF 或读取错误也需补结束通知。
 	for {
-		line, isPrefix, err := reader.ReadLine()
-		if err != nil {
-			if err == io.EOF {
-				return nil
+		line, err := reader.ReadSlice('\n')
+		isPrefix := err == bufio.ErrBufferFull
+		if isPrefix {
+			// CRLF 跨块时把 CR 留给下一次读取；ReadSlice 已保证此时可回退一个字节。
+			if len(line) > 0 && line[len(line)-1] == '\r' {
+				line = line[:len(line)-1]
+				_ = reader.UnreadByte()
 			}
-			return errors.Tag(err)
+		} else if len(line) > 0 && line[len(line)-1] == '\n' {
+			line = line[:len(line)-1]
+			if len(line) > 0 && line[len(line)-1] == '\r' {
+				line = line[:len(line)-1]
+			}
 		}
 
-		if err := handle(n, line, !isPrefix); err != nil {
-			if errors.Is(err, DONE) {
+		if len(line) > 0 || err == nil || isPrefix || pending {
+			if handleErr := handle(n, line, !isPrefix); handleErr != nil {
+				if errors.Is(handleErr, DONE) {
+					return nil
+				}
+				return errors.Tag(handleErr)
+			}
+		}
+		pending = isPrefix
+		if err != nil && !isPrefix {
+			if err == io.EOF {
 				return nil
 			}
 			return errors.Tag(err)
@@ -343,7 +329,9 @@ func Line(r io.Reader, handle ReadLine) error {
 	}
 }
 
-// Read 使用分块读取文件数据, 读取大文件或无换行的文件
+// Read 分块读取数据，直到 Reader 返回错误或回调返回 DONE。
+// Reader 返回 (0, nil) 只表示本次没有数据，不作为读取结束；回调中的切片仅在本次调用内有效。
+// 有效数据先交给回调，回调错误或 DONE 优先于读取错误；EOF 正常结束，不关闭 r。
 func Read(r io.Reader, handle ReadBlock) error {
 	block := make([]byte, bufio.MaxScanTokenSize)
 	for {
@@ -363,9 +351,6 @@ func Read(r io.Reader, handle ReadBlock) error {
 			}
 			return errors.Tag(err)
 		}
-		if n == 0 {
-			return nil
-		}
 	}
 }
 
@@ -378,23 +363,22 @@ type writeOptions struct {
 	perm     os.FileMode // 文件权限，默认 0644。
 }
 
-// WithWriteAppend 设置是否追加写入
+// WithWriteAppend 控制追加模式；默认关闭，NewWrite 会截断已有文件。
 func WithWriteAppend(isAppend bool) WriteOption {
 	return func(o *writeOptions) {
 		o.isAppend = isAppend
 	}
 }
 
-// WithWritePerm 设置文件权限
+// WithWritePerm 设置新建文件的权限，默认 0644；已有文件的权限不变。
 func WithWritePerm(perm os.FileMode) WriteOption {
 	return func(o *writeOptions) {
 		o.perm = perm
 	}
 }
 
-// WriteFileAtomic 原子写入完整文件内容。
-// 适用于配置文件、密钥文件、状态文件等需要“覆盖即完整替换”的场景。
-// 内部使用同目录临时文件 + Sync + Close + Rename，避免直接 O_TRUNC 截断目标文件。
+// WriteFileAtomic 先将 data 写入同目录临时文件并刷盘、关闭，再以 Rename 替换目标。
+// 父目录须已存在；perm 应用于替换后的文件，data 仅在本次调用期间使用。
 func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error {
 	return writeFileAtomic(fileName, perm, func(file *os.File) error {
 		_, err := file.Write(data)
@@ -402,8 +386,7 @@ func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error {
 	})
 }
 
-// WriteStringAtomic 原子写入完整字符串内容。
-// 适用于希望以字符串形式原子覆盖目标文件的场景。
+// WriteStringAtomic 按 WriteFileAtomic 的替换与权限规则写入字符串。
 func WriteStringAtomic(fileName, data string, perm os.FileMode) error {
 	return writeFileAtomic(fileName, perm, func(file *os.File) error {
 		_, err := file.WriteString(data)
@@ -411,10 +394,8 @@ func WriteStringAtomic(fileName, data string, perm os.FileMode) error {
 	})
 }
 
-// NewWrite 返回一个WriteFile实例
-//
-//	fileName 文件路径: 不存在则创建
-//	perm 文件权限: 默认权限 文件夹0744, 文件0644
+// NewWrite 创建可并发写入的句柄，默认截断已有文件，调用方负责 Close。
+// 缺失父目录会自动创建；新建文件默认 0644，目录默认 0744，均受系统 umask 影响。
 func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 	cfg := writeOptions{
 		perm: 0644,
@@ -427,8 +408,7 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 	permFile := cfg.perm
 	path := filepath.Dir(fileName)
 
-	// 写入前拒绝目标文件为符号链接，避免通过通用写入口写穿到其它路径。
-	// 同时拒绝目标路径链路中的符号链接目录，避免写入穿透到预期目录之外。
+	// 检查直接父目录和目标路径，避免跟随现有符号链接写入。
 	if err := assertNoSymlinkPath(path, fileName); err != nil {
 		return nil, errors.Tag(err)
 	}
@@ -441,20 +421,18 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 	}
 
 	if !IsExist(path) {
-		// 本用户组必须拥有读写执行(7)权限
+		// 沿用目录权限规则：文件权限数值达到 0700 时也用于新建目录。
 		var premDir os.FileMode = 0744
 		if permFile >= os.FileMode(0700) {
 			premDir = permFile
 		}
 
-		// 创建目录
 		err := os.MkdirAll(path, premDir)
 		if err != nil {
 			return nil, errors.Tag(err)
 		}
 	}
 
-	// 打开文件标识
 	flag := os.O_CREATE | os.O_WRONLY
 	if cfg.isAppend {
 		flag |= os.O_APPEND
@@ -462,7 +440,6 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 		flag |= os.O_TRUNC
 	}
 
-	// 打开文件没有则创建
 	file, err := os.OpenFile(fileName, flag, permFile)
 	if err != nil {
 		return nil, errors.Tag(err)
@@ -471,52 +448,40 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error) {
 	return &WriteFile{File: file}, nil
 }
 
-// WriteFile 文件读写操作
+// WriteFile 串行执行写入和关闭，首次使用后不得复制；直接访问 File 须自行同步。
 type WriteFile struct {
-	Lock sync.RWMutex // 文件句柄读写锁
-	File *os.File     // 当前文件句柄
+	Lock sync.RWMutex // 保护 File 状态，并覆盖每次写入及回调的完整过程。
+	File *os.File     // 当前文件句柄；Close 后置为 nil。
 }
 
-// currentFileLocked 获取当前文件句柄。
-// 调用方必须先持有写锁或读锁。
-func (f *WriteFile) currentFileLocked() (*os.File, error) {
-	if f == nil || f.File == nil {
-		return nil, errors.New("文件已关闭")
-	}
-	return f.File, nil
-}
-
-// WriteString 写入数据
+// WriteString 在持锁期间写入字符串，返回实际字节数及写入错误。
 func (f *WriteFile) WriteString(data string) (int, error) {
 	f.Lock.Lock()
 	defer f.Lock.Unlock()
 
-	file, err := f.currentFileLocked()
-	if err != nil {
-		return 0, errors.Tag(err)
+	if f.File == nil {
+		return 0, errors.New("文件已关闭")
 	}
 
-	// 写入数据
-	n, err := file.WriteString(data)
+	n, err := f.File.WriteString(data)
 	return n, errors.Tag(err)
 }
 
-// Write 写入数据
+// Write 在持锁期间写入 data，返回实际字节数及写入错误。
 func (f *WriteFile) Write(data []byte) (int, error) {
 	f.Lock.Lock()
 	defer f.Lock.Unlock()
 
-	file, err := f.currentFileLocked()
-	if err != nil {
-		return 0, errors.Tag(err)
+	if f.File == nil {
+		return 0, errors.New("文件已关闭")
 	}
 
-	// 写入数据
-	n, err := file.Write(data)
+	n, err := f.File.Write(data)
 	return n, errors.Tag(err)
 }
 
-// WriteBuf 使用 bufio.Writer 写入数据
+// WriteBuf 持锁执行 handler，成功后 Flush；回调不得重入当前 WriteFile 或保留 writer。
+// 返回字节数沿用 handler 的结果；回调失败不 Flush，已写入文件的内容不会回滚。
 func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (int, error) {
 	f.Lock.Lock()
 	defer f.Lock.Unlock()
@@ -525,22 +490,18 @@ func (f *WriteFile) WriteBuf(handler func(write *bufio.Writer) (int, error)) (in
 		return 0, errors.New("handler 不能为空")
 	}
 
-	file, err := f.currentFileLocked()
-	if err != nil {
-		return 0, errors.Tag(err)
+	if f.File == nil {
+		return 0, errors.New("文件已关闭")
 	}
-	w := bufio.NewWriter(file)
+	w := bufio.NewWriter(f.File)
 	size, err := handler(w)
 	if err != nil {
 		return size, errors.Tag(err)
 	}
-	if err = w.Flush(); err != nil {
-		return size, errors.Tag(err)
-	}
-	return size, nil
+	return size, errors.Tag(w.Flush())
 }
 
-// Close 关闭文件
+// Close 等待当前写入结束后关闭句柄；nil 接收者和重复关闭均返回 nil。
 func (f *WriteFile) Close() error {
 	if f == nil {
 		return nil
@@ -556,10 +517,7 @@ func (f *WriteFile) Close() error {
 	return errors.Tag(file.Close())
 }
 
-// FormatFileSize 将字节数格式化为易读的文件大小。
-//
-//	size 文件实际大小(Byte)
-//	decimals 保留几位小数
+// FormatFileSize 按 1024 进制缩放字节数，decimals 指定小数位数；小于 1 KiB 时直接输出整数 B。
 func FormatFileSize(size int64, decimals uint) string {
 	for _, unit := range [...]struct {
 		size   int64  // 单位字节数
@@ -579,29 +537,17 @@ func FormatFileSize(size int64, decimals uint) string {
 	return strconv.FormatInt(size, 10) + "B"
 }
 
-// FileType 文件类型
+// FileType 优先按扩展名获取文件类型；未知扩展名读取文件头最多 512 字节，不改变文件偏移。
 func FileType(f *os.File) (string, error) {
 	ctype := mime.TypeByExtension(filepath.Ext(f.Name()))
-	if ctype == "" {
-		// 记录当前文件偏移，检测完成后恢复，避免影响调用方后续读取逻辑。
-		currentOffset, err := f.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return "", errors.Tag(err)
-		}
-
-		var buf [512]byte
-		n, err := io.ReadFull(f, buf[:])
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return "", errors.Tag(err)
-		}
-
-		ctype = http.DetectContentType(buf[:n])
-
-		// 恢复文件指针到调用前位置，保持函数无副作用。
-		_, err = f.Seek(currentOffset, io.SeekStart)
-		if err != nil {
-			return "", errors.Tag(err)
-		}
+	if ctype != "" {
+		return ctype, nil
 	}
-	return ctype, nil
+
+	var buf [512]byte
+	n, err := f.ReadAt(buf[:], 0)
+	if err != nil && err != io.EOF {
+		return "", errors.Tag(err)
+	}
+	return http.DetectContentType(buf[:n]), nil
 }

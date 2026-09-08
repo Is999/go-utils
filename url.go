@@ -7,8 +7,8 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// URLPath 组装带参数的完整 URL。
-// 将 params 中的查询参数合并到 urlPath 中，保留原有查询参数。
+// URLPath 将查询参数合并到 URL，同名键由 params 整组覆盖，其余原参数保留。
+// params 为空时原样返回且不解析 URL；非空时按键排序编码，不修改 params。
 func URLPath(urlPath string, params url.Values) (string, error) {
 	if len(params) == 0 {
 		return urlPath, nil

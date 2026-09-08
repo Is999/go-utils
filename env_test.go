@@ -8,46 +8,30 @@ import (
 )
 
 func TestGetEnv(t *testing.T) {
-	type args struct {
-		key        string
+	const key = "GO_UTILS_TEST_KEY" // 测试只改专用变量，结束后恢复调用环境。
+	for _, tt := range []struct {
+		name       string
+		value      string
+		unset      bool // 区分未设置与空字符串，两者都应使用默认值。
 		defaultVal []string
-	}
-	tests := []struct {
-		name string
-		args args
-		want string
+		want       string
 	}{
-		{name: "001", args: args{key: "GCCGO", defaultVal: []string{"gccgo"}}, want: "gccgo"},
-	}
-	for _, tt := range tests {
+		{name: "unset", unset: true, defaultVal: []string{"fallback"}, want: "fallback"},
+		{name: "empty", defaultVal: []string{"fallback"}, want: "fallback"},
+		{name: "existing", value: "value", defaultVal: []string{"fallback"}, want: "value"},
+		{name: "no default", unset: true},
+		{name: "first default", defaultVal: []string{"first", "second"}, want: "first"},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.GetEnv(tt.args.key, tt.args.defaultVal...); got != tt.want {
+			t.Setenv(key, tt.value)
+			if tt.unset {
+				if err := os.Unsetenv(key); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := utils.GetEnv(key, tt.defaultVal...); got != tt.want {
 				t.Errorf("GetEnv() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestGetEnv_ExistingKey(t *testing.T) {
-	os.Setenv("GO_UTILS_TEST_KEY", "test_value")
-	defer os.Unsetenv("GO_UTILS_TEST_KEY")
-
-	got := utils.GetEnv("GO_UTILS_TEST_KEY", "default")
-	if got != "test_value" {
-		t.Errorf("GetEnv() = %v, want test_value", got)
-	}
-}
-
-func TestGetEnv_EmptyValue(t *testing.T) {
-	got := utils.GetEnv("GO_UTILS_NONEXISTENT_KEY_12345", "fallback")
-	if got != "fallback" {
-		t.Errorf("GetEnv() = %v, want fallback", got)
-	}
-}
-
-func TestGetEnv_NoDefault(t *testing.T) {
-	got := utils.GetEnv("GO_UTILS_NONEXISTENT_KEY_12345")
-	if got != "" {
-		t.Errorf("GetEnv() = %v, want empty string", got)
 	}
 }

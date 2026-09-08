@@ -3,6 +3,8 @@ package utils_test
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,20 +15,9 @@ import (
 
 func TestTar(t *testing.T) {
 	srcDir := createArchiveFixture(t)
-	tests := []struct {
-		name    string
-		files   []string
-		tarFile string
-		wantErr bool
-	}{
-		{name: "001", files: []string{srcDir}, tarFile: filepath.Join(t.TempDir(), "go-utils.tar"), wantErr: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.Tar(tt.tarFile, tt.files); (err != nil) != tt.wantErr {
-				t.Errorf("Tar() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	tarFile := filepath.Join(t.TempDir(), "go-utils.tar")
+	if err := utils.Tar(tarFile, []string{srcDir}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -61,18 +52,93 @@ func TestAddFileToTarHonorsBaseDirForDirectory(t *testing.T) {
 
 func TestTarGz(t *testing.T) {
 	srcDir := createArchiveFixture(t)
-	tests := []struct {
-		name      string
-		files     []string
-		tarGzFile string
-		wantErr   bool
-	}{
-		{name: "001", files: []string{srcDir}, tarGzFile: filepath.Join(t.TempDir(), "go-utils.tar.gz"), wantErr: false},
+	tarGzFile := filepath.Join(t.TempDir(), "go-utils.tar.gz")
+	if err := utils.TarGz(tarGzFile, []string{srcDir}); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
+}
+
+func TestUnTarChecksGzipTrailer(t *testing.T) {
+	// tar 的结束块可能先于 gzip 尾部校验被读取，仍须报告损坏或缺失的 gzip 尾部。
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	valid := buf.Bytes()
+	corrupt := bytes.Clone(valid)
+	corrupt[len(corrupt)-8] ^= 1
+	for _, tt := range []struct {
+		name string
+		data []byte
+		want error
+	}{
+		{name: "valid", data: valid},
+		{name: "checksum", data: corrupt, want: gzip.ErrChecksum},
+		{name: "truncated", data: valid[:len(valid)-4], want: io.ErrUnexpectedEOF},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.TarGz(tt.tarGzFile, tt.files); (err != nil) != tt.wantErr {
-				t.Errorf("TarGz() error = %v, wantErr %v", err, tt.wantErr)
+			path := filepath.Join(t.TempDir(), "fixture.tar.gz")
+			if err := os.WriteFile(path, tt.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := utils.UnTar(path, t.TempDir())
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("UnTar() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestUnTarGzipPaddingAndMultistream(t *testing.T) {
+	// gzip 成员边界可以落在 tar 数据内部；结束块之后的正常填充也应通过校验。
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	const content = "payload"
+	if err := tw.WriteHeader(&tar.Header{Name: "file.txt", Mode: 0o644, Size: int64(len(content))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data := archive.Bytes()
+	for _, tt := range []struct {
+		name   string
+		chunks [][]byte
+	}{
+		{name: "padding", chunks: [][]byte{append(bytes.Clone(data), make([]byte, 1024)...)}},
+		{name: "split members", chunks: [][]byte{data[:600], data[600:]}},
+		{name: "trailing member", chunks: [][]byte{data, make([]byte, 1024)}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var compressed bytes.Buffer
+			for _, chunk := range tt.chunks {
+				gz := gzip.NewWriter(&compressed)
+				if _, err := gz.Write(chunk); err != nil {
+					t.Fatal(err)
+				}
+				if err := gz.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := filepath.Join(t.TempDir(), "fixture.tar.gz")
+			if err := os.WriteFile(path, compressed.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			dest := t.TempDir()
+			if err := utils.UnTar(path, dest); err != nil {
+				t.Fatalf("UnTar() error = %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(dest, "file.txt"))
+			if err != nil || string(got) != content {
+				t.Fatalf("extracted file = (%q, %v), want %q", got, err, content)
 			}
 		})
 	}
@@ -91,17 +157,16 @@ func TestUnTar(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		zipFile string
+		tarFile string
 		destDir string
-		wantErr bool
 	}{
-		{name: "001", zipFile: tarPath, destDir: filepath.Join(t.TempDir(), "tar")},
-		{name: "002", zipFile: tarGzPath, destDir: filepath.Join(t.TempDir(), "targz")},
+		{name: "tar", tarFile: tarPath, destDir: filepath.Join(t.TempDir(), "tar")},
+		{name: "tar.gz", tarFile: tarGzPath, destDir: filepath.Join(t.TempDir(), "targz")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.UnTar(tt.zipFile, tt.destDir); (err != nil) != tt.wantErr {
-				t.Errorf("UnTar() error = %v, wantErr %v", err, tt.wantErr)
+			if err := utils.UnTar(tt.tarFile, tt.destDir); err != nil {
+				t.Fatal(err)
 			}
 			assertArchiveExtracted(t, tt.destDir, filepath.Base(srcDir))
 		})
@@ -316,10 +381,14 @@ func createArchiveFixture(t *testing.T) string {
 func assertArchiveExtracted(t *testing.T, destDir, rootName string) {
 	t.Helper()
 
-	if !utils.IsExist(filepath.Join(destDir, rootName, "README.md")) {
-		t.Fatalf("missing extracted file: %s", filepath.Join(destDir, rootName, "README.md"))
-	}
-	if !utils.IsExist(filepath.Join(destDir, rootName, "conf", "app.yaml")) {
-		t.Fatalf("missing extracted file: %s", filepath.Join(destDir, rootName, "conf", "app.yaml"))
+	// 三种归档格式都要恢复正文，只有文件存在不能证明复制完成。
+	for path, want := range map[string]string{
+		"README.md":     "hello archive",
+		"conf/app.yaml": "name: go-utils\n",
+	} {
+		got, err := os.ReadFile(filepath.Join(destDir, rootName, filepath.FromSlash(path)))
+		if err != nil || string(got) != want {
+			t.Fatalf("extracted %s = (%q, %v), want %q", path, got, err, want)
+		}
 	}
 }

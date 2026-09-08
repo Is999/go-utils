@@ -8,10 +8,7 @@ import (
 	"time"
 )
 
-// ============================ 请求构建方法 ============================
-
-// ensureHeader 返回可写请求头映射。
-// Header 只有在构造默认头、用户设置头或发送请求时才需要分配；懒初始化可降低 NewCurl 热路径开销。
+// ensureHeader 延迟分配请求头，构造只读模板时可保持 nil。
 func (c *Curl) ensureHeader() http.Header {
 	if c.header == nil {
 		c.header = make(http.Header, 2)
@@ -29,8 +26,7 @@ func (c *Curl) ensureDefaultContentType() http.Header {
 	return header
 }
 
-// ensureParams 返回可写查询参数映射。
-// 参数数据来源于 SetParam/AddParam/PostForm 等调用；未使用参数能力时保持 nil，避免空 map 分配。
+// ensureParams 延迟分配参数映射，未配置参数时保持 nil。
 func (c *Curl) ensureParams() url.Values {
 	if c.params == nil {
 		c.params = make(url.Values)
@@ -38,29 +34,16 @@ func (c *Curl) ensureParams() url.Values {
 	return c.params
 }
 
-// ensureCookies 返回可写 Cookie 映射。
-// Cookie 数据来源于 SetCookies/AddCookies；capacity 用于批量设置时预留容量，减少扩容。
-func (c *Curl) ensureCookies(capacity int) map[string]*http.Cookie {
-	if c.cookies == nil {
-		if capacity > 0 {
-			c.cookies = make(map[string]*http.Cookie, capacity)
-		} else {
-			c.cookies = make(map[string]*http.Cookie)
-		}
-	}
-	return c.cookies
-}
-
-// Header 获取当前请求头配置。
+// Header 返回可直接修改的请求头映射，并补齐默认 Content-Type。
+// 请求 ID 尚未生成时会创建；已生成后不重新添加被调用方删除的 ID 头。
 func (c *Curl) Header() http.Header {
-	// 调用方读取完整 Header 时补齐懒生成的请求 ID，保持构造后可观察到链路头的兼容行为。
 	if c.requestID == "" {
 		c.SetRequestID()
 	}
 	return c.ensureDefaultContentType()
 }
 
-// GetHeaderValues 获取请求头中指定键的所有值。
+// GetHeaderValues 返回指定请求头的值切片，与内部配置共享底层数据。
 func (c *Curl) GetHeaderValues(key string) []string {
 	return c.header.Values(key)
 }
@@ -76,7 +59,7 @@ func (c *Curl) SetHeader(key, value string) *Curl {
 	return c
 }
 
-// SetHeaders 批量设置请求头。
+// SetHeaders 覆盖给定请求头的值，不清空其他键。
 func (c *Curl) SetHeaders(headers map[string]string) *Curl {
 	if len(headers) == 0 {
 		return c
@@ -115,8 +98,8 @@ func (c *Curl) DeleteHeaders(keys ...string) *Curl {
 	return c
 }
 
-// ResetHeaders 重置请求头。
-// 如果 header 为 nil，清空所有现有请求头；否则替换为新的请求头。
+// ResetHeaders 用传入映射替换请求头，不做复制；nil 清空现有映射。
+// 默认 Content-Type 仍会在 Header 或发送请求时补齐。
 func (c *Curl) ResetHeaders(header http.Header) *Curl {
 	if header == nil {
 		clear(c.header)
@@ -126,12 +109,12 @@ func (c *Curl) ResetHeaders(header http.Header) *Curl {
 	return c
 }
 
-// Params 获取当前 URL 查询参数。
+// Params 返回可直接修改的参数映射；请求发送时读取当前值，不缓存编码结果。
 func (c *Curl) Params() url.Values {
 	return c.ensureParams()
 }
 
-// GetParamValues 获取查询参数中指定键的值。
+// GetParamValues 返回指定参数的值切片，与内部配置共享底层数据。
 func (c *Curl) GetParamValues(key string) []string {
 	return c.params[key]
 }
@@ -147,7 +130,7 @@ func (c *Curl) SetParam(key, value string) *Curl {
 	return c
 }
 
-// SetParams 批量设置查询参数。
+// SetParams 覆盖给定参数的值，不清空其他键。
 func (c *Curl) SetParams(params map[string]string) *Curl {
 	if len(params) == 0 {
 		return c
@@ -175,10 +158,8 @@ func (c *Curl) AddParams(params map[string][]string) *Curl {
 	}
 	paramsValues := c.ensureParams()
 	for key, list := range params {
-		if len(list) > 0 {
-			for _, value := range list {
-				paramsValues.Add(key, value)
-			}
+		for _, value := range list {
+			paramsValues.Add(key, value)
 		}
 	}
 	return c
@@ -192,8 +173,7 @@ func (c *Curl) DeleteParams(keys ...string) *Curl {
 	return c
 }
 
-// ResetParams 重置查询参数。
-// 如果 params 为 nil，清空所有现有参数；否则替换为新的参数。
+// ResetParams 用传入映射替换参数，不做复制；nil 清空现有映射。
 func (c *Curl) ResetParams(params url.Values) *Curl {
 	if params == nil {
 		clear(c.params)
@@ -203,20 +183,19 @@ func (c *Curl) ResetParams(params url.Values) *Curl {
 	return c
 }
 
-// SetBody 设置请求体。
+// SetBody 保存请求体引用，不立即读取；重放与关闭归属见 SendContext。
 func (c *Curl) SetBody(body io.Reader) *Curl {
 	c.body = body
 	return c
 }
 
-// SetBodyBytes 设置请求体字节。
-// 内部会将字节数组包装为 bytes.Reader。
+// SetBodyBytes 使用传入切片作为可重放请求体，不复制数据；发送期间不得修改该切片。
 func (c *Curl) SetBodyBytes(body []byte) *Curl {
 	c.body = bytes.NewReader(body)
 	return c
 }
 
-// GetCookie 获取指定名称的 Cookie。
+// GetCookie 返回配置中的 Cookie 指针；不存在时返回 nil，修改会影响后续请求。
 func (c *Curl) GetCookie(cookieName string) *http.Cookie {
 	return c.cookies[cookieName]
 }
@@ -227,25 +206,24 @@ func (c *Curl) HasCookie(cookieName string) bool {
 	return ok
 }
 
-// SetCookies 设置 Cookie 列表。
-// 会先清空现有 Cookie，再添加新的 Cookie。
+// SetCookies 替换全部 Cookie；按名称保存传入指针，忽略 nil。
 func (c *Curl) SetCookies(cookies ...*http.Cookie) *Curl {
 	c.cookies = make(map[string]*http.Cookie, len(cookies))
 	c.AddCookies(cookies...)
 	return c
 }
 
-// AddCookies 添加 Cookie 列表。
-// 不会清空现有 Cookie，而是增量添加。
+// AddCookies 按名称添加 Cookie 指针，同名项覆盖原值，nil 项被忽略。
 func (c *Curl) AddCookies(cookies ...*http.Cookie) *Curl {
-	var cookieMap map[string]*http.Cookie
 	for _, cookie := range cookies {
-		if cookie != nil {
-			if cookieMap == nil {
-				cookieMap = c.ensureCookies(len(cookies))
-			}
-			cookieMap[cookie.Name] = cookie
+		if cookie == nil {
+			continue
 		}
+		// 首个有效项才初始化映射，空参数和全 nil 输入保持原状态。
+		if c.cookies == nil {
+			c.cookies = make(map[string]*http.Cookie, len(cookies))
+		}
+		c.cookies[cookie.Name] = cookie
 	}
 	return c
 }
@@ -264,18 +242,13 @@ func (c *Curl) ClearCookies() *Curl {
 	return c
 }
 
-// SetTimeout 设置超时时间（秒）。
+// SetTimeout 设置单次 Client.Do 超时，单位：秒；0 在发送时回退为 30 秒。
 func (c *Curl) SetTimeout(timeout uint16) *Curl {
 	c.timeout = time.Duration(timeout) * time.Second
 	return c
 }
 
-// SetContentType 设置请求头 Content-Type。
-// 常见类型：
-//   - "application/x-www-form-urlencoded"
-//   - "application/json"
-//   - "multipart/form-data"
-//   - "text/plain"
+// SetContentType 设置请求媒体类型；multipart 的 boundary 应使用 Form.Reader 返回的值。
 func (c *Curl) SetContentType(contentType string) *Curl {
 	c.ensureHeader().Set(curlHeaderContentType, contentType)
 	return c
@@ -288,35 +261,35 @@ func (c *Curl) SetUserAgent(userAgent string) *Curl {
 }
 
 // SetBasicAuth 设置 Basic 认证的账号及密码。
+// 用户名或密码可以为空；两者均为空时不自动设置认证头。
 func (c *Curl) SetBasicAuth(username, password string) *Curl {
 	c.username = username
 	c.password = password
 	return c
 }
 
-// SetProxyURL 设置代理地址。
+// SetProxyURL 设置代理地址，在下一次发送时重建 Transport；空值沿用默认 Transport 的代理规则。
 func (c *Curl) SetProxyURL(proxyURL string) *Curl {
 	c.proxyURL = proxyURL
 	c.transportDirty = true
 	return c
 }
 
-// InsecureSkipVerify 设置是否跳过 HTTPS 不安全验证。
-// 注意：生产环境禁止使用，存在安全风险。
+// InsecureSkipVerify 设置是否跳过服务端证书链和主机名校验，下一次发送时应用。
 func (c *Curl) InsecureSkipVerify(isSkip bool) *Curl {
 	c.insecureSkipVerify = isSkip
 	c.transportDirty = true
 	return c
 }
 
-// SetRootCAs 设置根证书。
+// SetRootCAs 设置 PEM 根证书文件路径，下一次发送时加载；证书池规则见 RootCAs。
 func (c *Curl) SetRootCAs(rootCAs string) *Curl {
 	c.rootCAs = rootCAs
 	c.transportDirty = true
 	return c
 }
 
-// SetCertKey 设置客户端证书和私钥。
+// SetCertKey 设置客户端证书和私钥路径，两者均非空时在下一次发送中加载。
 func (c *Curl) SetCertKey(cert, key string) *Curl {
 	c.cert = cert
 	c.key = key
@@ -324,13 +297,9 @@ func (c *Curl) SetCertKey(cert, key string) *Curl {
 	return c
 }
 
-// SetStatusCode 设置可接受的状态码列表。
-// 当响应状态码不在列表中且不是 200 时，将返回错误。
+// SetStatusCode 替换 200 之外允许通过校验的状态码；空参数清空列表。
+// 状态校验失败会直接返回错误，不执行响应回调，也不触发重试。
 func (c *Curl) SetStatusCode(statusCode ...int) *Curl {
-	if len(statusCode) == 0 {
-		c.statusCode = c.statusCode[:0]
-		return c
-	}
 	c.statusCode = append(c.statusCode[:0], statusCode...)
 	return c
 }
@@ -347,8 +316,8 @@ func (c *Curl) SetMaxRetry(max uint8) *Curl {
 	return c
 }
 
-// SetDump 设置是否开启 dump 模式。
-// dump 模式会详细打印请求和响应的信息。
+// SetDump 选择包含请求/响应头的日志格式，正文仍按 dumpBodyLimit 截断。
+// 仅在默认日志已开启且 Logger 允许 Info 时生效。
 func (c *Curl) SetDump(dump bool) *Curl {
 	c.dump = dump
 	return c

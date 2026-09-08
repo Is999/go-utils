@@ -2,182 +2,135 @@ package utils_test
 
 import (
 	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/Is999/go-utils"
 )
 
-var (
-	path    = "/tmp/"
-	pubFile = path + "public.pem"
-	priFile = path + "private.pem"
-
-	benchmarkRSAOnce sync.Once
-	benchmarkRSAInst *utils.RSA
-	benchmarkRSAErr  error
-)
-
+// TestGenerateKeyRSA 覆盖默认格式和四种公私钥组合，生成文件须能由公开入口重新导入。
 func TestGenerateKeyRSA(t *testing.T) {
-	type args struct {
-		path string
-		bits int
-		pkcs []bool
-	}
 	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
+		name string
+		pkcs []bool // 依次选择公钥 PKIX/PKCS#1、私钥 PKCS#1/PKCS#8。
 	}{
-		{name: "001", args: args{path: path, bits: 2048}, wantErr: false},
-		{name: "002", args: args{path: path, bits: 2048, pkcs: []bool{false, false}}, wantErr: false},
-		{name: "003", args: args{path: path, bits: 2048, pkcs: []bool{true, true}}, wantErr: false},
-		{name: "004", args: args{path: path, bits: 2048, pkcs: []bool{false, true}}, wantErr: false},
-		{name: "005", args: args{path: path, bits: 2048, pkcs: []bool{true, false}}, wantErr: false},
+		{name: "default"},
+		{name: "PKCS1-PKCS8", pkcs: []bool{false, false}},
+		{name: "PKIX-PKCS1", pkcs: []bool{true, true}},
+		{name: "PKCS1-PKCS1", pkcs: []bool{false, true}},
+		{name: "PKIX-PKCS8", pkcs: []bool{true, false}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, err := utils.GenerateKeyRSA(tt.args.path, tt.args.bits, tt.args.pkcs...); (err != nil) != tt.wantErr {
-				t.Errorf("GenerateKeyRSA() error = %v, wantErr %v", err, tt.wantErr)
-			} else {
-				// 考被文件
-				for i, f := range got {
-					err := utils.Copy(f, utils.Ternary(i == 0, pubFile, priFile))
-					if err != nil {
-						t.Errorf("Copy() error = %v", err)
-					}
-				}
+			got, err := utils.GenerateKeyRSA(t.TempDir(), 2048, tt.pkcs...)
+			if err != nil {
+				t.Fatalf("GenerateKeyRSA() error = %v", err)
+			}
+			if len(got) != 2 {
+				t.Fatalf("GenerateKeyRSA() returned %d files, want 2", len(got))
+			}
+			if _, err := utils.NewRSA(got[0], got[1], utils.WithRSAFilePath(true)); err != nil {
+				t.Fatalf("NewRSA() cannot read generated keys: %v", err)
 			}
 		})
 	}
 }
 
+// TestRSA 覆盖文本和文件两种密钥来源。
 func TestRSA(t *testing.T) {
-
 	type args struct {
 		publicKey      string
 		privateKey     string
 		isFilePath     bool
-		hash           crypto.Hash
 		encodeToString func([]byte) string
 		decode         func(string) ([]byte, error)
 	}
 
-	// 读取公钥文件内容
-	pub, err := os.ReadFile(pubFile)
-	if err != nil {
-		t.Errorf("ReadFile() WrapError = %v", err)
-	}
-
-	// 读取私钥文件内容
-	pri, err := os.ReadFile(priFile)
-	if err != nil {
-		t.Errorf("ReadFile() WrapError = %v", err)
-	}
+	pubFile, priFile := rsaKeyFiles(t)
+	pub := mustReadRSAFile(t, pubFile)
+	pri := mustReadRSAFile(t, priFile)
 
 	tests := []struct {
 		name string
 		args args
-		//want   *_RSA
 	}{
-		{name: "001", args: args{publicKey: string(pub), privateKey: string(pri), hash: crypto.SHA256, encodeToString: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString}},
-		{name: "002", args: args{publicKey: pubFile, privateKey: priFile, isFilePath: true, hash: crypto.SHA512, encodeToString: hex.EncodeToString, decode: hex.DecodeString}},
+		{name: "001", args: args{publicKey: string(pub), privateKey: string(pri), encodeToString: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString}},
+		{name: "002", args: args{publicKey: pubFile, privateKey: priFile, isFilePath: true, encodeToString: hex.EncodeToString, decode: hex.DecodeString}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := make([]utils.RSAOption, 0, 1)
-			if tt.args.isFilePath {
-				opts = append(opts, utils.WithRSAFilePath(true))
-			}
-			r, err := utils.NewRSA(tt.args.publicKey, tt.args.privateKey, opts...)
+			r, err := utils.NewRSA(tt.args.publicKey, tt.args.privateKey, utils.WithRSAFilePath(tt.args.isFilePath))
 			if err != nil {
-				t.Errorf("NewRSA() WrapError = %v", err)
-				return
+				t.Fatalf("NewRSA() WrapError = %v", err)
 			}
 
-			// 源数据
+			// 文本超过单个 RSA 分块，验证跨分块的拼接结果。
 			marshal, err := json.Marshal(map[string]any{
 				"Title":   tt.name,
 				"Content": strings.Repeat("运行此代码时，当你在输入框中输入文本并点击提交按钮", 131) + tt.name,
 			})
 			if err != nil {
-				t.Errorf("json.Marshal() WrapError = %v", err)
-				return
+				t.Fatalf("json.Marshal() WrapError = %v", err)
 			}
 
-			// t.Logf("json.Marshal() = %d %v\n", len(string(marshal)), string(marshal))
-
-			// 公钥加密 PKCS1v15
 			encodeString, err := r.Encrypt(string(marshal), tt.args.encodeToString)
 			if err != nil {
-				t.Errorf("Encrypt() WrapError = %v", err)
-				return
+				t.Fatalf("Encrypt() WrapError = %v", err)
 			}
-			//t.Logf("Encrypt() = %v\n", encodeString)
 
-			// 私钥解密 PKCS1v15
 			decryptString, err := r.Decrypt(encodeString, tt.args.decode)
 			if err != nil {
-				t.Errorf("Decrypt() WrapError = %v", err)
-				return
+				t.Fatalf("Decrypt() WrapError = %v", err)
 			}
-			//t.Logf("Decrypt() = %v\n", decryptString)
-			if !reflect.DeepEqual(decryptString, string(marshal)) {
+
+			if decryptString != string(marshal) {
 				t.Errorf("PKCS1v15 解密后数据不等于加密前数据 got = %v, want %v", decryptString, string(marshal))
 			}
 
-			// 公钥加密 OAEP
 			encodeString, err = r.EncryptOAEP(string(marshal), tt.args.encodeToString, sha256.New())
 			if err != nil {
-				t.Errorf("Encrypt() WrapError = %v", err)
-				return
+				t.Fatalf("Encrypt() WrapError = %v", err)
 			}
-			//t.Logf("Encrypt() = %v\n", encodeString)
 
-			// 私钥解密 OAEP
 			decryptString, err = r.DecryptOAEP(encodeString, tt.args.decode, sha256.New())
 			if err != nil {
-				t.Errorf("Decrypt() WrapError = %v", err)
-				return
+				t.Fatalf("Decrypt() WrapError = %v", err)
 			}
-			//t.Logf("Decrypt() = %v\n", decryptString)
 
-			if !reflect.DeepEqual(decryptString, string(marshal)) {
+			if decryptString != string(marshal) {
 				t.Errorf("解密后数据不等于加密前数据 got = %v, want %v", decryptString, string(marshal))
 			}
 
-			// 公钥加密 OAEP（按 crypto.Hash 创建独立摘要实例）
 			encodeString, err = r.EncryptOAEPHash(string(marshal), tt.args.encodeToString, crypto.SHA256)
 			if err != nil {
-				t.Errorf("EncryptOAEPHash() WrapError = %v", err)
-				return
+				t.Fatalf("EncryptOAEPHash() WrapError = %v", err)
 			}
 
-			// 私钥解密 OAEP（按 crypto.Hash 创建独立摘要实例）
 			decryptString, err = r.DecryptOAEPHash(encodeString, tt.args.decode, crypto.SHA256)
 			if err != nil {
-				t.Errorf("DecryptOAEPHash() WrapError = %v", err)
-				return
+				t.Fatalf("DecryptOAEPHash() WrapError = %v", err)
 			}
 
-			if !reflect.DeepEqual(decryptString, string(marshal)) {
+			if decryptString != string(marshal) {
 				t.Errorf("OAEPHash 解密后数据不等于加密前数据 got = %v, want %v", decryptString, string(marshal))
 			}
 		})
 	}
 }
 
+// TestRSA_SignAndVerify 覆盖文本和文件密钥的两种签名方式。
 func TestRSA_SignAndVerify(t *testing.T) {
-
 	type args struct {
 		publicKey      string
 		privateKey     string
@@ -187,22 +140,13 @@ func TestRSA_SignAndVerify(t *testing.T) {
 		decode         func(string) ([]byte, error)
 	}
 
-	// 读取公钥文件内容
-	pub, err := os.ReadFile(pubFile)
-	if err != nil {
-		t.Errorf("ReadFile() WrapError = %v", err)
-	}
-
-	// 读取私钥文件内容
-	pri, err := os.ReadFile(priFile)
-	if err != nil {
-		t.Errorf("ReadFile() WrapError = %v", err)
-	}
+	pubFile, priFile := rsaKeyFiles(t)
+	pub := mustReadRSAFile(t, pubFile)
+	pri := mustReadRSAFile(t, priFile)
 
 	tests := []struct {
 		name string
 		args args
-		//want   *_RSA
 	}{
 		{name: "001", args: args{publicKey: string(pub), privateKey: string(pri), hash: crypto.SHA256, encodeToString: base64.StdEncoding.EncodeToString, decode: base64.StdEncoding.DecodeString}},
 		{name: "002", args: args{publicKey: pubFile, privateKey: priFile, isFilePath: true, hash: crypto.SHA512, encodeToString: hex.EncodeToString, decode: hex.DecodeString}},
@@ -210,97 +154,157 @@ func TestRSA_SignAndVerify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := make([]utils.RSAOption, 0, 1)
-			if tt.args.isFilePath {
-				opts = append(opts, utils.WithRSAFilePath(true))
-			}
-			privRsa, err := utils.NewPriRSA(tt.args.privateKey, opts...)
+			privRsa, err := utils.NewPriRSA(tt.args.privateKey, utils.WithRSAFilePath(tt.args.isFilePath))
 			if err != nil {
-				t.Errorf("NewRSA() WrapError = %v", err)
-				return
+				t.Fatalf("NewRSA() WrapError = %v", err)
 			}
 
-			pubRsa, err := utils.NewPubRSA(tt.args.publicKey, opts...)
+			pubRsa, err := utils.NewPubRSA(tt.args.publicKey, utils.WithRSAFilePath(tt.args.isFilePath))
 			if err != nil {
-				t.Errorf("NewRSA() WrapError = %v", err)
-				return
+				t.Fatalf("NewRSA() WrapError = %v", err)
 			}
 
-			// 源数据
+			// 传入完整长消息，摘要计算由签名入口完成。
 			marshal, err := json.Marshal(map[string]any{
 				"Title":   tt.name,
 				"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
 			})
 			if err != nil {
-				t.Errorf("json.Marshal() WrapError = %v", err)
-				return
+				t.Fatalf("json.Marshal() WrapError = %v", err)
 			}
 
-			// t.Logf("json.Marshal() = %d %v\n", len(string(marshal)), string(marshal))
-
-			// 私钥签名 PKCS1v15
 			sign, err := privRsa.Sign(string(marshal), tt.args.hash, tt.args.encodeToString)
 			if err != nil {
-				t.Errorf("Sign() WrapError = %v", err)
-				return
+				t.Fatalf("Sign() WrapError = %v", err)
 			}
-			//t.Logf("Sign() = %v\n", sign)
 
-			// 公钥验签 PKCS1v15
 			if err := pubRsa.Verify(string(marshal), sign, tt.args.hash, tt.args.decode); err != nil {
-				t.Errorf("Verify() WrapError = %v", err)
-				return
-			} else {
-				//t.Log("Verify() = 验证成功")
+				t.Fatalf("Verify() WrapError = %v", err)
 			}
 
-			// 私钥签名 PSS
 			sign, err = privRsa.SignPSS(string(marshal), tt.args.hash, tt.args.encodeToString, nil)
 			if err != nil {
-				t.Errorf("Sign() WrapError = %v", err)
-				return
+				t.Fatalf("Sign() WrapError = %v", err)
 			}
-			//t.Logf("Sign() = %v\n", sign)
 
-			// 公钥验签 PSS
 			if err := pubRsa.VerifyPSS(string(marshal), sign, tt.args.hash, tt.args.decode, nil); err != nil {
-				t.Errorf("Verify() WrapError = %v", err)
-				return
-			} else {
-				//t.Log("Verify() = 验证成功")
+				t.Fatalf("Verify() WrapError = %v", err)
 			}
 		})
 	}
 }
 
 func TestRSA_PEMHeaders(t *testing.T) {
-	// 读取公钥文件内容
-	pub, err := os.ReadFile(pubFile)
+	// 这里只验证文本分行和标记恢复，无需生成可用密钥或依赖文件。
+	for _, tt := range []struct {
+		keyType string
+		pemType string
+	}{
+		{keyType: "public", pemType: "PUBLIC KEY"},
+		{keyType: "private", pemType: "RSA PRIVATE KEY"},
+	} {
+		t.Run(tt.keyType, func(t *testing.T) {
+			original := "-----BEGIN " + tt.pemType + "-----\n" + strings.Repeat("Ab0+", 16) + "\nAQID\n-----END " + tt.pemType + "-----"
+			got, err := utils.AddPEMHeaders(utils.RemovePEMHeaders(original), tt.keyType)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != original {
+				t.Fatalf("PEM round trip = %q, want %q", got, original)
+			}
+		})
+	}
+}
+
+// TestRSAKeyDERPreservesBytes 验证二进制密钥尾部的空白字节不会被当作文本裁剪。
+func TestRSAKeyDERPreservesBytes(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		t.Errorf("ReadFile() WrapError = %v", err)
+		t.Fatal(err)
+	}
+	publicKey := privateKey.PublicKey
+	// 固定指数的 DER 末字节为 0x09，回归不依赖随机密钥恰好以空白字节结尾。
+	publicKey.E = 65545
+	pkcs1 := x509.MarshalPKCS1PublicKey(&publicKey)
+	pkix, err := x509.MarshalPKIXPublicKey(&publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x509.ParsePKCS1PublicKey(pkcs1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x509.ParsePKIXPublicKey(pkix); err != nil {
+		t.Fatal(err)
 	}
 
-	//t.Logf("公钥 %s", string(pub))
-	rPub := utils.RemovePEMHeaders(string(pub))
-	//t.Logf("remove 公钥 %s", rPub)
-	aPub, _ := utils.AddPEMHeaders(rPub, "public")
-	//t.Logf("add 公钥 %s %v", aPub, strings.EqualFold(aPub, strings.TrimSpace(string(pub))))
-	if !strings.EqualFold(aPub, strings.TrimSpace(string(pub))) {
-		t.Errorf("转换后的公钥与原始公钥不相等")
+	for _, format := range []struct {
+		name    string
+		pemType string
+		der     []byte
+	}{
+		{name: "PKCS1", pemType: "RSA PUBLIC KEY", der: pkcs1},
+		{name: "PKIX", pemType: "PUBLIC KEY", der: pkix},
+	} {
+		t.Run(format.name, func(t *testing.T) {
+			if format.der[len(format.der)-1] != '\t' {
+				t.Fatal("DER fixture must end with a tab byte")
+			}
+			for _, input := range []struct {
+				name string
+				data string
+			}{
+				{name: "DER", data: string(format.der)},
+				{name: "PEM", data: " \t\n" + string(pem.EncodeToMemory(&pem.Block{Type: format.pemType, Bytes: format.der})) + " \r\n"},
+				{name: "base64", data: " \t\n" + base64.StdEncoding.EncodeToString(format.der) + " \r\n"},
+			} {
+				t.Run(input.name, func(t *testing.T) {
+					t.Run("string", func(t *testing.T) {
+						if _, err := utils.NewPubRSA(input.data); err != nil {
+							t.Fatal(err)
+						}
+					})
+					t.Run("file", func(t *testing.T) {
+						path := filepath.Join(t.TempDir(), "public.key")
+						if err := os.WriteFile(path, []byte(input.data), 0o600); err != nil {
+							t.Fatal(err)
+						}
+						if _, err := utils.NewPubRSA(path, utils.WithRSAFilePath(true)); err != nil {
+							t.Fatal(err)
+						}
+					})
+				})
+			}
+		})
 	}
+}
 
-	// 读取私钥文件内容
-	pri, err := os.ReadFile(priFile)
-	if err != nil {
-		t.Errorf("ReadFile() WrapError = %v", err)
+func TestRemovePEMHeadersPreservesBodyAndCaseRules(t *testing.T) {
+	// 头尾标记沿用 Unicode 大写匹配规则；正文中的大小写和非标记横线均原样保留。
+	for _, tt := range []struct {
+		input string
+		want  string
+	}{
+		{input: "-----BEGIN PUBLIC KEY-----\nAbCd+/==\n-----END PUBLIC KEY-----", want: "AbCd+/=="},
+		{input: "  -----begin private key-----\r\n AbCd \r\n efGh \r\n -----end private key-----  ", want: "AbCdefGh"},
+		{input: "-----begın key-----\nAbCd\n-----end key-----", want: "AbCd"},
+		{input: "-----非标记-----\n正文ßı\n----BEGIN KEY-----", want: "-----非标记-----正文ßı----BEGIN KEY-----"},
+		{input: "\n \t ", want: ""},
+	} {
+		if got := utils.RemovePEMHeaders(tt.input); got != tt.want {
+			t.Fatalf("RemovePEMHeaders(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
-	//t.Logf("私钥 %s", string(pri))
-	rPri := utils.RemovePEMHeaders(string(pri))
-	//t.Logf("remove 私钥 %s", rPri)
-	aPri, _ := utils.AddPEMHeaders(rPri, "private")
-	//t.Logf("add 私钥 %s %v", aPri, strings.EqualFold(aPri, strings.TrimSpace(string(pri))))
-	if !strings.EqualFold(aPri, strings.TrimSpace(string(pri))) {
-		t.Errorf("转换后的私钥与原始私钥不相等")
+}
+
+func BenchmarkRemovePEMHeaders(b *testing.B) {
+	// 多行正文规模接近 PEM 私钥，计量解析过程而非密钥生成。
+	body := strings.Repeat("AbCdEfGhIjKlMnOpQrStUvWxYz0123456789+/aBcDeFgHiJkLmNoPqRsTuVwXyZ\n", 26)
+	pem := "-----BEGIN PRIVATE KEY-----\n" + body + "-----END PRIVATE KEY-----"
+	b.ReportAllocs()
+	b.SetBytes(int64(len(pem)))
+	b.ResetTimer()
+	for range b.N {
+		benchRSAString = utils.RemovePEMHeaders(pem)
 	}
 }
 
@@ -335,6 +339,7 @@ func TestGenerateKeyRSARejectsSymlinkDirectory(t *testing.T) {
 }
 
 func TestRSARejectsWeakHash(t *testing.T) {
+	_, priFile := rsaKeyFiles(t)
 	r, err := utils.NewPriRSA(string(mustReadRSAFile(t, priFile)))
 	if err != nil {
 		t.Fatal(err)
@@ -347,7 +352,21 @@ func TestRSARejectsWeakHash(t *testing.T) {
 	}
 }
 
-func mustReadRSAFile(t *testing.T, name string) []byte {
+// rsaKeyFiles 的文件由当前测试或基准独占，同一调用内复用密钥并由 TempDir 清理。
+func rsaKeyFiles(t testing.TB) (string, string) {
+	t.Helper()
+	files, err := utils.GenerateKeyRSA(t.TempDir(), 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("GenerateKeyRSA() returned %d files, want 2", len(files))
+	}
+	return files[0], files[1]
+}
+
+// mustReadRSAFile 读取失败即停止当前用例，避免后续误报密钥格式错误。
+func mustReadRSAFile(t testing.TB, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(name)
 	if err != nil {
@@ -356,52 +375,29 @@ func mustReadRSAFile(t *testing.T, name string) []byte {
 	return data
 }
 
+// benchmarkRSA 在 b.Loop 前生成并解析密钥，不计入加解密耗时。
 func benchmarkRSA(b *testing.B) *utils.RSA {
 	b.Helper()
 
-	benchmarkRSAOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "go-utils-rsa-bench-*")
-		if err != nil {
-			benchmarkRSAErr = err
-			return
-		}
-
-		files, err := utils.GenerateKeyRSA(dir, 2048)
-		if err != nil {
-			benchmarkRSAErr = err
-			return
-		}
-
-		pub, err := os.ReadFile(files[0])
-		if err != nil {
-			benchmarkRSAErr = err
-			return
-		}
-		pri, err := os.ReadFile(files[1])
-		if err != nil {
-			benchmarkRSAErr = err
-			return
-		}
-
-		benchmarkRSAInst, benchmarkRSAErr = utils.NewRSA(string(pub), string(pri))
-	})
-
-	if benchmarkRSAErr != nil {
-		b.Fatal(benchmarkRSAErr)
+	pubFile, priFile := rsaKeyFiles(b)
+	r, err := utils.NewRSA(string(mustReadRSAFile(b, pubFile)), string(mustReadRSAFile(b, priFile)))
+	if err != nil {
+		b.Fatal(err)
 	}
-	return benchmarkRSAInst
+	return r
 }
 
 func BenchmarkRSAEncryptOAEP(b *testing.B) {
 	r := benchmarkRSA(b)
 	data := strings.Repeat("rsa-benchmark-payload-", 4)
+	var err error
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchRSAString, benchmarkRSAErr = r.EncryptOAEP(data, base64.StdEncoding.EncodeToString, sha256.New())
-		if benchmarkRSAErr != nil {
-			b.Fatal(benchmarkRSAErr)
+	for range b.N {
+		benchRSAString, err = r.EncryptOAEP(data, base64.StdEncoding.EncodeToString, sha256.New())
+		if err != nil {
+			b.Fatal(err)
 		}
 	}
 }
@@ -415,10 +411,10 @@ func BenchmarkRSADecryptOAEP(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchRSAString, benchmarkRSAErr = r.DecryptOAEP(encrypted, base64.StdEncoding.DecodeString, sha256.New())
-		if benchmarkRSAErr != nil {
-			b.Fatal(benchmarkRSAErr)
+	for range b.N {
+		benchRSAString, err = r.DecryptOAEP(encrypted, base64.StdEncoding.DecodeString, sha256.New())
+		if err != nil {
+			b.Fatal(err)
 		}
 	}
 }
@@ -426,13 +422,14 @@ func BenchmarkRSADecryptOAEP(b *testing.B) {
 func BenchmarkRSASignPSS(b *testing.B) {
 	r := benchmarkRSA(b)
 	data := strings.Repeat("rsa-sign-payload-", 8)
+	var err error
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchRSAString, benchmarkRSAErr = r.SignPSS(data, crypto.SHA256, base64.StdEncoding.EncodeToString, nil)
-		if benchmarkRSAErr != nil {
-			b.Fatal(benchmarkRSAErr)
+	for range b.N {
+		benchRSAString, err = r.SignPSS(data, crypto.SHA256, base64.StdEncoding.EncodeToString, nil)
+		if err != nil {
+			b.Fatal(err)
 		}
 	}
 }
@@ -447,12 +444,12 @@ func BenchmarkRSAVerifyPSS(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchmarkRSAErr = r.VerifyPSS(data, sign, crypto.SHA256, base64.StdEncoding.DecodeString, nil)
-		if benchmarkRSAErr != nil {
-			b.Fatal(benchmarkRSAErr)
+	for range b.N {
+		if err := r.VerifyPSS(data, sign, crypto.SHA256, base64.StdEncoding.DecodeString, nil); err != nil {
+			b.Fatal(err)
 		}
 	}
 }
 
+// benchRSAString 保留最近一次基准输出。
 var benchRSAString string

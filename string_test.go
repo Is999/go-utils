@@ -1,8 +1,9 @@
 package utils_test
 
 import (
+	"math/rand"
+	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"unicode/utf8"
 
@@ -33,7 +34,7 @@ func TestReplace(t *testing.T) {
 	}
 }
 
-// TestNewReplacer 验证可复用替换器会固定构造时的 map 规则，并支持 nil 接收者安全返回原字符串。
+// TestNewReplacer 确认替换器保留构造时的规则。
 func TestNewReplacer(t *testing.T) {
 	rules := map[string]string{
 		"blue": "red",
@@ -47,6 +48,7 @@ func TestNewReplacer(t *testing.T) {
 		t.Fatalf("Replacer.Replace() = %q, want %q", got, "red car!")
 	}
 
+	// nil 接收者沿用原样返回约定。
 	var nilReplacer *utils.Replacer
 	if got = nilReplacer.Replace("keep"); got != "keep" {
 		t.Fatalf("nil Replacer.Replace() = %q, want keep", got)
@@ -80,7 +82,7 @@ func TestSubstr(t *testing.T) {
 	}
 }
 
-// TestSubstrASCII 覆盖纯 ASCII 快路径的正负索引边界，保证优化后仍保持历史截取语义。
+// TestSubstrASCII 固定 ASCII 输入的正负索引和越界结果。
 func TestSubstrASCII(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -114,6 +116,41 @@ func BenchmarkReplace(b *testing.B) {
 	}
 	for i := 0; i < b.N; i++ {
 		_ = utils.Replace("Mr Blue has a blue house and a blue car.", rules)
+	}
+}
+
+// BenchmarkReplaceSingle 覆盖单规则的字节替换、多字节替换和空字符串插入。
+func BenchmarkReplaceSingle(b *testing.B) {
+	for _, tc := range []struct {
+		name, value, old, replacement string
+	}{
+		{"byte", strings.Repeat("abc", 32), "a", "z"},
+		{"word", strings.Repeat("blue house ", 16), "blue", "green"},
+		{"empty", "中文 mixed text", "", "-"},
+		{"missing", strings.Repeat("abc", 32), "xyz", "replacement"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			rules := map[string]string{tc.old: tc.replacement}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				utils.Replace(tc.value, rules)
+			}
+		})
+	}
+}
+
+// TestReplaceSingleMatchesReplacer 固定空 key 的逐字节插入，以及原输入为非法 UTF-8 时的替换行为。
+func TestReplaceSingleMatchesReplacer(t *testing.T) {
+	for _, value := range []string{"", "abcabc", "aaaa", "中文abc", "a\xffb\xc0\x80"} {
+		for _, old := range []string{"", "a", "aa", "中文", "\xff", "missing"} {
+			for _, replacement := range []string{"", "x", "中文", "\xff"} {
+				want := strings.NewReplacer(old, replacement).Replace(value)
+				if got := utils.Replace(value, map[string]string{old: replacement}); got != want {
+					t.Errorf("Replace(%q, %q -> %q) = %q, want %q", value, old, replacement, got, want)
+				}
+			}
+		}
 	}
 }
 
@@ -165,8 +202,6 @@ func TestReverseString(t *testing.T) {
 			}
 			if got := utils.ReverseString(tt.args.str); got != tt.want {
 				t.Errorf("ReverseString() = %v, want %v", got, tt.want)
-			} else {
-				// t.Logf("ReverseString() = %v|%v", tt.args.str, got)
 			}
 		})
 	}
@@ -176,9 +211,10 @@ func TestReverseString(t *testing.T) {
 func FuzzReverseString(f *testing.F) {
 	testcases := []string{"Hello, world", " ", "!12345", "反转一个字符串\"A￥%&cd=L8217\""}
 	for _, tc := range testcases {
-		f.Add(tc) // Use f.Add to provide a seed corpus
+		f.Add(tc)
 	}
 	f.Fuzz(func(t *testing.T, orig string) {
+		// rune 反转会替换非法 UTF-8，往返断言只适用于有效编码。
 		if !utf8.ValidString(orig) {
 			return
 		}
@@ -208,13 +244,14 @@ func TestRandomLetters(t *testing.T) {
 		{name: "004", args: args{10}},
 		{name: "005", args: args{20}},
 	}
-	// r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.RandomLetters(tt.args.n); len(got) != tt.args.n {
+			got := utils.RandomLetters(tt.args.n)
+			if len(got) != tt.args.n {
 				t.Errorf("RandomLetters() = %v, wantSize %v", got, tt.args.n)
-			} else {
-				//t.Logf("RandomLetters() = %v, size %v", got, tt.args.n)
+			}
+			if !allCharsInAlphabet(got, utils.ALPHA) {
+				t.Errorf("RandomLetters() = %q, want letters only", got)
 			}
 		})
 	}
@@ -241,20 +278,24 @@ func TestRandomID(t *testing.T) {
 		{name: "010", args: args{20}},
 		{name: "011", args: args{20}},
 	}
+	// 子测试共同使用随机源，覆盖并发调用。
 	r := utils.RandSource
-	wg := &sync.WaitGroup{}
 	for _, tt := range tests {
-		wg.Add(1)
-		go t.Run(tt.name, func(t *testing.T) {
-			defer wg.Done()
-			if got := utils.RandomID(tt.args.n, r); len(got) != tt.args.n {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := utils.RandomID(tt.args.n, r)
+			if len(got) != tt.args.n {
 				t.Errorf("%v RandomID() = %v, size=%v, wantSize %v", tt.name, got, len(got), tt.args.n)
-			} else {
-				// t.Logf("%v RandomID() = %v, size %v", tt.name, got, tt.args.n)
+			}
+			if !allCharsInAlphabet(got, utils.ALNUM) {
+				t.Errorf("RandomID() = %q, want letters and digits only", got)
+			}
+			// 空 ID 没有首位；非空 ID 必须以字母开头。
+			if len(got) > 0 && !allCharsInAlphabet(got[:1], utils.ALPHA) {
+				t.Errorf("RandomID() first character = %q, want letter", got[:1])
 			}
 		})
 	}
-	wg.Wait()
 }
 
 // go test -bench=RandomID$ -run ^$  -count 5 -benchmem
@@ -276,10 +317,6 @@ func BenchmarkRandomID(b *testing.B) {
 				if got := utils.RandomID(tt.args.n, r); len(got) != tt.args.n {
 					b.Errorf("RandomID() = %v, wantSize %v", got, tt.args.n)
 				}
-
-				/*if got := RandomID(tt.args.n); len(got) != tt.args.n {
-					b.Errorf("RandomID() = %v, wantSize %v", got, tt.args.n)
-				}*/
 			}
 		})
 	}
@@ -305,13 +342,14 @@ func TestRandomString(t *testing.T) {
 		{name: "008", args: args{10, "ab"}, want: 10},
 		{name: "009", args: args{10, "abc"}, want: 10},
 	}
-	// r := Source()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.RandomString(tt.args.n, tt.args.alpha); len(got) != tt.want {
+			got := utils.RandomString(tt.args.n, tt.args.alpha)
+			if len(got) != tt.want {
 				t.Errorf("RandomString() = %v, lenth %v, wantSize %v", got, tt.args.n, tt.want)
-			} else {
-				//t.Logf("RandomString() = %v, size %v", got, tt.args.n)
+			}
+			if !allCharsInAlphabet(got, tt.args.alpha) {
+				t.Errorf("RandomString() = %q, want characters in %q", got, tt.args.alpha)
 			}
 		})
 	}
@@ -405,32 +443,32 @@ func TestUniqueID(t *testing.T) {
 	r := utils.RandSource
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			utils.UniqueID(tt.args.l, r)
-		})
-	}
-}
-
-// go test -bench=UniqueID$ -run ^$  -count 5 -benchmem
-func BenchmarkUniqueID(t *testing.B) {
-	type args struct {
-		l uint8
-	}
-	tests := []struct {
-		name string
-		args args
-	}{
-		{name: "018", args: args{32}},
-	}
-	r := utils.RandSource
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.B) {
-			for n := 0; n < t.N; n++ {
-				utils.UniqueID(tt.args.l, r)
+			got := utils.UniqueID(tt.args.l, r)
+			if want := min(max(int(tt.args.l), 16), 32); len(got) != want {
+				t.Fatalf("UniqueID(%d) length = %d, want %d", tt.args.l, len(got), want)
+			}
+			if !allCharsInAlphabet(got, "0123456789abcdefghijklmnopqrstuvwxyz") {
+				t.Fatalf("UniqueID(%d) = %q, want base36 characters", tt.args.l, got)
 			}
 		})
 	}
 }
 
+// BenchmarkUniqueID 固定随机种子，覆盖一段和两段随机后缀的分配开销。
+func BenchmarkUniqueID(b *testing.B) {
+	for _, length := range []uint8{16, 24, 32} {
+		b.Run(strconv.Itoa(int(length)), func(b *testing.B) {
+			r := rand.New(rand.NewSource(1))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				utils.UniqueID(length, r)
+			}
+		})
+	}
+}
+
+// allCharsInAlphabet 校验测试所用 ASCII 字符表中的输出字节。
 func allCharsInAlphabet(s, alpha string) bool {
 	for i := 0; i < len(s); i++ {
 		if !strings.ContainsRune(alpha, rune(s[i])) {

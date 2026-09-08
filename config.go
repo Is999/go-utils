@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 )
 
-// 全局配置状态，使用 once 与原子指针保证并发安全。
 var (
 	// setOptionsOnce 确保 Configure 全局配置只在程序生命周期内生效一次。
 	setOptionsOnce sync.Once
@@ -14,26 +13,24 @@ var (
 	configValue atomic.Pointer[options]
 )
 
-// Option 用于配置全局设置入口的选项
+// Option 在首次 Configure 内按传入顺序应用，同类选项以后者为准。
 type Option func(*options)
 
-// 设置 json 编解码方法(三方开源库)，若未设置则默认使用 encoding/json(标准库)。
+// _json 保存成对替换的编解码函数，运行期间可能被并发调用。
 type _json struct {
-	// 对数据进行 JSON 编码
+	// encode 默认为 json.Marshal，自定义函数的错误直接交给调用方。
 	encode Encode
-	// 对数据进行 JSON 解码
+	// decode 默认为 json.Unmarshal，目标对象由调用方提供。
 	decode Decode
-	// useStandard 表示当前是否仍使用标准库 JSON 编解码。
-	// 业务意图：响应体可在标准库语义下走手写包壳快路径；用户注入第三方 JSON 时必须回退到自定义实现。
+	// useStandard 决定 Response.Encode 是否为标准库错误补栈，自定义错误保持原样。
 	useStandard bool
 }
 
-// options 保存全局配置快照。
-// 结构体内部字段只在 Configure 阶段写入，运行期通过原子指针只读访问。
+// options 保存发布后只读的配置快照。
 type options struct {
-	// 设置 json 编解码方法(三方开源库)，若未设置则默认使用 encoding/json(标准库)。
+	// json 在发布后不再修改，回调内部的并发安全由调用方保证。
 	json _json
-	// 设置日志(三方日志库)，若未设置则默认使用 log/slog(标准库)。
+	// logger 为全局共享实例，默认跟随 slog.Default。
 	logger Logger
 }
 
@@ -42,26 +39,19 @@ func init() {
 	configValue.Store(defaultOptions())
 }
 
-// defaultOptions 返回默认配置快照。
+// defaultOptions 为包初始化和首次 Configure 分别创建默认快照，避免修改已发布实例。
 func defaultOptions() *options {
 	return &options{
-		// 设置 json 编解码方法(三方开源库)，若未设置则默认使用 encoding/json(标准库)。
 		json: _json{
 			encode:      json.Marshal,
 			decode:      json.Unmarshal,
 			useStandard: true,
 		},
-		// 设置日志(三方日志库)，若未设置则默认使用 log/slog(标准库)。
 		logger: &slogLogger{},
 	}
 }
 
-// currentConfig 返回当前生效的全局配置快照。
-func currentConfig() *options {
-	return configValue.Load()
-}
-
-// WithJSON 设置自定义 JSON 编码、解码方法
+// WithJSON 成对替换 JSON 编解码函数；任一参数为 nil 时忽略此选项，回调须支持并发调用。
 func WithJSON(encode Encode, decode Decode) Option {
 	return func(o *options) {
 		if encode == nil || decode == nil {
@@ -73,7 +63,7 @@ func WithJSON(encode Encode, decode Decode) Option {
 	}
 }
 
-// WithLogger 设置自定义 Logger，若未设置则默认使用 log/slog 标准库。
+// WithLogger 设置支持并发调用的共享 Logger；nil 参数不改变当前选择。
 func WithLogger(logger Logger) Option {
 	return func(o *options) {
 		if logger == nil {
@@ -83,15 +73,16 @@ func WithLogger(logger Logger) Option {
 	}
 }
 
-// Configure 设置全局参数入口。只需在程序入口处设置一次。
+// Configure 仅第一次调用生效，包括无参数调用；应在启动时设置，后续调用不会覆盖配置。
 func Configure(opts ...Option) {
 	setOptionsOnce.Do(func() {
-		cfg := *defaultOptions()
+		cfg := defaultOptions() // 本次尚未发布的快照，选项不会改写当前配置。
 		for _, opt := range opts {
 			if opt != nil {
-				opt(&cfg)
+				opt(cfg)
 			}
 		}
-		configValue.Store(&cfg)
+		// 选项全部应用后再发布，读取方不会看到中间状态。
+		configValue.Store(cfg)
 	})
 }

@@ -11,27 +11,23 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// ============================ Form 结构体 ============================
-
-// Form HTTP 表单。
-// 用于构建 multipart/form-data 类型的请求，支持文件和普通字段。
+// Form 保存普通字段和待上传文件路径；使用 NewForm 初始化可写映射。
+// multipart 生成期间 Params/Files 须保持只读，读至 EOF 后可复用；提前关闭不等待后台退出。
 type Form struct {
-	// Params 表单普通字段
+	// Params 按字段名保存多值；同一字段内保留添加顺序
 	Params url.Values
 
-	// Files 表单文件字段（字段名 -> 文件路径列表）
+	// Files 按字段名保存本地路径列表，文件由后台生成流程按路径打开。
 	Files url.Values
 
-	// MaxSingleFileSize 单个文件大小上限，单位：字节；小于等于 0 表示不限制
+	// MaxSingleFileSize 单文件预检上限，单位：字节；小于等于 0 不检查大小
 	MaxSingleFileSize int64
 
-	// MaxTotalFileSize 所有文件总大小上限，单位：字节；小于等于 0 表示不限制
+	// MaxTotalFileSize 文件总大小预检上限，单位：字节；不含普通字段和 multipart 开销，非正数不限制
 	MaxTotalFileSize int64
 }
 
-// ============================ Form 构造方法 ============================
-
-// NewForm 创建一个新的 Form 实例。
+// NewForm 初始化字段与文件映射，默认不限制文件大小。
 func NewForm() *Form {
 	return &Form{
 		Params: make(url.Values),
@@ -39,25 +35,25 @@ func NewForm() *Form {
 	}
 }
 
-// SetMaxSingleFileSize 设置单个文件大小上限。
+// SetMaxSingleFileSize 设置 Stat 预检的单文件字节上限，非正数不限制。
 func (f *Form) SetMaxSingleFileSize(limit int64) *Form {
 	f.MaxSingleFileSize = limit
 	return f
 }
 
-// SetMaxTotalFileSize 设置所有文件总大小上限。
+// SetMaxTotalFileSize 设置 Stat 预检的文件总字节上限，非正数不限制。
 func (f *Form) SetMaxTotalFileSize(limit int64) *Form {
 	f.MaxTotalFileSize = limit
 	return f
 }
 
-// SetParam 设置单个表单字段。
+// SetParam 用单个值替换同名字段的全部旧值。
 func (f *Form) SetParam(key, value string) *Form {
 	f.Params.Set(key, value)
 	return f
 }
 
-// SetParams 批量设置表单字段。
+// SetParams 覆盖给定字段的值，不清空其他字段。
 func (f *Form) SetParams(params map[string]string) *Form {
 	for key, value := range params {
 		f.Params.Set(key, value)
@@ -65,7 +61,7 @@ func (f *Form) SetParams(params map[string]string) *Form {
 	return f
 }
 
-// AddParam 对表单字段添加多个值。
+// AddParam 按传入顺序追加同名字段的值，保留旧值和重复值。
 func (f *Form) AddParam(key string, values ...string) *Form {
 	for _, value := range values {
 		f.Params.Add(key, value)
@@ -73,7 +69,7 @@ func (f *Form) AddParam(key string, values ...string) *Form {
 	return f
 }
 
-// AddParams 批量添加表单字段值。
+// AddParams 逐项追加字段值，保留同名字段内的顺序，不保存传入切片。
 func (f *Form) AddParams(params map[string][]string) *Form {
 	for key, values := range params {
 		for _, value := range values {
@@ -90,13 +86,13 @@ func (f *Form) DeleteParams(keys ...string) {
 	}
 }
 
-// SetFile 设置单个文件字段。
+// SetFile 替换同名字段的全部文件路径，文件在生成正文时打开。
 func (f *Form) SetFile(fieldName, filePath string) *Form {
 	f.Files.Set(fieldName, filePath)
 	return f
 }
 
-// SetFiles 批量设置文件字段。
+// SetFiles 覆盖给定字段的文件路径，不清空其他字段。
 func (f *Form) SetFiles(files map[string]string) *Form {
 	for name, path := range files {
 		f.Files.Set(name, path)
@@ -104,7 +100,7 @@ func (f *Form) SetFiles(files map[string]string) *Form {
 	return f
 }
 
-// AddFile 对文件字段添加多个文件路径。
+// AddFile 按传入顺序追加文件路径，同名字段可包含多个文件。
 func (f *Form) AddFile(fieldName string, filePath ...string) *Form {
 	for _, path := range filePath {
 		f.Files.Add(fieldName, path)
@@ -112,7 +108,7 @@ func (f *Form) AddFile(fieldName string, filePath ...string) *Form {
 	return f
 }
 
-// AddFiles 批量添加文件字段。
+// AddFiles 逐项追加文件路径，保留同名字段内的顺序，不保存传入切片。
 func (f *Form) AddFiles(files map[string][]string) *Form {
 	for name, paths := range files {
 		for _, path := range paths {
@@ -129,20 +125,17 @@ func (f *Form) DeleteFiles(fieldNames ...string) {
 	}
 }
 
-// ============================ Form Reader ============================
-
-// Reader 读取 Form 内容，转换为可上传的 body 和 content-type。
-// 如果没有文件，返回 application/x-www-form-urlencoded 格式；
-// 如果有文件，返回 multipart/form-data 格式。
+// Reader 返回表单正文及 Content-Type；无文件时为 URL 编码字符串，有文件时为 multipart 流。
+// multipart 正文是 io.ReadCloser；调用方须读完或关闭，交给 Curl 发送后由请求生命周期关闭。
+// 文件大小只在返回前通过 Stat 预检，之后的文件变更不会被该上限限制。
 func (f *Form) Reader() (body io.Reader, contentType string, err error) {
-	// 无文件时返回 URL 编码格式
 	if len(f.Files) == 0 {
 		return strings.NewReader(f.Params.Encode()), "application/x-www-form-urlencoded", nil
 	}
 
-	// 先校验文件大小上限，避免请求发送过程中才发现超限。
+	// 在启动写入 goroutine 前检查文件类型和当前大小，失败时直接返回错误。
 	if err := f.validateFiles(); err != nil {
-		return nil, "", errors.Tag(err)
+		return nil, "", err
 	}
 
 	// 使用 io.Pipe + multipart.Writer 流式拼装 body，避免大文件全量读入内存。
@@ -150,22 +143,19 @@ func (f *Form) Reader() (body io.Reader, contentType string, err error) {
 	writer := multipart.NewWriter(pipeWriter)
 	contentType = writer.FormDataContentType()
 	go func() {
-		if writeErr := f.writeMultipart(writer); writeErr != nil {
-			_ = pipeWriter.CloseWithError(errors.Tag(writeErr))
-			return
+		writeErr := f.writeMultipart(writer)
+		if writeErr == nil {
+			// 只有正文写入成功才补终止边界，避免覆盖更早发生的文件或字段错误。
+			writeErr = writer.Close()
 		}
-		if closeErr := writer.Close(); closeErr != nil {
-			_ = pipeWriter.CloseWithError(errors.Tag(closeErr))
-			return
-		}
-		_ = pipeWriter.Close()
+		// nil 对应正常 EOF；写入失败则由读取端收到原始错误链。
+		_ = pipeWriter.CloseWithError(errors.Tag(writeErr))
 	}()
 	return pipeReader, contentType, nil
 }
 
-// createFormFile 创建表单文件字段。
-func (f *Form) createFormFile(writer *multipart.Writer, fieldName, filePath string) error {
-	// 打开文件
+// writeFormFile 按当前路径打开并流式写入单个文件，本次写入结束后关闭文件句柄。
+func writeFormFile(writer *multipart.Writer, fieldName, filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return errors.Tag(err)
@@ -178,7 +168,6 @@ func (f *Form) createFormFile(writer *multipart.Writer, fieldName, filePath stri
 		return errors.Tag(err)
 	}
 
-	// 复制文件内容
 	if _, err = io.Copy(part, file); err != nil {
 		return errors.Tag(err)
 	}
@@ -186,9 +175,8 @@ func (f *Form) createFormFile(writer *multipart.Writer, fieldName, filePath stri
 	return nil
 }
 
-// writeMultipart 将表单参数与文件按 multipart/form-data 规范流式写入 writer。
+// writeMultipart 先写普通字段再写文件；字段名的遍历顺序不固定，同名值按切片顺序写入。
 func (f *Form) writeMultipart(writer *multipart.Writer) error {
-	// 处理普通表单字段
 	for key, values := range f.Params {
 		for _, value := range values {
 			if err := writer.WriteField(key, value); err != nil {
@@ -197,10 +185,9 @@ func (f *Form) writeMultipart(writer *multipart.Writer) error {
 		}
 	}
 
-	// 处理文件上传
 	for fieldName, files := range f.Files {
 		for _, filePath := range files {
-			if err := f.createFormFile(writer, fieldName, filePath); err != nil {
+			if err := writeFormFile(writer, fieldName, filePath); err != nil {
 				return errors.Tag(err)
 			}
 		}
@@ -208,7 +195,7 @@ func (f *Form) writeMultipart(writer *multipart.Writer) error {
 	return nil
 }
 
-// validateFiles 校验待上传文件是否满足普通文件约束与大小上限。
+// validateFiles 基于当前 Stat 结果检查普通文件和大小，不创建文件内容快照。
 func (f *Form) validateFiles() error {
 	var totalSize int64
 	for fieldName, files := range f.Files {

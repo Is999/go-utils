@@ -1,17 +1,14 @@
 package errors
 
-// ============================ 错误链遍历函数 ============================
+import "slices"
 
-// Cause 返回错误链最底层的源错误。
-// 是 Source 的别名，功能完全相同。
+// Cause 是 Source 的别名；多个分支时仅返回首个源错误。
 func Cause(err error) error { return Source(err) }
 
-// Root 返回错误链最底层的源错误。
-// 是 Source 的别名，功能完全相同。
+// Root 是 Source 的别名；需要全部分支时使用 Sources。
 func Root(err error) error { return Source(err) }
 
-// HasStack 检查错误链路中是否已经存在追踪栈。
-// 用于判断是否需要重复采集栈信息，避免 Wrap 时重复调用 runtime.Callers。
+// HasStack 只识别本包采集的栈，Join 任一分支命中即返回 true。
 func HasStack(err error) bool {
 	if err == nil {
 		return false
@@ -37,9 +34,8 @@ func HasStack(err error) bool {
 	return false
 }
 
-// Source 返回错误链最底层的源错误。
-// 沿错误链向下遍历，找到第一个不包含 unwrap 的错误节点。
-// 对 Join 多错误场景，返回第一个非 nil 分支的源错误。
+// Source 从外向内查找首个源错误，Join 按从左到右的深度优先顺序展开。
+// 达到遍历上限时返回最后访问的节点，不保证已到达叶子。
 func Source(err error) error {
 	if err == nil {
 		return nil
@@ -61,8 +57,7 @@ func Source(err error) error {
 	return last
 }
 
-// Sources 返回错误链中所有最终源错误。
-// 对 Join 多错误场景，返回所有分支的最底层错误。
+// Sources 按深度优先顺序收集叶子错误，不去重；nil 返回 nil，达到遍历上限后停止。
 func Sources(err error) []error {
 	if err == nil {
 		return nil
@@ -95,8 +90,7 @@ func Sources(err error) []error {
 	return sources
 }
 
-// Chain 返回错误链中的所有节点。
-// 对 Join 多错误场景，按从左到右的深度优先顺序返回所有节点。
+// Chain 按从左到右的深度优先顺序收集节点，不去重；nil 返回 nil，最多访问 1024 个节点。
 func Chain(err error) []error {
 	if err == nil {
 		return nil
@@ -124,10 +118,7 @@ func Chain(err error) []error {
 	return chain
 }
 
-// ============================ 内部辅助函数 ============================
-
-// pushChildren 将子错误入栈。
-// 为保证深度优先遍历的正确顺序，从后向前遍历子错误切片入栈。
+// pushChildren 逆序压入非 nil 子节点，使出栈顺序与 Join 输入顺序一致。
 func pushChildren(stack, children []error) []error {
 	for i := len(children) - 1; i >= 0; i-- {
 		if children[i] != nil {
@@ -137,31 +128,19 @@ func pushChildren(stack, children []error) []error {
 	return stack
 }
 
-// compactErrors 压缩错误列表，过滤 nil 错误。
-// 使用原地压缩算法，无 nil 时直接返回原切片，避免堆分配。
+// compactErrors 忽略 nil 子节点，保留原顺序。
 func compactErrors(errs []error) []error {
 	if len(errs) == 0 {
 		return nil
 	}
-	firstNil := -1
-	for i, err := range errs {
-		if err == nil {
-			if firstNil < 0 {
-				firstNil = i
-			}
-		} else if firstNil >= 0 {
-			errs[firstNil] = err
-			firstNil++
-		}
+	if slices.Contains(errs, nil) {
+		// 子切片归原错误所有，仅需过滤时复制。
+		return slices.DeleteFunc(slices.Clone(errs), func(err error) bool { return err == nil })
 	}
-	if firstNil < 0 {
-		return errs
-	}
-	return errs[:firstNil]
+	return errs
 }
 
-// hasStackMulti 检查多错误列表中是否存在带栈追踪的错误。
-// 用于检测 errors.Join 包裹的场景。
+// hasStackMulti 使用显式栈展开分支，单链路径无需为此维护待遍历列表。
 func hasStackMulti(children []error) bool {
 	var stackBuf [8]error
 	stack := stackBuf[:0]
@@ -195,8 +174,7 @@ func hasStackMulti(children []error) bool {
 	return false
 }
 
-// sourceMulti 在多错误场景下查找源错误。
-// 返回第一个非 nil 分支的最底层错误。
+// sourceMulti 查找首个分支的叶子；没有非 nil 子节点时保留传入的错误。
 func sourceMulti(err error, children []error) error {
 	var stackBuf [8]error
 	stack := stackBuf[:0]
@@ -226,7 +204,7 @@ func sourceMulti(err error, children []error) error {
 	return last
 }
 
-// unwrapNode 解析单分支或多分支错误节点。
+// unwrapNode 只展开一层，children 与 next 不同时返回；子切片归原错误所有。
 func unwrapNode(err error) ([]error, error) {
 	switch e := err.(type) {
 	case *stackError:

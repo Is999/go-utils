@@ -11,10 +11,8 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// Tar 使用tar打包
-//
-//	tarFile 打包后文件
-//	files 待打包文件【夹】
+// Tar 将文件和目录打包为 .tar，保留各输入的基名；空列表生成空归档。
+// 归档写完并关闭后替换目标，输出父目录须已存在，且不能位于输入目录中。
 func Tar(tarFile string, files []string) error {
 	if err := validateArchiveOutput(tarFile, ".tar", "tar", files); err != nil {
 		return errors.Tag(err)
@@ -22,15 +20,14 @@ func Tar(tarFile string, files []string) error {
 
 	// 使用原子写入避免归档生成失败时留下半截 tar 文件。
 	return writeFileAtomic(tarFile, 0644, func(file *os.File) (err error) {
-		// 创建 tar 写入器，最终必须显式关闭以刷新尾部块。
 		tarWriter := tar.NewWriter(file)
+		// Close 补齐 tar 结束块，但不覆盖之前的写入错误。
 		defer func() {
 			if closeErr := tarWriter.Close(); err == nil && closeErr != nil {
 				err = errors.Tag(closeErr)
 			}
 		}()
 
-		// 遍历文件和目录列表，将它们添加到 tar 归档文件中。
 		for _, filePath := range files {
 			if err = AddFileToTar(tarWriter, filePath, ""); err != nil {
 				return errors.Tag(err)
@@ -40,10 +37,7 @@ func Tar(tarFile string, files []string) error {
 	})
 }
 
-// TarGz 使用tar打包gzip压缩
-//
-//	tarGzFile 打包压缩后文件
-//	files 待打包压缩文件【夹】
+// TarGz 将文件和目录打包为 .tar.gz，输入及目标路径规则与 Tar 相同。
 func TarGz(tarGzFile string, files []string) error {
 	if err := validateArchiveOutput(tarGzFile, ".tar.gz", "tar.gz", files); err != nil {
 		return errors.Tag(err)
@@ -51,7 +45,6 @@ func TarGz(tarGzFile string, files []string) error {
 
 	// 使用原子写入避免归档生成失败时留下半截 tar.gz 文件。
 	return writeFileAtomic(tarGzFile, 0644, func(file *os.File) (err error) {
-		// 创建 gzip 写入器，tar 数据会先写入 gzip 流。
 		gzipWriter := gzip.NewWriter(file)
 		defer func() {
 			if closeErr := gzipWriter.Close(); err == nil && closeErr != nil {
@@ -59,15 +52,14 @@ func TarGz(tarGzFile string, files []string) error {
 			}
 		}()
 
-		// 创建 tar 写入器，关闭顺序必须先 tar 后 gzip。
 		tarWriter := tar.NewWriter(gzipWriter)
+		// 先结束 tar 再关闭 gzip，保证结束块也写入压缩流。
 		defer func() {
 			if closeErr := tarWriter.Close(); err == nil && closeErr != nil {
 				err = errors.Tag(closeErr)
 			}
 		}()
 
-		// 遍历文件和目录列表，将它们添加到 tar 归档文件中。
 		for _, filePath := range files {
 			if err = AddFileToTar(tarWriter, filePath, ""); err != nil {
 				return errors.Tag(err)
@@ -77,10 +69,8 @@ func TarGz(tarGzFile string, files []string) error {
 	})
 }
 
-// AddFileToTar 添加文件【夹】到tar
-//
-//	fileToCompress 需要压缩的文件
-//	baseDir 打包文件根目录
+// AddFileToTar 递归添加普通文件或目录，条目名为 baseDir 加输入基名，拒绝符号链接等特殊文件。
+// baseDir 是归档内前缀；调用方负责关闭 tarWriter，失败时已写入的条目不会撤销。
 func AddFileToTar(tarWriter *tar.Writer, fileToCompress string, baseDir string) error {
 	if tarWriter == nil {
 		return errors.New("tar.Writer 不能为空")
@@ -93,106 +83,73 @@ func AddFileToTar(tarWriter *tar.Writer, fileToCompress string, baseDir string) 
 		return errors.Tag(err)
 	}
 
-	if fileInfo.IsDir() {
-		// 压缩目录
-		archiveBaseDir := fileInfo.Name()
-		if baseDir != "" {
-			archiveBaseDir = filepath.Join(baseDir, archiveBaseDir)
-		}
-		return addDirectoryToTar(tarWriter, fileToCompress, fileInfo, archiveBaseDir)
-	}
-	// 压缩文件
-	return addSingleFileToTar(tarWriter, fileToCompress, fileInfo, baseDir)
+	return addFileToTar(tarWriter, fileToCompress, fileInfo, baseDir)
 }
 
-// addSingleFileToTar 添加单个文件到tar
-func addSingleFileToTar(tarWriter *tar.Writer, fileToCompress string, fileInfo os.FileInfo, baseDir string) error {
-	// 创建一个新的tar文件头
+// addFileToTar 将普通文件或目录写入归档，保留目录层次。
+func addFileToTar(tarWriter *tar.Writer, filePath string, fileInfo os.FileInfo, baseDir string) error {
+	// FIFO 等特殊文件不能按普通正文读取，否则可能一直等待外部读写端。
+	if !fileInfo.IsDir() && !fileInfo.Mode().IsRegular() {
+		return errors.Errorf("不支持的 tar 条目类型: %s", filePath)
+	}
 	header, err := tar.FileInfoHeader(fileInfo, "")
 	if err != nil {
 		return errors.Tag(err)
 	}
 
-	// 修改 header 中的 Name 字段，确保文件名正确
+	archiveDir := baseDir
+	if fileInfo.IsDir() {
+		// 沿用先拼目录全名再取父前缀的规则，保留输入为 . 或 .. 时的条目名。
+		archiveDir = filepath.Join(baseDir, fileInfo.Name())
+		baseDir = strings.TrimSuffix(archiveDir, fileInfo.Name())
+	}
+	// 归档内统一使用正斜杠，与宿主机路径分隔符无关。
 	header.Name = filepath.ToSlash(filepath.Join(baseDir, header.Name))
 
-	// 将tar文件头写入tar归档文件
-	err = tarWriter.WriteHeader(header)
-	if err != nil {
+	// 先写目录自身的条目，空目录才不会在归档中丢失。
+	if err = tarWriter.WriteHeader(header); err != nil {
 		return errors.Tag(err)
 	}
-
 	if !fileInfo.IsDir() {
-		// 打开要压缩的文件
-		file, err := os.Open(fileToCompress)
+		file, err := os.Open(filePath)
 		if err != nil {
 			return errors.Tag(err)
 		}
+		// 每个文件复制后即关闭，递归遍历不积压文件句柄。
 		defer file.Close()
-
-		// 将文件数据拷贝到tar归档文件
 		_, err = io.Copy(tarWriter, file)
-		if err != nil {
-			return errors.Tag(err)
-		}
-	}
-
-	return nil
-}
-
-// addDirectoryToTar 添加目录到tar
-func addDirectoryToTar(tarWriter *tar.Writer, directoryToCompress string, fileInfo os.FileInfo, baseDir string) error {
-	// 压缩目录
-	err := addSingleFileToTar(tarWriter, directoryToCompress, fileInfo, strings.TrimSuffix(baseDir, fileInfo.Name()))
-	if err != nil {
 		return errors.Tag(err)
 	}
 
-	// 读取目录
-	files, err := os.ReadDir(directoryToCompress)
+	files, err := os.ReadDir(filePath)
 	if err != nil {
 		return errors.Tag(err)
 	}
-
 	for _, file := range files {
-		if err = rejectArchiveSymlink(filepath.Join(directoryToCompress, file.Name()), file.Type(), "tar"); err != nil {
+		childPath := filepath.Join(filePath, file.Name())
+		if err = rejectArchiveSymlink(childPath, file.Type(), "tar"); err != nil {
 			return errors.Tag(err)
 		}
-
-		// 获取文件信息
 		info, err := file.Info()
 		if err != nil {
 			return errors.Tag(err)
 		}
-
-		// 获取完整路径
-		filePath := filepath.Join(directoryToCompress, file.Name())
-		if file.IsDir() {
-			// 递归地压缩子目录
-			if err = addDirectoryToTar(tarWriter, filePath, info, filepath.Join(baseDir, file.Name())); err != nil {
-				return errors.Tag(err)
-			}
-			continue
-		}
-		// 压缩单个文件
-		if err = addSingleFileToTar(tarWriter, filePath, info, baseDir); err != nil {
+		if err = addFileToTar(tarWriter, childPath, info, archiveDir); err != nil {
 			return errors.Tag(err)
 		}
 	}
-
 	return nil
 }
 
-// UnTar 解压.tar或.tar.gz文件
-//
-//	tarFile 代解压的文件
-//	destDir 解压文件目录
+// UnTar 根据 .tar/.tar.gz 后缀解包，自动创建 destDir，逐个替换普通文件并恢复权限。
+// 任一条目或 gzip 尾部校验失败即返回错误，已完成的文件和目录仍会保留。
 func UnTar(tarFile, destDir string) error {
-	if !(strings.HasSuffix(tarFile, ".tar") || strings.HasSuffix(tarFile, ".tar.gz")) {
+	// 与打包端使用相同的后缀规则，磁盘读取仍保留完整路径。
+	trimmedName := strings.TrimSpace(tarFile)
+	if !(strings.HasSuffix(trimmedName, ".tar") || strings.HasSuffix(trimmedName, ".tar.gz")) {
 		return errors.New("文件类型错误：非.tar、.tar.gz文件")
 	}
 
-	// 打开tar归档文件
 	file, err := os.Open(tarFile)
 	if err != nil {
 		return errors.Tag(err)
@@ -201,9 +158,7 @@ func UnTar(tarFile, destDir string) error {
 
 	var reader io.Reader
 
-	// 判断解压文件是否是.gz
-	if strings.HasSuffix(tarFile, ".tar.gz") {
-		// 创建 gzip.Reader 用于读取压缩数据
+	if strings.HasSuffix(trimmedName, ".tar.gz") {
 		gzReader, gzErr := gzip.NewReader(file)
 		if gzErr != nil {
 			return errors.Tag(gzErr)
@@ -214,7 +169,6 @@ func UnTar(tarFile, destDir string) error {
 		reader = file
 	}
 
-	// 创建一个tar读取器
 	tarReader := tar.NewReader(reader)
 
 	destRoot, err := prepareArchiveDestRoot(destDir)
@@ -222,12 +176,10 @@ func UnTar(tarFile, destDir string) error {
 		return errors.Tag(err)
 	}
 
-	// 遍历tar归档文件中的每个文件条目
 	counter := archiveCounter{}
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
-			// 读取完所有文件条目
 			break
 		}
 		if err != nil {
@@ -239,10 +191,23 @@ func UnTar(tarFile, destDir string) error {
 		}
 	}
 
+	// tar 结束块不保证 gzip 已读到 EOF；继续读取才能验证尾部校验和及完整性。
+	if gzReader, ok := reader.(*gzip.Reader); ok {
+		// 尾部填充和后续 gzip 成员也占用剩余展开预算，多读一字节用于判定超限。
+		remaining := archiveMaxTotalSize - counter.totalSize
+		n, err := io.Copy(io.Discard, io.LimitReader(gzReader, remaining+1))
+		if err != nil {
+			return errors.Tag(err)
+		}
+		if n > remaining {
+			return errors.Errorf("压缩包总展开大小超限: total=%d, limit=%d", counter.totalSize+n, archiveMaxTotalSize)
+		}
+	}
+
 	return nil
 }
 
-// extractTarEntry 解包单个 tar 条目。
+// extractTarEntry 仅写入普通文件和目录，跳过扩展头，其他条目类型报错。
 func extractTarEntry(destRoot string, reader io.Reader, header *tar.Header, counter *archiveCounter) error {
 	destPath, err := safeArchivePath("tar", destRoot, header.Name)
 	if err != nil {
@@ -260,11 +225,9 @@ func extractTarEntry(destRoot string, reader io.Reader, header *tar.Header, coun
 			return errors.Tag(err)
 		}
 		return writeArchiveFile(destRoot, destPath, archiveFilePerm(os.FileMode(header.Mode)), func(file *os.File) error {
+			// tar.Reader 只暴露当前条目的内容，io.Copy 会在本条目结束处停止。
 			_, copyErr := io.Copy(file, reader)
-			if copyErr != nil {
-				return errors.Tag(copyErr)
-			}
-			return nil
+			return errors.Tag(copyErr)
 		})
 	case tar.TypeXGlobalHeader, tar.TypeXHeader:
 		return nil

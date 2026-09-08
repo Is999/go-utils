@@ -13,6 +13,9 @@ import (
 func TestCodeFormattingAndEncoding(t *testing.T) {
 	base := stderrors.New("base")
 	err := errutils.WithCode(base, 10001)
+	// 无栈错误的输出固定，完整比较业务码与原因，避免空对象也能通过。
+	const wantText = "code=10001; cause=base"
+	const wantJSON = `{"code":10001,"err":{"msg":"base"}}`
 
 	if !errutils.HasCode(err, 10001) {
 		t.Fatal("HasCode() should match wrapped code")
@@ -31,39 +34,48 @@ func TestCodeFormattingAndEncoding(t *testing.T) {
 	}
 
 	if stringer, ok := err.(fmt.Stringer); ok {
-		if got := stringer.String(); got == "" {
-			t.Fatal("String() should return trace text")
+		if got := stringer.String(); got != wantText {
+			t.Fatalf("String() = %q, want %q", got, wantText)
 		}
 	} else {
 		t.Fatal("WithCode() should implement fmt.Stringer")
 	}
 	if goStringer, ok := err.(fmt.GoStringer); ok {
-		if got := goStringer.GoString(); !json.Valid([]byte(got)) {
-			t.Fatalf("GoString() invalid JSON: %s", got)
+		if got := goStringer.GoString(); got != wantJSON {
+			t.Fatalf("GoString() = %q, want %q", got, wantJSON)
 		}
 	} else {
 		t.Fatal("WithCode() should implement fmt.GoStringer")
 	}
 
-	_ = fmt.Sprintf("%s", err)
-	_ = fmt.Sprintf("%q", err)
-	_ = fmt.Sprintf("%+v", err)
-	_ = fmt.Sprintf("%#v", err)
+	for _, tc := range []struct {
+		format string
+		want   string
+	}{
+		{"%s", wantText},
+		{"%q", `"code=10001; cause=base"`},
+		{"%+v", wantJSON},
+		{"%#v", wantJSON},
+	} {
+		if got := fmt.Sprintf(tc.format, err); got != tc.want {
+			t.Errorf("format %s = %q, want %q", tc.format, got, tc.want)
+		}
+	}
 
 	data, marshalErr := json.Marshal(err)
 	if marshalErr != nil {
 		t.Fatalf("MarshalJSON() error = %v", marshalErr)
 	}
-	if !json.Valid(data) {
-		t.Fatalf("MarshalJSON() invalid JSON: %s", data)
+	if string(data) != wantJSON {
+		t.Fatalf("MarshalJSON() = %q, want %q", data, wantJSON)
 	}
 	if textErr, ok := err.(encoding.TextMarshaler); ok {
 		text, textMarshalErr := textErr.MarshalText()
 		if textMarshalErr != nil {
 			t.Fatalf("MarshalText() error = %v", textMarshalErr)
 		}
-		if len(text) == 0 {
-			t.Fatal("MarshalText() should return trace text")
+		if string(text) != wantText {
+			t.Fatalf("MarshalText() = %q, want %q", text, wantText)
 		}
 	} else {
 		t.Fatal("WithCode() should implement encoding.TextMarshaler")

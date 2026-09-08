@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -114,8 +115,10 @@ func TestCurlConfigAndMethods(t *testing.T) {
 			t.Fatalf("%s error = %v", call.name, err)
 		}
 	}
-	if len(methods) != 6 {
-		t.Fatalf("methods = %#v", methods)
+	// 校验服务端实际收到的方法，避免包装方法误用同一种请求方式仍然通过。
+	want := []string{http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodHead, http.MethodDelete, http.MethodOptions}
+	if !slices.Equal(methods, want) {
+		t.Fatalf("methods = %v, want %v", methods, want)
 	}
 }
 
@@ -168,6 +171,7 @@ func TestCurlCallbacksAndDrainBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DrainBody() error = %v", err)
 	}
+	defer restored.Close()
 	if string(body) != "drain" {
 		t.Fatalf("DrainBody() body = %q, want drain", body)
 	}
@@ -211,7 +215,10 @@ func TestFormDeleteAndReader(t *testing.T) {
 	if contentType != "application/x-www-form-urlencoded" {
 		t.Fatalf("contentType = %q", contentType)
 	}
-	data, _ := io.ReadAll(body)
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
 	if string(data) != "a=1" {
 		t.Fatalf("body = %q", data)
 	}

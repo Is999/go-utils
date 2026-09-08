@@ -10,10 +10,8 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// Zip 使用zip打包并压缩
-//
-//	zipFile 打包压缩后文件
-//	files 待打包压缩文件【夹】
+// Zip 将文件和目录打包为 .zip，保留各输入的基名；空列表生成空归档。
+// 归档写完并关闭后替换目标，输出父目录须已存在，且不能位于输入目录中。
 func Zip(zipFile string, files []string) error {
 	if err := validateArchiveOutput(zipFile, ".zip", "zip", files); err != nil {
 		return errors.Tag(err)
@@ -21,15 +19,14 @@ func Zip(zipFile string, files []string) error {
 
 	// 使用原子写入避免归档生成失败时留下半截 zip 文件。
 	return writeFileAtomic(zipFile, 0644, func(file *os.File) (err error) {
-		// 创建 zip.Writer，最终必须显式关闭以刷新中央目录。
 		zipWriter := zip.NewWriter(file)
+		// Close 补齐 ZIP 中央目录，但不覆盖之前的写入错误。
 		defer func() {
 			if closeErr := zipWriter.Close(); err == nil && closeErr != nil {
 				err = errors.Tag(closeErr)
 			}
 		}()
 
-		// 遍历文件和目录列表，将它们添加到 zip 文件。
 		for _, filePath := range files {
 			if err = AddFileToZip(zipWriter, filePath, ""); err != nil {
 				return errors.Tag(err)
@@ -39,10 +36,8 @@ func Zip(zipFile string, files []string) error {
 	})
 }
 
-// AddFileToZip 添加文件【夹】到zip
-//
-//	fileToCompress 需要压缩的文件
-//	baseDir 打包文件根目录
+// AddFileToZip 递归添加普通文件或目录，条目名为 baseDir 加输入基名，拒绝符号链接等特殊文件。
+// baseDir 是归档内前缀；调用方负责关闭 zipWriter，失败时已写入的条目不会撤销。
 func AddFileToZip(zipWriter *zip.Writer, fileToCompress string, baseDir string) error {
 	if zipWriter == nil {
 		return errors.New("zip.Writer 不能为空")
@@ -55,108 +50,79 @@ func AddFileToZip(zipWriter *zip.Writer, fileToCompress string, baseDir string) 
 		return errors.Tag(err)
 	}
 
-	if fileInfo.IsDir() {
-		// 压缩目录
-		archiveBaseDir := fileInfo.Name()
-		if baseDir != "" {
-			archiveBaseDir = filepath.Join(baseDir, archiveBaseDir)
-		}
-		return addDirectoryToZip(zipWriter, fileToCompress, fileInfo, archiveBaseDir)
-	}
-	// 压缩文件
-	return addSingleFileToZip(zipWriter, fileToCompress, fileInfo, baseDir)
+	return addFileToZip(zipWriter, fileToCompress, fileInfo, baseDir)
 }
 
-// addSingleFileToZip 添加单个文件到zip
-func addSingleFileToZip(zipWriter *zip.Writer, fileToCompress string, fileInfo os.FileInfo, baseDir string) error {
-	// 创建 zip 文件中的文件头
+// addFileToZip 将普通文件或目录写入归档，保留目录层次。
+func addFileToZip(zipWriter *zip.Writer, filePath string, fileInfo os.FileInfo, baseDir string) error {
+	// FIFO 等特殊文件不能按普通正文读取，否则可能一直等待外部读写端。
+	if !fileInfo.IsDir() && !fileInfo.Mode().IsRegular() {
+		return errors.Errorf("不支持的 zip 条目类型: %s", filePath)
+	}
 	header, err := zip.FileInfoHeader(fileInfo)
 	if err != nil {
 		return errors.Tag(err)
 	}
 
-	// 修改 header 中的 Name 字段，确保文件名正确
+	archiveDir := baseDir
+	if fileInfo.IsDir() {
+		// 沿用先拼目录全名再取父前缀的规则，保留输入为 . 或 .. 时的条目名。
+		archiveDir = filepath.Join(baseDir, fileInfo.Name())
+		baseDir = strings.TrimSuffix(archiveDir, fileInfo.Name())
+	}
+	// 归档内统一使用正斜杠，与宿主机路径分隔符无关。
 	header.Name = filepath.ToSlash(filepath.Join(baseDir, header.Name))
 
-	// 压缩文件
-	header.Method = zip.Deflate
+	// ZIP 以末尾 / 标记目录，标准库据此写入无压缩数据的目录条目。
+	if fileInfo.IsDir() && !strings.HasSuffix(header.Name, "/") {
+		header.Name += "/"
+	}
 
-	// 创建一个新的ZIP文件条目
+	header.Method = zip.Deflate
+	// 先写目录自身的条目，空目录才不会在归档中丢失。
 	zipFile, err := zipWriter.CreateHeader(header)
 	if err != nil {
 		return errors.Tag(err)
 	}
 	if !fileInfo.IsDir() {
-		// 打开要压缩的文件
-		file, err := os.Open(fileToCompress)
+		file, err := os.Open(filePath)
 		if err != nil {
 			return errors.Tag(err)
 		}
+		// 每个文件复制后即关闭，递归遍历不积压文件句柄。
 		defer file.Close()
-
-		// 将文件数据拷贝到ZIP文件条目
 		_, err = io.Copy(zipFile, file)
-		if err != nil {
-			return errors.Tag(err)
-		}
-	}
-
-	return nil
-}
-
-// addDirectoryToZip 添加目录到zip
-func addDirectoryToZip(zipWriter *zip.Writer, directoryToCompress string, fileInfo os.FileInfo, baseDir string) error {
-	// 压缩目录
-	err := addSingleFileToZip(zipWriter, directoryToCompress, fileInfo, strings.TrimSuffix(baseDir, fileInfo.Name()))
-	if err != nil {
 		return errors.Tag(err)
 	}
 
-	// 读取目录
-	files, err := os.ReadDir(directoryToCompress)
+	files, err := os.ReadDir(filePath)
 	if err != nil {
 		return errors.Tag(err)
 	}
-
 	for _, file := range files {
-		if err = rejectArchiveSymlink(filepath.Join(directoryToCompress, file.Name()), file.Type(), "zip"); err != nil {
+		childPath := filepath.Join(filePath, file.Name())
+		if err = rejectArchiveSymlink(childPath, file.Type(), "zip"); err != nil {
 			return errors.Tag(err)
 		}
-
-		// 获取文件信息
 		info, err := file.Info()
 		if err != nil {
 			return errors.Tag(err)
 		}
-
-		// 获取完整路径
-		filePath := filepath.Join(directoryToCompress, file.Name())
-		if file.IsDir() {
-			// 递归地压缩子目录
-			if err = addDirectoryToZip(zipWriter, filePath, info, filepath.Join(baseDir, file.Name())); err != nil {
-				return errors.Tag(err)
-			}
-			continue
-		}
-		// 压缩单个文件
-		if err = addSingleFileToZip(zipWriter, filePath, info, baseDir); err != nil {
+		if err = addFileToZip(zipWriter, childPath, info, archiveDir); err != nil {
 			return errors.Tag(err)
 		}
 	}
-
 	return nil
 }
 
-// UnZip 解压zip文件
-//
-//	zipFile 代解压的文件
-//	destDir 解压文件目录
+// UnZip 解包 .zip 文件，自动创建 destDir，逐个替换普通文件并恢复权限。
+// 任一条目失败即返回错误，已完成的文件和目录仍会保留。
 func UnZip(zipFile, destDir string) error {
-	if !strings.HasSuffix(zipFile, ".zip") {
+	// 与打包端使用相同的后缀规则，磁盘读取仍保留完整路径。
+	if !strings.HasSuffix(strings.TrimSpace(zipFile), ".zip") {
 		return errors.New("文件名错误：非.zip文件")
 	}
 
-	// 打开ZIP文件进行读取
 	r, err := zip.OpenReader(zipFile)
 	if err != nil {
 		return errors.Tag(err)
@@ -168,7 +134,6 @@ func UnZip(zipFile, destDir string) error {
 		return errors.Tag(err)
 	}
 
-	// 遍历ZIP文件中的文件和目录
 	counter := archiveCounter{}
 	for _, file := range r.File {
 		if err = extractZipEntry(destRoot, file, &counter); err != nil {
@@ -179,7 +144,7 @@ func UnZip(zipFile, destDir string) error {
 	return nil
 }
 
-// extractZipEntry 解包单个 zip 条目。
+// extractZipEntry 仅接受目录和普通文件。
 func extractZipEntry(destRoot string, f *zip.File, counter *archiveCounter) error {
 	destPath, err := safeArchivePath("zip", destRoot, f.Name)
 	if err != nil {
@@ -191,7 +156,7 @@ func extractZipEntry(destRoot string, f *zip.File, counter *archiveCounter) erro
 		return errors.Errorf("不支持的 zip 条目类型: %s", f.Name)
 	}
 
-	if f.FileInfo().IsDir() {
+	if mode.IsDir() {
 		if err = counter.add(f.Name, 0); err != nil {
 			return errors.Tag(err)
 		}
@@ -207,17 +172,12 @@ func extractZipEntry(destRoot string, f *zip.File, counter *archiveCounter) erro
 	}
 	writeErr := writeArchiveFile(destRoot, destPath, archiveFilePerm(mode), func(file *os.File) error {
 		_, copyErr := io.Copy(file, rc)
-		if copyErr != nil {
-			return errors.Tag(copyErr)
-		}
-		return nil
+		return errors.Tag(copyErr)
 	})
+	// 写入失败也先关闭读取器，保留写入错误作为主因。
 	closeErr := rc.Close()
 	if writeErr != nil {
 		return errors.Tag(writeErr)
 	}
-	if closeErr != nil {
-		return errors.Tag(closeErr)
-	}
-	return nil
+	return errors.Tag(closeErr)
 }

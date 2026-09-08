@@ -6,45 +6,50 @@ golang 帮助函数
 
 #### 安装教程
 
-1. github安装 go get -u github.com/Is999/go-utils
+```sh
+go get github.com/Is999/go-utils@go-v1.22
+```
 
-2. gitee安装 go get -u gitee.com/Is999/go-utils
+模块路径以 `go.mod` 中的 `github.com/Is999/go-utils` 为准。
 
 ### 使用说明
 
-1. 版本要求 Go 1.26。
+1. 版本要求 Go 1.22；本分支保留 `math/rand.Rand` 随机源参数，与主线的 `math/rand/v2.Rand` 不可混用。
 
 ------
 
-### 模块结论
+### 模块概览
 
-本版本保留官方标准库快捷概览，并在工具函数侧按安全性、并发性、性能边界和文档一致性整理。核心结论如下：
+本库提供基础工具方法。调用方负责业务输入校验、资源授权和可变数据的并发访问；各方法的现有行为与限制见下表及对应注释。
 
-| 模块                    | 生产级结论                                                                                                                       |
+| 模块                    | 行为与使用边界                                                                                                                    |
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| AES / DES             | AES 推荐 `GCM`；`CBC` 必须显式 `WithIV(...)` 或 `WithRandIV(true)`；`CTR/CFB/OFB`、`ECB`、默认 key 派生 IV 默认禁用。DES/3DES 仅保留历史兼容，不建议新系统使用。 |
+| AES / DES             | AES 推荐 `GCM`；`CBC` 必须显式 `utils.WithIV(...)` 或 `utils.WithRandIV(true)`；`CTR/CFB/OFB`、`ECB`、默认 key 派生 IV 默认禁用。DES/3DES 仅保留历史兼容，不建议新系统使用。 |
 | RSA                   | 生成和导入密钥均要求至少 2048 位；推荐 `EncryptOAEP/DecryptOAEP` 与 `SignPSS/VerifyPSS`；`PKCS#1 v1.5` 仅用于旧协议兼容；签名拒绝 MD5/SHA1。                |
 | PKCS7 / Zero          | `PKCS7Unpad` 严格校验填充字节；`ZeroPad` 仅适合能接受尾部 0 歧义的旧协议。                                                                  |
 | Pool / Once           | `Pool[T]` 基于 `sync.Pool`，支持归还前 reset；`Once` 并发安全，失败按有限指数退避重试，结果会缓存，需重新执行时调用 `Reset`。                                        |
 | Retry                 | `Retry` 使用 capped exponential backoff + jitter：第一次失败后约 100ms~200ms，最多 3s；`maxRetries=0` 时只执行 1 次。                           |
 | IP / Logger           | `ClientIP` 仅在远端为可信代理时读取转发头；生产建议使用 `ClientIPWithTrustedProxies`。默认 logger 基于 `log/slog` 并发安全，自定义 logger 也应保证并发安全。            |
-| slices / string / map | 常用函数无共享可变全局状态；传入的 slice/map 若被外部并发修改，调用方需自行加锁。循环热路径优先使用 `UniqueInto/DiffInto/IntersectInto` 和 `NewReplacer` 复用分配。              |
+| slices / string / map | `Unique/Diff/Intersect` 返回独立结果切片；传入的 slice/map 若被外部并发修改，调用方需自行加锁。重复字符串替换可复用 `NewReplacer`。              |
 | tar / zip             | 解压防 Zip Slip/Tar Slip，拒绝绝对路径、目录穿越、空字符、符号链接和特殊文件；限制条目数、单文件大小和总展开大小。                                                          |
 | errors                | 支持栈追踪、错误码、上下文键值、`errors.Join`、文本/JSON/slog 输出；全局配置使用原子变量并发安全。                                                               |
-| curl                  | 继承标准库默认 Transport 连接池/TLS 行为；Header 按请求克隆；可回放 body 才会重试；默认日志 body 为预览上限并读取后恢复；支持 `Clone/NewRequest` 派生独立请求实例并复用连接池。         |
-| response              | 状态码只写一次；Content-Type 自动规范化；下载文件名清洗 CR/LF 和路径；文件输出拒绝目录。                                                                      |
+| curl                  | 继承标准库默认 Transport 连接池/TLS 行为；Header 按请求克隆；可回放 body 才会重试；默认日志 body 为预览上限并读取后恢复；支持 `Clone/NewRequest` 隔离请求配置，共享已初始化的 Transport。         |
+| response              | 最终状态码只提交一次；支持 1xx 临时响应；Content-Type 自动规范化；下载文件名清洗 CR/LF 和路径；文件输出拒绝目录。                                                                      |
 
 ### 全局配置 Configure
 
 `Configure` 是全局配置入口，只需在程序入口处（如 `main` 函数）调用一次。支持自定义 JSON 编解码器和自定义 Logger。
 
 ```go
-import utils "github.com/Is999/go-utils"
+import (
+	"encoding/json"
+
+	utils "github.com/Is999/go-utils"
+)
 
 func main() {
 	utils.Configure(
 		utils.WithJSON(json.Marshal, json.Unmarshal), // 可选：自定义 JSON 编解码器
-		utils.WithLogger(yourLogger),                // 可选：自定义 Logger
 	)
 }
 ```
@@ -56,9 +61,14 @@ func main() {
 等高性能库），若未设置则默认使用标准库 `encoding/json`。
 
 ```go
-import "github.com/bytedance/sonic"
+import (
+	utils "github.com/Is999/go-utils"
+	"github.com/bytedance/sonic"
+)
 
-utils.Configure(utils.WithJSON(sonic.Marshal, sonic.Unmarshal))
+func main() {
+	utils.Configure(utils.WithJSON(sonic.Marshal, sonic.Unmarshal))
+}
 ```
 
 设置后，使用 `utils.Marshal()` 和 `utils.Unmarshal()` 即会调用自定义的编解码器。
@@ -67,7 +77,11 @@ utils.Configure(utils.WithJSON(sonic.Marshal, sonic.Unmarshal))
 
 通过 `WithLogger` 设置自定义 Logger，若未设置则默认使用标准库 `log/slog`。
 
-Logger 接口定义如下，实现 6 个方法即可集成任何第三方日志库（如 zap、logrus 等）：
+默认适配器跟随 `slog.Default()`，启用 `HandlerOptions.AddSource` 时记录业务调用位置；`With` 创建的子 Logger 保留创建时的底层实例和附加字段。
+
+使用标准库 handler 的完整可运行示例见 [ExampleLogger](example_logger_adapter_test.go)。下面保留 Zap 和 Logrus 的适配写法，使用这些示例时由应用引入相应依赖。
+
+Logger 接口定义如下，实现 6 个方法即可集成第三方日志库（如 zap、logrus 等）：
 
 ```go
 type Logger interface {
@@ -95,14 +109,17 @@ const (
 
 ```go
 import (
-"context"
-"go.uber.org/zap"
-"go.uber.org/zap/zapcore"
-utils "github.com/Is999/go-utils"
+	"context"
+	"fmt"
+	"os"
+
+	utils "github.com/Is999/go-utils"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type zapLoggerAdapter struct {
-logger *zap.SugaredLogger
+	logger *zap.SugaredLogger
 }
 
 func (z *zapLoggerAdapter) Debug(msg string, args ...any) { z.logger.Debugw(msg, args...) }
@@ -111,29 +128,38 @@ func (z *zapLoggerAdapter) Warn(msg string, args ...any)  { z.logger.Warnw(msg, 
 func (z *zapLoggerAdapter) Error(msg string, args ...any) { z.logger.Errorw(msg, args...) }
 
 func (z *zapLoggerAdapter) With(args ...any) utils.Logger {
-return &zapLoggerAdapter{logger: z.logger.With(args...)}
+	return &zapLoggerAdapter{logger: z.logger.With(args...)}
 }
 
 func (z *zapLoggerAdapter) Enabled(ctx context.Context, level utils.LogLevel) bool {
-var zapLevel zapcore.Level
-switch level {
-case utils.LevelDebug:
-zapLevel = zapcore.DebugLevel
-case utils.LevelInfo:
-zapLevel = zapcore.InfoLevel
-case utils.LevelWarn:
-zapLevel = zapcore.WarnLevel
-case utils.LevelError:
-zapLevel = zapcore.ErrorLevel
-default:
-zapLevel = zapcore.InfoLevel
-}
-return z.logger.Desugar().Core().Enabled(zapLevel)
+	var zapLevel zapcore.Level
+	switch level {
+	case utils.LevelDebug:
+		zapLevel = zapcore.DebugLevel
+	case utils.LevelInfo:
+		zapLevel = zapcore.InfoLevel
+	case utils.LevelWarn:
+		zapLevel = zapcore.WarnLevel
+	case utils.LevelError:
+		zapLevel = zapcore.ErrorLevel
+	default:
+		zapLevel = zapcore.InfoLevel
+	}
+	return z.logger.Desugar().Core().Enabled(zapLevel)
 }
 
 func main() {
-zapLogger, _ := zap.NewProduction()
-utils.Configure(utils.WithLogger(&zapLoggerAdapter{logger: zapLogger.Sugar()}))
+	zapLogger, err := zap.NewProduction()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+	defer func() {
+		if err := zapLogger.Sync(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}()
+	utils.Configure(utils.WithLogger(&zapLoggerAdapter{logger: zapLogger.Sugar()}))
 }
 ```
 
@@ -141,78 +167,79 @@ utils.Configure(utils.WithLogger(&zapLoggerAdapter{logger: zapLogger.Sugar()}))
 
 ```go
 import (
-"context"
-"github.com/sirupsen/logrus"
-utils "github.com/Is999/go-utils"
+	"context"
+
+	utils "github.com/Is999/go-utils"
+	"github.com/sirupsen/logrus"
 )
 
 type logrusLoggerAdapter struct {
-logger *logrus.Logger
-fields logrus.Fields
+	logger *logrus.Logger
+	fields logrus.Fields
 }
 
 func (l *logrusLoggerAdapter) entry() *logrus.Entry {
-if len(l.fields) > 0 {
-return l.logger.WithFields(l.fields)
-}
-return logrus.NewEntry(l.logger)
+	if len(l.fields) > 0 {
+		return l.logger.WithFields(l.fields)
+	}
+	return logrus.NewEntry(l.logger)
 }
 
 func (l *logrusLoggerAdapter) Debug(msg string, args ...any) {
-l.entry().WithFields(argsToFields(args)).Debug(msg)
+	l.entry().WithFields(argsToFields(args)).Debug(msg)
 }
 func (l *logrusLoggerAdapter) Info(msg string, args ...any) {
-l.entry().WithFields(argsToFields(args)).Info(msg)
+	l.entry().WithFields(argsToFields(args)).Info(msg)
 }
 func (l *logrusLoggerAdapter) Warn(msg string, args ...any) {
-l.entry().WithFields(argsToFields(args)).Warn(msg)
+	l.entry().WithFields(argsToFields(args)).Warn(msg)
 }
 func (l *logrusLoggerAdapter) Error(msg string, args ...any) {
-l.entry().WithFields(argsToFields(args)).Error(msg)
+	l.entry().WithFields(argsToFields(args)).Error(msg)
 }
 
 func (l *logrusLoggerAdapter) With(args ...any) utils.Logger {
-newFields := argsToFields(args)
-merged := make(logrus.Fields, len(l.fields)+len(newFields))
-for k, v := range l.fields {
-merged[k] = v
-}
-for k, v := range newFields {
-merged[k] = v
-}
-return &logrusLoggerAdapter{logger: l.logger, fields: merged}
+	newFields := argsToFields(args)
+	merged := make(logrus.Fields, len(l.fields)+len(newFields))
+	for k, v := range l.fields {
+		merged[k] = v
+	}
+	for k, v := range newFields {
+		merged[k] = v
+	}
+	return &logrusLoggerAdapter{logger: l.logger, fields: merged}
 }
 
 func (l *logrusLoggerAdapter) Enabled(_ context.Context, level utils.LogLevel) bool {
-var logrusLevel logrus.Level
-switch level {
-case utils.LevelDebug:
-logrusLevel = logrus.DebugLevel
-case utils.LevelInfo:
-logrusLevel = logrus.InfoLevel
-case utils.LevelWarn:
-logrusLevel = logrus.WarnLevel
-case utils.LevelError:
-logrusLevel = logrus.ErrorLevel
-default:
-logrusLevel = logrus.InfoLevel
-}
-return l.logger.IsLevelEnabled(logrusLevel)
+	var logrusLevel logrus.Level
+	switch level {
+	case utils.LevelDebug:
+		logrusLevel = logrus.DebugLevel
+	case utils.LevelInfo:
+		logrusLevel = logrus.InfoLevel
+	case utils.LevelWarn:
+		logrusLevel = logrus.WarnLevel
+	case utils.LevelError:
+		logrusLevel = logrus.ErrorLevel
+	default:
+		logrusLevel = logrus.InfoLevel
+	}
+	return l.logger.IsLevelEnabled(logrusLevel)
 }
 
 func argsToFields(args []any) logrus.Fields {
-fields := make(logrus.Fields)
-for i := 0; i < len(args)-1; i += 2 {
-if key, ok := args[i].(string); ok {
-fields[key] = args[i+1]
-}
-}
-return fields
+	fields := make(logrus.Fields)
+	for i := 0; i < len(args)-1; i += 2 {
+		if key, ok := args[i].(string); ok {
+			fields[key] = args[i+1]
+		}
+	}
+	return fields
 }
 
 func main() {
-logrusLogger := logrus.New()
-utils.Configure(utils.WithLogger(&logrusLoggerAdapter{logger: logrusLogger}))
+	logrusLogger := logrus.New()
+	utils.Configure(utils.WithLogger(&logrusLoggerAdapter{logger: logrusLogger}))
 }
 ```
 
@@ -220,78 +247,93 @@ utils.Configure(utils.WithLogger(&logrusLoggerAdapter{logger: logrusLogger}))
 
 `errors` 包提供了多种方式获取错误追踪信息，兼容不同日志库：
 
+- 首次处理外部错误时使用 `Wrap(err, "操作失败")` 采集调用栈；已有本包栈时只追加消息。
+- `Wrap(err)` 不追加消息；已有栈时返回原对象。`Wrap(err, "")` 会创建包装节点，两者的 `Error()` 文本相同。
+- 已确定底层采集过栈的高频传播路径，可用 `WithMessage` 追加消息，省去错误链检查。
+- `SetTraceEnabled(false)` 只关闭栈的输出，不关闭采集。`Is`、`As` 和 `Unwrap` 保留原始错误链。
+- JSON 与 slog 追踪在 1024 层处停止展开，并保留剩余错误的消息；这不限制原始错误链。
+
+以下四种追踪输出按需选择一种；实际代码只保留所选写法，避免同一错误被重复记录。
+
 ```go
-import "github.com/Is999/go-utils/errors"
+import (
+	"fmt"
+	"log/slog"
 
-err := errors.Wrap(originalErr, "操作失败")
+	utils "github.com/Is999/go-utils"
+	"github.com/Is999/go-utils/errors"
+)
 
-// 方式1: 使用 slog（默认日志库），Trace 返回 slog.LogValuer 接口
-slog.Error(err.Error(), "trace", errors.Trace(err))
+func reportError(originalErr error, logger utils.Logger) {
+	if originalErr == nil {
+		return
+	}
+	err := errors.Wrap(originalErr, "操作失败")
 
-// 方式2: 使用第三方日志库（zap/logrus 等），TraceString 返回简洁字符串
-logger.Error("操作失败", "error", err.Error(), "trace", errors.TraceString(err))
+	// 方式1: 使用 slog（默认日志库），Trace 返回 slog.LogValuer 接口
+	slog.Error(err.Error(), "trace", errors.Trace(err))
 
-// 方式3: 获取完整 JSON 格式追踪（含嵌套 wrap 信息）
-logger.Error("操作失败", "error", err.Error(), "trace", errors.TraceJSON(err))
+	// 方式2: 使用第三方日志库（zap/logrus 等），TraceString 返回简洁字符串
+	logger.Error("操作失败", "error", err.Error(), "trace", errors.TraceString(err))
 
-// 方式4: 使用 fmt 格式化
-fmt.Sprintf("%+v", err) // 等同于 TraceJSON
-fmt.Sprintf("%#v", err) // 等同于 TraceJSON
+	// 方式3: 获取完整 JSON 格式追踪（含嵌套 wrap 信息）
+	logger.Error("操作失败", "error", err.Error(), "trace", errors.TraceJSON(err))
+
+	// 方式4: 使用 fmt 格式化
+	fmt.Printf("%+v\n", err) // 等同于 TraceJSON
+	fmt.Printf("%#v\n", err) // 等同于 TraceJSON
+}
 ```
 
 ------
 
 # Go常用标准库方法及utils包帮助函数
 开发中使用频率较高的Go标准库中的方法及utils包中的帮助方法。utils包中的方法都可以在单元测试中找到使用方法示例。版本要求 >=
-1.26版本。
+1.22版本。
 
-> 注意：utils包中代码仅供参考，不建议用于商业生产，造成损失概不负责。
+> 使用前请核对上方模块概览和各方法注释中的边界；许可与责任条款见 [LICENSE](LICENSE)。
+
+下文代码块包含 API 签名和用法片段，省略重复的 import；`utils` 指向本模块。示例中的数据、密钥、路径和业务对象由调用方提供。
 
 ## 1. 字符串
 
-​        **strings** 和 **bytes** 两个包对字符串的操作基本相同拥有**相同的方法名称和参数**，只是参数类型的不同。
+**strings** 面向字符串，**bytes** 面向字节切片；许多函数名称和语义相近，具体签名以各包 API 为准。
 
 ------
 
 ### 1.1 截取字符串
 
-> **推荐**：包含中文（宽字符）时，使用 string转rune切片截取字符串。
+字符串切片下标按字节计算；需要按 Unicode 码点截取时使用 `[]rune` 或 `utils.Substr`。组合字符可能包含多个码点。
 
 ------
 
 #### type	string
 
 ```go
-string[start: end]
+str[start:end]
 ```
 
 | 参数       | 描述                                                   |
 |----------|------------------------------------------------------|
-| *string* | 原字符串。                                                |
-| *start*  | 表示要截取的第一个字符所在的索引（截取时包含该字符）。如果不指定，默认为 0，也就是从字符串的开头截取。 |
-| *end*    | 表示要截取的最后一个字符所在的索引（截取时不包含该字符）。如果不指定，默认为字符串的长度。        |
+| *str*    | 原字符串。                                                |
+| *start*  | 起始字节索引，包含此位置；省略时为 0。 |
+| *end*    | 结束字节索引，不包含此位置；省略时为 len(str)。        |
 
 ------
 
-#### func [utils.Substr](https://github.com/Is999/go-utils/blob/master/string.go#L116)
+#### func [utils.Substr](string.go)
 
 ```go
 func Substr(str string, start, length int) string
 ```
 
-| 参数       | 描述                                                                                                                                                                                                                                    |
-|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| *str*    | 原字符串。                                                                                                                                                                                                                                 |
-| *start*  | 截取的起始位置，即截取的第一个字符所在的索引：<br />start小于0时，start = len(str) + start                                                                                                                                                                       |
-| *length* | 截取的截止位置，即截取的最后一个字符所在的索引：<br />length大于0时，length表示为截取子字符串的**长度**，截取的最后一个字符所在的索引，值为：**start + length** 。<br />length小于0时，length表示为截取的最后一个字符所在的**索引**，值为：**len(str) + length + 1** 。例如：等于 **-1** 时，表示截取到最后一个字符；等于 **-2** 时，表示截取到倒数第二个字符。 |
+| 参数 | 描述 |
+| --- | --- |
+| *str* | 原字符串，位置和数量均按 rune（Unicode 码点）计算。 |
+| *start* | 起始位置；负数从末尾倒数，-1 表示最后一个 rune。 |
+| *length* | 正数为截取数量；负数指定包含在结果中的倒数结束字符，-1 截到末尾、-2 截到倒数第二个；0 返回空字符串。 |
 
-备注：Substr 内部实现string转rune切片。
-
-```go
-// string转rune切片
-runes := []rune(str)
-string(runes[start: end])
-```
+备注：负数 start 从末尾换算后仍越过开头时裁剪到开头，正数 length 超过剩余长度时截到末尾；起始位置到达末尾或截取范围为空时返回空字符串。
 
 ------
 
@@ -309,7 +351,7 @@ var b strings.Builder
 b.Grow(length)    // 预设大小
 b.WriteString(s1) // 写入字符串s1
 b.WriteString(s2) // 写入字符串s2
-s3 := b.String() // 拼接后的字符串
+s3 := b.String()  // 拼接后的字符串
 ```
 
 ------
@@ -344,7 +386,7 @@ s3 := bt.String()
 
 ### 1.3 获取字符串长度
 
-> **推荐**：包含宽字符（宽字符算一个长度）时，使用utf8.RuneCount、 utf8.RuneCountInString获取长度。
+`len(str)` 返回字节数；`utf8.RuneCount` 和 `utf8.RuneCountInString` 返回 Unicode 码点数，组合字符不一定只占一个码点。
 
 ------
 
@@ -423,17 +465,17 @@ length := strings.Count(str, "") - 1
 func Fields(s string) []string
 ```
 
-备注：按**空格分割**字符串
+备注：按一个或多个连续 Unicode 空白字符分割，并忽略首尾空白。
 
 ------
 
 #### func	strings.FieldsFunc
 
 ```go
-func FieldsFunc(s string, f func (rune) bool) []string 
+func FieldsFunc(s string, f func(rune) bool) []string
 ```
 
-备注：按**字符分割**字符串
+备注：将 `f(r) == true` 的连续 Unicode 字符视为分隔符，忽略空段。
 
 ------
 
@@ -451,7 +493,7 @@ func Split(s, sep string) []string
 备注：按**子字符串分割**字符串
 
 ```go
-// 按空格(空字符串)分割
+// 按单个空格分割；连续空格会产生空元素
 strings.Split(s, " ")
 // 按xxx字符串分割
 strings.Split(s, "xxx")
@@ -478,6 +520,8 @@ func Count(s, substr string) int
 
 ### 1.6 查找子串在字符串中出现位置
 
+以下 Index 系列函数返回字节索引；未找到时返回 -1。IndexAny/LastIndexAny 在给定字符集合中匹配任一 rune。
+
 ------
 
 #### func	strings.Index
@@ -495,7 +539,7 @@ func Index(s, substr string) int
 
 ------
 
-#### func	stringsLastIndex
+#### func	strings.LastIndex
 
 ```go
 func LastIndex(s, substr string) int
@@ -521,7 +565,7 @@ func IndexAny(s, chars string) int
 | *s*     | 原字符串。     |
 | *chars* | 要检索的字符序列。 |
 
-备注：返回**第一次出现字符序列的索引**；反之，则返回 **-1**。
+备注：返回 chars 中任一字符首次出现的字节索引；未找到返回 -1。
 
 ------
 
@@ -536,7 +580,7 @@ func LastIndexAny(s, chars string) int
 | *s*     | 原字符串。     |
 | *chars* | 要检索的字符序列。 |
 
-备注：返回**最后一次出现字符序列的索引**；反之，则返回 **-1**。
+备注：返回 chars 中任一字符最后出现的字节索引；未找到返回 -1。
 
 ------
 
@@ -564,7 +608,7 @@ func LastIndexByte(s string, c byte) int
 | 参数  | 描述        |
 |-----|-----------|
 | *s* | 原字符串。     |
-| *r* | 表示要检索的字符。 |
+| *c* | 表示要检索的字符。 |
 
 备注：返回**最后一次出现字符的索引**；反之，则返回 **-1**。
 
@@ -585,25 +629,20 @@ func IndexRune(s string, r rune) int
 
 ------
 
-#### func	strings.LastIndexRune
+#### 查找 rune 最后出现的位置
 
 ```go
-func LastIndexRune(s string, r rune) int
+index := strings.LastIndexFunc(s, func(r rune) bool { return r == '中' })
 ```
 
-| 参数  | 描述        |
-|-----|-----------|
-| *s* | 原字符串。     |
-| *c* | 表示要检索的字符。 |
-
-备注：返回**最后一次出现字符的索引**；反之，则返回 **-1**。
+备注：使用 LastIndexFunc 匹配指定 rune，返回字节索引；未找到返回 -1。
 
 ------
 
 #### func	strings.IndexFunc
 
 ```go
-func IndexFunc(s string, f func (rune) bool) int
+func IndexFunc(s string, f func(rune) bool) int
 ```
 
 | 参数  | 描述               |
@@ -618,7 +657,7 @@ func IndexFunc(s string, f func (rune) bool) int
 #### func	strings.LastIndexFunc
 
 ```go
-func LastIndexFunc(s string, f func (rune) bool) int
+func LastIndexFunc(s string, f func(rune) bool) int
 ```
 
 | 参数  | 描述               |
@@ -675,7 +714,7 @@ func Contains(s, substr string) bool
 | *s*      | 原字符串。   |
 | *substr* | 要检索的子串。 |
 
-备注：检索**字符串s**是否包含**字符串substr**。函数内部实现 **strings.Index >= 0** 。
+备注：检索**字符串s**是否包含**字符串substr**。等价于 **strings.Index(s, substr) >= 0** 。
 
 ------
 
@@ -690,7 +729,7 @@ func ContainsRune(s string, r rune) bool
 | *s* | 原字符串。     |
 | *r* | 表示要检索的字符。 |
 
-备注：检索**字符串s**是否包含**字符r**。函数内部实现 **strings.IndexRune >= 0** 。
+备注：检索**字符串s**是否包含**字符r**。等价于 **strings.IndexRune(s, r) >= 0** 。
 
 ------
 
@@ -705,7 +744,7 @@ func ContainsAny(s, chars string) bool
 | *s*     | 原字符串。      |
 | *chars* | 表示要检索的字符串。 |
 
-备注：检索**字符串s**是否包含**字符串chars**。函数内部实现 **strings.IndexAny >= 0** 。
+备注：判断 s 是否包含 chars 中任一 Unicode 字符，不要求包含完整的 chars 字符串。
 
 ------
 
@@ -731,10 +770,10 @@ func Cut(s, sep string) (before, after string, found bool)
 #### func	strings.ToTitle
 
 ```go
-func ToTitle(s string) string 
+func ToTitle(s string) string
 ```
 
-备注：将字符串**首字母转成大写**。
+备注：将所有 Unicode 字母映射为 title case；不是只转换字符串或单词的首字母。
 
 ------
 
@@ -768,7 +807,7 @@ func ToUpper(s string) string
 func TrimSpace(s string) string
 ```
 
-备注：将**字符串左右两边的空格去除**。
+备注：去除字符串两端的 Unicode 空白字符。
 
 ------
 
@@ -781,9 +820,9 @@ func Trim(s string, cutset string) string
 | 参数       | 描述        |
 |----------|-----------|
 | *s*      | 原字符串。     |
-| *cutset* | 需要去除的字符串。 |
+| *cutset* | 需要去除的 Unicode 字符集合。 |
 
-备注：将**字符串左右两边的指定字符串 cutset 去除**。
+备注：从字符串左右两边连续移除属于 cutset 字符集合的字符，不把 cutset 作为完整子串匹配。
 
 ------
 
@@ -796,9 +835,9 @@ func TrimLeft(s, cutset string) string
 | 参数       | 描述        |
 |----------|-----------|
 | *s*      | 原字符串。     |
-| *cutset* | 需要去除的字符串。 |
+| *cutset* | 需要去除的 Unicode 字符集合。 |
 
-备注：将**字符串左边的指定字符串 cutset 去除**。
+备注：从字符串左边连续移除属于 cutset 字符集合的字符，不把 cutset 作为完整子串匹配。
 
 ------
 
@@ -811,16 +850,16 @@ func TrimRight(s, cutset string) string
 | 参数       | 描述        |
 |----------|-----------|
 | *s*      | 原字符串。     |
-| *cutset* | 需要去除的字符串。 |
+| *cutset* | 需要去除的 Unicode 字符集合。 |
 
-备注：将**字符串右边的指定字符串 cutset 去除**。
+备注：从字符串右边连续移除属于 cutset 字符集合的字符，不把 cutset 作为完整子串匹配。
 
 ------
 
 #### func	strings.TrimPrefix
 
 ```go
-TrimPrefix(s, prefix string) string
+func TrimPrefix(s, prefix string) string
 ```
 
 | 参数       | 描述          |
@@ -850,7 +889,7 @@ func TrimSuffix(s, suffix string) string
 #### func	strings.TrimFunc
 
 ```go
-func TrimFunc(s string, f func (rune) bool) string 
+func TrimFunc(s string, f func(rune) bool) string
 ```
 
 | 参数  | 描述             |
@@ -866,7 +905,7 @@ f 返回 **true**，那说明符合规则，**字符将被移除**。
 #### func	strings.TrimLeftFunc
 
 ```go
-func TrimLeftFunc(s string, f func (rune) bool) string
+func TrimLeftFunc(s string, f func(rune) bool) string
 ```
 
 | 参数  | 描述             |
@@ -882,7 +921,7 @@ f 返回 **true**，那说明符合规则，**字符将被移除**。
 #### func	strings.TrimRightFunc
 
 ```go
-func TrimRightFunc(s string, f func (rune) bool) string
+func TrimRightFunc(s string, f func(rune) bool) string
 ```
 
 | 参数  | 描述             |
@@ -902,7 +941,7 @@ f 返回 **true**，那说明符合规则，**字符将被移除**。
 #### func	strings.Map
 
 ```go
-func Map(mapping func (rune) rune, s string) string
+func Map(mapping func(rune) rune, s string) string
 ```
 
 | 参数        | 描述               |
@@ -1003,10 +1042,10 @@ strings.NewReplacer(oldnew...).Replace(s)
 
 ------
 
-#### func [utils.Replace](https://github.com/Is999/go-utils/blob/master/string.go#L99)
+#### func [utils.Replace](string.go)
 
 ```go
-func Replace(s string, oldnew map[string]string) string 
+func Replace(s string, oldnew map[string]string) string
 ```
 
 | 参数       | 描述                                        |
@@ -1036,7 +1075,7 @@ func Clone(s string) string
 
 ------
 
-#### func [utils.ReverseString](https://github.com/Is999/go-utils/blob/master/string.go#L197)
+#### func [utils.ReverseString](string.go)
 
 ```go
 func ReverseString(str string) string
@@ -1050,7 +1089,7 @@ func ReverseString(str string) string
 
 ------
 
-#### func [utils.UniqueID](https://github.com/Is999/go-utils/blob/master/string.go#L303)
+#### func [utils.UniqueID](string.go)
 
 ```go
 func UniqueID(l uint8, r ...*rand.Rand) string
@@ -1059,13 +1098,13 @@ func UniqueID(l uint8, r ...*rand.Rand) string
 | 参数  | 描述                                          |
 |-----|---------------------------------------------|
 | *l* | 生成字符串的长度。                                   |
-| *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
+| *r* | 可选随机源，仅用第一项；省略或 nil 时用全局源，自定义源经包级锁串行访问。 |
 
-备注：生成一个长度范围16-32位的唯一ID字符串(可排序的字符串)。UniqueID 生成字符串并不保证全局强唯一性；该函数基于 `math/rand`，仅适用于非安全场景；token、验证码、重置链接等安全用途请使用 `SecureUniqueID`。
+备注：长度限制在 16–32 字节，由 base36 纳秒时间戳和随机段拼接；不保证全局唯一或时钟回拨时的排序。该函数基于 `math/rand`，仅适用于非安全场景；token、验证码、重置链接等安全用途请使用 `SecureUniqueID`。
 
 ------
 
-#### func [utils.RandomLetters](https://github.com/Is999/go-utils/blob/master/string.go#L207)
+#### func [utils.RandomLetters](string.go)
 
 ```go
 func RandomLetters(n int, r ...*rand.Rand) string
@@ -1074,14 +1113,14 @@ func RandomLetters(n int, r ...*rand.Rand) string
 | 参数  | 描述                                          |
 |-----|---------------------------------------------|
 | *n* | 生成字符串的长度。                                   |
-| *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
+| *r* | 可选随机源，仅用第一项；省略或 nil 时用全局源，自定义源经包级锁串行访问。 |
 
 备注：随机生成字符串 ALPHA。ALPHA 值为：A-Za-z。该函数基于 `math/rand`，仅适用于测试数据、临时标识等非安全场景；安全用途请使用
 `SecureRandomLetters`。
 
 ------
 
-#### func [utils.RandomID](https://github.com/Is999/go-utils/blob/master/string.go#L218)
+#### func [utils.RandomID](string.go)
 
 ```go
 func RandomID(n int, r ...*rand.Rand) string
@@ -1090,14 +1129,14 @@ func RandomID(n int, r ...*rand.Rand) string
 | 参数  | 描述                                          |
 |-----|---------------------------------------------|
 | *n* | 生成字符串的长度。                                   |
-| *r* | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
+| *r* | 可选随机源，仅用第一项；省略或 nil 时用全局源，自定义源经包级锁串行访问。 |
 
 备注：随机生成字符串 ALNUM。ALNUM 值为：A-Za-z0-9；为兼容旧行为，首字符固定为字母，不会以数字开头。该函数基于 `math/rand`，
 仅适用于非安全场景；安全用途请使用 `SecureRandomID`。
 
 ------
 
-#### func [utils.RandomString](https://github.com/Is999/go-utils/blob/master/string.go#L247)
+#### func [utils.RandomString](string.go)
 
 ```go
 func RandomString(n int, alpha string, r ...*rand.Rand) string
@@ -1106,10 +1145,10 @@ func RandomString(n int, alpha string, r ...*rand.Rand) string
 | 参数      | 描述                                          |
 |---------|---------------------------------------------|
 | *n*     | 生成字符串的长度。                                   |
-| *alpha* | 生成随机字符串的种子。                                 |
-| *r*     | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
+| *alpha* | 候选字节集合，重复字节会增加其被选中的概率。                                 |
+| *r*     | 可选随机源，仅用第一项；省略或 nil 时用全局源，自定义源经包级锁串行访问。 |
 
-备注：随机生成字符串。alpha 指定生成随机字符串的种子。该函数基于 `math/rand`，仅适用于非安全场景；安全用途请使用
+备注：从 alpha 按字节抽样，输出 n 字节；n <= 0 或 alpha 为空时返回空串，多字节字符可能被拆开。该函数基于 `math/rand`，仅适用于非安全场景；安全用途请使用
 `SecureRandomString`。
 
 ------
@@ -1121,10 +1160,16 @@ func RandomString(n int, alpha string, r ...*rand.Rand) string
 #### struct	Reader
 
 ```go
-NewReader(s string).Read((b []byte)
+reader := strings.NewReader(s)
+n, err := reader.Read(buf)
+if err != nil && err != io.EOF {
+	fmt.Println(err)
+	return
+}
+fmt.Printf("read %d bytes: %q\n", n, buf[:n])
 ```
 
-备注：实现了read接口。
+备注：strings.Reader 实现 io.Reader；即使同时返回 EOF，也应先使用前 n 个有效字节。
 
 ------
 
@@ -1148,7 +1193,7 @@ func EscapeString(s string) string
 func UnescapeString(s string) string
 ```
 
-备注：将实体字符转换为可编译的html字符。
+备注：将 HTML 实体还原为对应字符，不解析 HTML 标签。
 
 ------
 
@@ -1158,7 +1203,7 @@ func UnescapeString(s string) string
 func QueryEscape(s string) string
 ```
 
-备注：将URL中的字符进行转义。
+备注：转义单个查询参数值，空格编码为 `+`；完整查询串可用 `url.Values.Encode`。
 
 ------
 
@@ -1168,11 +1213,11 @@ func QueryEscape(s string) string
 func QueryUnescape(s string) (string, error)
 ```
 
-备注：将URL中的转义字符转换为对应的字符。
+备注：解码查询参数值，将 `+` 还原为空格；无效的百分号转义返回错误。
 
 ------
 
-#### func [utils.URLPath](https://github.com/Is999/go-utils/blob/master/url.go#L15)
+#### func [utils.URLPath](url.go)
 
 ```go
 func URLPath(urlPath string, params url.Values) (string, error)
@@ -1183,7 +1228,7 @@ func URLPath(urlPath string, params url.Values) (string, error)
 | urlPath | 基础 URL 路径。 |
 | params  | 查询参数键值对。   |
 
-备注：将 params 合并到 urlPath 的查询字符串中，并保留原有查询参数。
+备注：将 params 合并到查询字符串；同名键替换原有值，其他键保留，不修改传入的 params。
 
 ------
 
@@ -1337,7 +1382,7 @@ func Min(x, y float64) float64
 
 ------
 
-#### func [utils.Rand](https://github.com/Is999/go-utils/blob/master/math.go#L13)
+#### func [utils.Rand](math.go)
 
 ```go
 func Rand(minInt, maxInt int64, r ...*rand.Rand) int64
@@ -1347,13 +1392,13 @@ func Rand(minInt, maxInt int64, r ...*rand.Rand) int64
 |----------|---------------------------------------------|
 | *minInt* | 最小值。                                        |
 | *maxInt* | 最大值。                                        |
-| *r*      | 随机种子 utils.RandSource：批量生成时传入r参数可提升生成随机数效率。 |
+| *r*      | 可选随机源，仅用第一项；省略或 nil 时用全局源，自定义源经包级锁串行访问。 |
 
 备注：返回 minInt~maxInt 之间的随机数，值可能包含 minInt 和 maxInt；当 minInt 大于 maxInt 时会自动交换。
 
 ------
 
-#### func [utils.Round](https://github.com/Is999/go-utils/blob/master/math.go#L54)
+#### func [utils.Round](math.go)
 
 ```go
 func Round(num float64, precision int) float64
@@ -1420,7 +1465,7 @@ func Remove(name string) error
 func OpenFile(name string, flag int, perm FileMode) (*File, error)
 ```
 
-备注：打开名为name的文件。
+备注：按 flag 打开或创建文件；perm 用于新建文件，受 umask 影响。成功返回的句柄由调用方 Close。
 
 ------
 
@@ -1430,7 +1475,7 @@ func OpenFile(name string, flag int, perm FileMode) (*File, error)
 func Create(name string) (*File, error)
 ```
 
-备注：创建名为name的文件。
+备注：创建文件，已存在时截断；成功返回的句柄由调用方 Close。
 
 ------
 
@@ -1480,7 +1525,7 @@ func Rename(oldpath, newpath string) error
 func Getwd() (dir string, err error)
 ```
 
-备注：取得当前工作目录的根路径。
+备注：返回当前工作目录的绝对路径。
 
 ------
 
@@ -1520,7 +1565,7 @@ func Rel(basepath, targpath string) (string, error)
 func Clean(path string) string
 ```
 
-备注：返回相path的最短路径名。
+备注：按词法清理重复分隔符、`.` 和 `..`，不访问文件系统。
 
 ------
 
@@ -1531,7 +1576,7 @@ func Clean(path string) string
 #### func	os.Chmod
 
 ```go
- func Chmod(name string, mode FileMode) error
+	func Chmod(name string, mode FileMode) error
 ```
 
 备注：改变文件(夹)name的权限。
@@ -1541,7 +1586,7 @@ func Clean(path string) string
 #### func	os.Chown
 
 ```go
-  func Chown(name string, uid, gid int) error
+	func Chown(name string, uid, gid int) error
 ```
 
 备注： 改变文件的所有者。
@@ -1555,7 +1600,7 @@ func Clean(path string) string
 #### func	filepath.Ext
 
 ```go
-  func Ext(path string) string
+	func Ext(path string) string
 ```
 
 备注：返回path文件扩展名。
@@ -1565,7 +1610,7 @@ func Clean(path string) string
 #### func	filepath.Base
 
 ```go
-  func Base(path string) string
+	func Base(path string) string
 ```
 
 备注： (path为一个文件路径)可获取path中的文件名。
@@ -1575,7 +1620,7 @@ func Clean(path string) string
 #### func	filepath.Dir
 
 ```go
-  func Dir(path string) string
+	func Dir(path string) string
 ```
 
 备注：获取path路径的目录。
@@ -1589,7 +1634,7 @@ func Clean(path string) string
 #### func	filepath.Split
 
 ```go
-  func Split(path string) (dir, file string)
+	func Split(path string) (dir, file string)
 ```
 
 备注：将path路径分成dir目录和file文件。
@@ -1599,7 +1644,7 @@ func Clean(path string) string
 #### func	filepath.Join
 
 ```go
-  func Join(elem ...string) string
+	func Join(elem ...string) string
 ```
 
 备注：Join函数可以将任意数量的路径元素放入一个单一路径里。
@@ -1610,7 +1655,7 @@ func Clean(path string) string
 
 ------
 
-#### func [utils.IsDir](https://github.com/Is999/go-utils/blob/master/file.go#L23)
+#### func [utils.IsDir](file.go)
 
 ```go
 func IsDir(path string) bool
@@ -1620,23 +1665,23 @@ func IsDir(path string) bool
 
 ------
 
-#### func [utils.IsFile](https://github.com/Is999/go-utils/blob/master/file.go#L32)
+#### func [utils.IsFile](file.go)
 
 ```go
 func IsFile(filepath string) bool
 ```
 
-备注：判断给定的文件路径名是否是一个文件。
+备注：路径可访问且不是目录时返回 true，会跟随符号链接；不等同于仅判断普通文件。
 
 ------
 
-#### func [utils.IsExist](https://github.com/Is999/go-utils/blob/master/file.go#L41)
+#### func [utils.IsExist](file.go)
 
 ```go
 func IsExist(path string) bool
 ```
 
-备注：判断一个文件（夹）是否存在。
+备注：仅当 Stat 确认路径不存在时返回 false；权限等其他访问错误仍返回 true。
 
 ------
 
@@ -1644,17 +1689,17 @@ func IsExist(path string) bool
 
 ------
 
-#### func [utils.Size](https://github.com/Is999/go-utils/blob/master/file.go#L47)
+#### func [utils.Size](file.go)
 
 ```go
-func Size(filepath string) (int64, error) 
+func Size(filepath string) (int64, error)
 ```
 
 备注：取得文件大小。
 
 ------
 
-#### func [utils.FormatFileSize](https://github.com/Is999/go-utils/blob/master/file.go#L584)
+#### func [utils.FormatFileSize](file.go)
 
 ```go
 func FormatFileSize(size int64, decimals uint) string
@@ -1673,7 +1718,7 @@ func FormatFileSize(size int64, decimals uint) string
 
 ------
 
-#### func [utils.Copy](https://github.com/Is999/go-utils/blob/master/file.go#L59)
+#### func [utils.Copy](file.go)
 
 ```go
 func Copy(src, dst string) error
@@ -1692,7 +1737,7 @@ func Copy(src, dst string) error
 
 ------
 
-#### func [utils.FindFiles](https://github.com/Is999/go-utils/blob/master/file.go#L175)
+#### func [utils.FindFiles](file.go)
 
 ```go
 func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err error)
@@ -1712,7 +1757,7 @@ func FindFiles(path string, depth bool, match ...string) (files []FileInfo, err 
 
 ------
 
-#### func [utils.Scan](https://github.com/Is999/go-utils/blob/master/file.go#L313)
+#### func [utils.Scan](file.go)
 
 ```go
 func Scan(r io.Reader, handle ReadScan, size ...int) error
@@ -1721,14 +1766,14 @@ func Scan(r io.Reader, handle ReadScan, size ...int) error
 | 参数       | 描述                                                                                                                                                                    |
 |----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | *r*      | 实现io.Reader接口。                                                                                                                                                        |
-| *handle* | func(num int, line []byte, err error) error 函数。<br /> num 行号: 当前扫描到第几行<br /> line 行数据: 当前扫描的行数据<br /> err 扫描错误信息<br /> error 处理错误信息: 返回的 error == DONE 代表正确处理完数据并终止扫描 |
-| *size*   | 设置Scanner.maxTokenSize 的大小(默认值: 64*1024): 单行内容大于该值则无法读取                                                                                                               |
+| *handle* | func(num int, line []byte, err error) error；num 从 1 开始，line 不含行尾换行符，err 固定为 nil；返回可被 errors.Is 匹配为 DONE 的错误时正常停止。 |
+| *size*   | 只取第一项；大于默认 64 KiB 时生效，最多 4 GiB，限制需包含行尾分隔符                                                                                                               |
 
-备注：使用scan扫描文件每一行数据。
+备注：按行扫描，读取错误由 Scan 返回；line 仅在本次回调内有效，保留内容时需复制。Scan、Line 和 Read 均不关闭传入的 Reader，由调用方管理其生命周期。
 
 ------
 
-#### func [utils.Line](https://github.com/Is999/go-utils/blob/master/file.go#L339)
+#### func [utils.Line](file.go)
 
 ```go
 func Line(r io.Reader, handle ReadLine) error
@@ -1737,13 +1782,13 @@ func Line(r io.Reader, handle ReadLine) error
 | 参数       | 描述                                                                                                                                                                                                                                 |
 |----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | *r*      | 实现io.Reader接口。                                                                                                                                                                                                                     |
-| *handle* | func(num int, line []byte, lineDone bool) error 函数。<br /> num 行号: 当前扫描到第几行<br /> line 行数据: 当前扫描的行数据<br /> lineDone 当前行(num)数据是否读取完毕: true 当前行(num)数据读取完毕; false 当前行(num)数据未读完<br /> error 处理错误信息: 返回的 error == DONE 代表正确处理完数据并终止扫描 |
+| *handle* | func(num int, line []byte, lineDone bool) error 函数。<br /> num 行号: 当前扫描到第几行<br /> line 行数据: 当前扫描的行数据<br /> lineDone 当前行(num)数据是否读取完毕: true 当前行(num)数据读取完毕; false 当前行(num)数据未读完<br /> error 处理错误信息: 返回可被 errors.Is 匹配为 DONE 的错误时正常终止读取 |
 
-备注：读取一行数据，读取大文件大行数据性能略优于Scan。
+备注：按物理行读取，长行通过多次回调交付，行号在整行结束后递增。末行恰好占满缓冲区时，可能通过空末块通知 `lineDone=true`。回调切片仅在本次调用内有效，保留内容时需自行复制。读取错误在有效尾块或结束通知交给回调后返回；回调返回 `DONE` 时正常结束，其他回调错误优先返回。
 
 ------
 
-#### func [utils.Read](https://github.com/Is999/go-utils/blob/master/file.go#L369)
+#### func [utils.Read](file.go)
 
 ```go
 func Read(r io.Reader, handle ReadBlock) error
@@ -1752,9 +1797,9 @@ func Read(r io.Reader, handle ReadBlock) error
 | 参数       | 描述                                                                                                                                 |
 |----------|------------------------------------------------------------------------------------------------------------------------------------|
 | *r*      | 实现io.Reader接口。                                                                                                                     |
-| *handle* | func(size int, block []byte) error 函数。<br /> size 读取的数据块大小<br /> block 读取的数据块<br /> error 处理错误信息: 返回的 error == DONE 代表正确处理完数据并终止扫描 |
+| *handle* | func(size int, block []byte) error 函数。<br /> size 读取的数据块大小<br /> block 读取的数据块<br /> error 处理错误信息: 返回可被 errors.Is 匹配为 DONE 的错误时正常终止读取 |
 
-备注：使用分块读取文件数据，适用于读取大文件或无换行的文件。
+备注：分块读取，适用于大文件或无换行数据。Reader 返回 `(0, nil)` 时继续读取，直到返回错误或回调返回 `DONE`；回调保留数据时需自行复制，因为下一次读取会复用缓冲区。
 
 ------
 
@@ -1762,7 +1807,7 @@ func Read(r io.Reader, handle ReadBlock) error
 
 ------
 
-#### func [utils.NewWrite](https://github.com/Is999/go-utils/blob/master/file.go#L439)
+#### func [utils.NewWrite](file.go)
 
 ```go
 func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error)
@@ -1773,7 +1818,7 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error)
 | *fileName* | 文件路径名。                                                        |
 | *opts*     | 写入配置项: WithWriteAppend(true) 追加写入; WithWritePerm(0644) 设置文件权限 |
 
-备注：返回一个WriteFile实例。
+备注：返回一个 WriteFile 实例；调用方在写入结束后负责 Close。
 
 补充说明：
 
@@ -1786,21 +1831,21 @@ func NewWrite(fileName string, opts ...WriteOption) (*WriteFile, error)
 // 实例化一个 WriteFile（追加写入）
 w, err := utils.NewWrite(fileName, utils.WithWriteAppend(true))
 if err != nil {
-	fmt.Errorf("NewWrite() error = %v", err)
+	fmt.Printf("NewWrite() error = %v\n", err)
 	return
 }
 
-// 关闭文件
+// 写入结束后关闭句柄，关闭错误也需处理。
 defer func() {
 	if err := w.Close(); err != nil {
-		fmt.Errorf("Close() err %v", err)
+		fmt.Printf("Close() err %v\n", err)
 	}
 }()
 ```
 
 ------
 
-#### func [utils.WriteFileAtomic](https://github.com/Is999/go-utils/blob/master/file.go#L420) / [utils.WriteStringAtomic](https://github.com/Is999/go-utils/blob/master/file.go#L431)
+#### func [utils.WriteFileAtomic](file.go) / [utils.WriteStringAtomic](file.go)
 
 ```go
 func WriteFileAtomic(fileName string, data []byte, perm os.FileMode) error
@@ -1812,13 +1857,13 @@ func WriteStringAtomic(fileName, data string, perm os.FileMode) error
 ```go
 err := utils.WriteFileAtomic(fileName, []byte("hello world"), 0644)
 if err != nil {
-	fmt.Errorf("WriteFileAtomic() err %v", err)
+	fmt.Printf("WriteFileAtomic() err %v\n", err)
 	return
 }
 
 err = utils.WriteStringAtomic(fileName, "hello world", 0644)
 if err != nil {
-	fmt.Errorf("WriteStringAtomic() err %v", err)
+	fmt.Printf("WriteStringAtomic() err %v\n", err)
 	return
 }
 ```
@@ -1831,13 +1876,13 @@ if err != nil {
 
 ------
 
-#### func [utils.FileType](https://github.com/Is999/go-utils/blob/master/file.go#L604)
+#### func [utils.FileType](file.go)
 
 ```go
 func FileType(f *os.File) (string, error)
 ```
 
-备注：获取文件类型
+备注：优先按文件扩展名匹配 MIME 类型；没有匹配时，从文件头读取最多 512 字节检测，且不改变文件偏移。短文件和空文件照常检测，其他读取错误会返回给调用方。
 
 ------
 
@@ -1849,7 +1894,7 @@ func FileType(f *os.File) (string, error)
 
 ------
 
-#### func [utils.MD5](https://github.com/Is999/go-utils/blob/master/md5.go#L12)
+#### func [utils.MD5](md5.go)
 
 ```go
 func MD5(str string) string
@@ -1863,7 +1908,7 @@ func MD5(str string) string
 
 ------
 
-#### func [utils.SHA1](https://github.com/Is999/go-utils/blob/master/sha.go#L14)
+#### func [utils.SHA1](sha.go)
 
 ```go
 func SHA1(str string) string
@@ -1873,7 +1918,7 @@ func SHA1(str string) string
 
 ------
 
-#### func [utils.SHA256](https://github.com/Is999/go-utils/blob/master/sha.go#L21)
+#### func [utils.SHA256](sha.go)
 
 ```go
 func SHA256(str string) string
@@ -1883,7 +1928,7 @@ func SHA256(str string) string
 
 ------
 
-#### func [utils.SHA512](https://github.com/Is999/go-utils/blob/master/sha.go#L28)
+#### func [utils.SHA512](sha.go)
 
 ```go
 func SHA512(str string) string
@@ -1897,7 +1942,7 @@ func SHA512(str string) string
 
 ------
 
-#### func [utils.GenerateKeyRSA](https://github.com/Is999/go-utils/blob/master/rsa.go#L413)
+#### func [utils.GenerateKeyRSA](rsa.go)
 
 ```go
 func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error)
@@ -1907,107 +1952,111 @@ func GenerateKeyRSA(path string, bits int, pkcs ...bool) ([]string, error)
 |--------|-----------------------------------------------------------------------------------------------------------------------------------------|
 | *path* | 文件名路径。                                                                                                                                  |
 | *bits* | 生成秘钥位大小，生产环境要求至少 2048。                                                                                                                  |
-| *pkcs* | 秘钥格式, 默认格式(公钥PKCS8格式 私钥PKCS1格式):<br />   - pkcs[0] isPubPKCS8 公钥是否是PKCS8格式: 默认 true <br />   - pkcs[1] isPriPKCS1 私钥是否是PKCS1格式: 默认 true |
+| *pkcs* | pkcs[0] 默认 true，输出 PKIX 公钥，false 输出 PKCS1 公钥；pkcs[1] 默认 true，输出 PKCS1 私钥，false 输出 PKCS8 私钥。 |
 
-备注：生成秘钥，默认格式(公钥PKCS8格式 私钥PKCS1格式)。返回两个文件名, 第一个公钥文件名, 第二个私钥文件名；为保证生产安全，密钥位数不能低于
-2048。
+备注：返回公钥、私钥两个文件名，默认分别为 PKIX 和 PKCS1 格式；密钥位数低于 2048 时返回错误。PKIX 公钥沿用 `public_pkcs8_` 文件名前缀；PKCS8 私钥沿用 `RSA PRIVATE KEY` 标记，导入时按 DER 内容识别格式。
 
 ------
 
-#### RSA 加密与解密：[utils.NewRSA](https://github.com/Is999/go-utils/blob/master/rsa.go#L54) / [(*RSA).Encrypt](https://github.com/Is999/go-utils/blob/master/rsa.go#L156) / [(*RSA).Decrypt](https://github.com/Is999/go-utils/blob/master/rsa.go#L176) / [(*RSA).EncryptOAEP](https://github.com/Is999/go-utils/blob/master/rsa.go#L256) / [(*RSA).DecryptOAEP](https://github.com/Is999/go-utils/blob/master/rsa.go#L282)
+#### RSA 加密与解密：[utils.NewRSA](rsa.go) / [(*RSA).Encrypt](rsa.go) / [(*RSA).Decrypt](rsa.go) / [(*RSA).EncryptOAEP](rsa.go) / [(*RSA).DecryptOAEP](rsa.go)
+
+密钥支持 PEM 文本、base64 DER 文本和原始 DER 数据，也可通过 `utils.WithRSAFilePath(true)` 从文件读取。文本允许首尾空白；原始 DER 必须保留完整二进制字节，不应在外层添加空白。
 
 ```go
-// 实例化RSA，并设置key
-r, err := NewRSA(publicKey, privateKey, WithRSAFilePath(true))
+// 两个参数按密钥文件路径读取。
+r, err := utils.NewRSA(publicKey, privateKey, utils.WithRSAFilePath(true))
 if err != nil {
-fmt.Errorf("NewRSA() err = %v", err)
-return
+	fmt.Printf("utils.NewRSA() err = %v\n", err)
+	return
 }
 
-// 源数据
-marshal, err := json.Marshal(map[string]interface{}{
-"Title":   tt.name,
-"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
+marshal, err := json.Marshal(map[string]any{
+	"Title":   "示例",
+	"Content": "待加密内容",
 })
+if err != nil {
+	fmt.Printf("Marshal() error = %v\n", err)
+	return
+}
 
-// 公钥加密 PKCS1v15
+// PKCS#1 v1.5 保留用于旧协议。
 encodeString, err := r.Encrypt(string(marshal), base64.StdEncoding.EncodeToString)
 if err != nil {
-fmt.Errorf("Encrypt() err = %v", err)
-return
+	fmt.Printf("Encrypt() err = %v\n", err)
+	return
 }
 
-// 私钥解密 PKCS1v15
 decryptString, err := r.Decrypt(encodeString, base64.StdEncoding.DecodeString)
 if err != nil {
-fmt.Errorf("Decrypt() err = %v", err)
-return
+	fmt.Printf("Decrypt() err = %v\n", err)
+	return
 }
 
-// 公钥加密 OAEP
+fmt.Println(decryptString == string(marshal))
+
+// OAEP 摘要实例由当前调用独占。
 encodeString, err = r.EncryptOAEP(string(marshal), base64.StdEncoding.EncodeToString, sha256.New())
 if err != nil {
-fmt.Errorf("Encrypt() err = %v", err)
-return
+	fmt.Printf("Encrypt() err = %v\n", err)
+	return
 }
 
-// 私钥解密 OAEP
 decryptString, err = r.DecryptOAEP(encodeString, base64.StdEncoding.DecodeString, sha256.New())
 if err != nil {
-fmt.Errorf("Decrypt() err = %v", err)
-return
+	fmt.Printf("Decrypt() err = %v\n", err)
+	return
 }
+fmt.Println(decryptString == string(marshal))
 ```
 
 备注：先实例化RSA 设置公钥私钥，使用公钥加密数据， 私钥解密数据。
 
 ------
 
-#### RSA 签名与验签：[(*RSA).Sign](https://github.com/Is999/go-utils/blob/master/rsa.go#L210) / [(*RSA).Verify](https://github.com/Is999/go-utils/blob/master/rsa.go#L232) / [(*RSA).SignPSS](https://github.com/Is999/go-utils/blob/master/rsa.go#L366) / [(*RSA).VerifyPSS](https://github.com/Is999/go-utils/blob/master/rsa.go#L388)
+#### RSA 签名与验签：[(*RSA).Sign](rsa.go) / [(*RSA).Verify](rsa.go) / [(*RSA).SignPSS](rsa.go) / [(*RSA).VerifyPSS](rsa.go)
 
 ```go
-// 实例化RSA，并设置key
-r, err := NewRSA(publicKey, privateKey, WithRSAFilePath(true))
+// 两个参数按密钥文件路径读取。
+r, err := utils.NewRSA(publicKey, privateKey, utils.WithRSAFilePath(true))
 if err != nil {
-fmt.Errorf("NewRSA() err = %v", err)
-return
+	fmt.Printf("utils.NewRSA() err = %v\n", err)
+	return
 }
 
-// 源数据
-marshal, err := json.Marshal(map[string]interface{}{
-"Title":   tt.name,
-"Content": strings.Repeat("测试内容8282@334&-", 1024) + tt.name,
+marshal, err := json.Marshal(map[string]any{
+	"Title":   "示例",
+	"Content": "待加密内容",
 })
+if err != nil {
+	fmt.Printf("Marshal() error = %v\n", err)
+	return
+}
 
-// 私钥签名 PKCS1v15
+// 传入完整正文，摘要计算由签名入口完成。
 sign, err := r.Sign(string(marshal), crypto.SHA256, base64.StdEncoding.EncodeToString)
 if err != nil {
-fmt.Errorf("Sign() err = %v", err)
-return
+	fmt.Printf("Sign() err = %v\n", err)
+	return
 }
 
-// 公钥验签 PKCS1v15
+// 验签须使用签名时的正文和摘要算法。
 if err := r.Verify(string(marshal), sign, crypto.SHA256, base64.StdEncoding.DecodeString); err != nil {
-fmt.Errorf("Verify() err = %v", err)
-return
-} else {
-fmt.Log("Verify() = 验证成功")
+	fmt.Printf("Verify() err = %v\n", err)
+	return
 }
+fmt.Println("Verify() = 验证成功")
 
-// 私钥签名 PSS
-sign, err = privRsa.SignPSS(string(marshal), crypto.SHA256, base64.StdEncoding.EncodeToString, nil)
+sign, err = r.SignPSS(string(marshal), crypto.SHA256, base64.StdEncoding.EncodeToString, nil)
 if err != nil {
-fmt.Errorf("Sign() err = %v", err)
-return
+	fmt.Printf("Sign() err = %v\n", err)
+	return
 }
 
-// 公钥验签 PSS
-if err := pubRsa.VerifyPSS(string(marshal), sign, crypto.SHA256, base64.StdEncoding.DecodeString, nil); err != nil {
-fmt.Errorf("Verify() err = %v", err)
-return
-} else {
-fmt.Log("Verify() = 验证成功")
+if err := r.VerifyPSS(string(marshal), sign, crypto.SHA256, base64.StdEncoding.DecodeString, nil); err != nil {
+	fmt.Printf("Verify() err = %v\n", err)
+	return
 }
+fmt.Println("Verify() = 验证成功")
 ```
 
 备注：先实例化RSA 设置公钥私钥，使用私钥签名，公钥验签。
@@ -2020,7 +2069,7 @@ fmt.Log("Verify() = 验证成功")
 |------------|-------------------------------------------------|----------------------------------------|
 | 新系统对称加密    | `AES + GCM`                                     | 默认优先方案，带机密性和完整性校验，支持 `additionalData`。 |
 | 兼容分组协议     | `AES/DES + CBC + WithIV/WithRandIV`             | 需要补位，适合和旧系统的固定协议对接。                    |
-| 旧系统流模式兼容   | `CTR/CFB/OFB + WithAllowUnsafeStreamMode(true)` | 默认禁用；无需块补位，但不提供完整性校验，仅用于兼容历史协议。        |
+| 旧系统流模式兼容   | `CTR/CFB/OFB + utils.WithAllowUnsafeStreamMode(true)` | 默认禁用；无需块补位，但不提供完整性校验，仅用于兼容历史协议。        |
 | 旧系统 ECB 兼容 | `ECB + WithAllowUnsafeECB(true)`                | 默认禁用，不建议新系统使用。                         |
 | RSA 加密     | `EncryptOAEP/DecryptOAEP`                       | 新协议优先，适合加密小数据或对称密钥。                    |
 | RSA 签名     | `SignPSS/VerifyPSS`                             | 新协议优先，推荐配合 `SHA256` 或更强摘要。             |
@@ -2033,36 +2082,23 @@ fmt.Log("Verify() = 验证成功")
 
 ------
 
-#### RSA 密钥格式转换：[utils.RemovePEMHeaders](https://github.com/Is999/go-utils/blob/master/rsa.go#L495) / [utils.AddPEMHeaders](https://github.com/Is999/go-utils/blob/master/rsa.go#L512)
+#### RSA 密钥格式转换：[utils.RemovePEMHeaders](rsa.go) / [utils.AddPEMHeaders](rsa.go)
 
 ```go
-// 读取公钥文件内容
-pub, err := os.ReadFile(pubFile)
-if err != nil {
-t.Errorf("ReadFile() WrapError = %v", err)
-}
-
-//fmt.Println("公钥 %s", string(pub))
-rPub := utils.RemovePEMHeaders(string(pub))
-//fmt.Println("remove 公钥 %s", rPub)
-aPub := utils.AddPEMHeaders(rPub, "public")
-//fmt.Println("add 公钥 %s %v", aPub, strings.EqualFold(aPub, strings.TrimSpace(string(pub))))
-if !strings.EqualFold(aPub, strings.TrimSpace(string(pub))) {
-fmt.Errorf("转换后的公钥与原始公钥不相等")
-}
-
-// 读取私钥文件内容
-pri, err := os.ReadFile(priFile)
-if err != nil {
-t.Errorf("ReadFile() WrapError = %v", err)
-}
-//fmt.Println("私钥 %s", string(pri))
-rPri := utils.RemovePEMHeaders(string(pri))
-//fmt.Println("remove 私钥 %s", rPri)
-aPri := utils.AddPEMHeaders(rPri, "private")
-//fmt.Println("add 私钥 %s %v", aPri, strings.EqualFold(aPri, strings.TrimSpace(string(pri))))
-if !strings.EqualFold(aPri, strings.TrimSpace(string(pri))) {
-fmt.Errorf("转换后的私钥与原始私钥不相等")
+// pubFile/priFile 为默认 GenerateKeyRSA 生成的 PKIX 公钥与 PKCS#1 私钥路径。
+for keyType, fileName := range map[string]string{"public": pubFile, "private": priFile} {
+	data, err := os.ReadFile(fileName)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	body := utils.RemovePEMHeaders(string(data))
+	restored, err := utils.AddPEMHeaders(body, keyType)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(keyType, restored == strings.TrimSpace(string(data)))
 }
 ```
 
@@ -2072,33 +2108,32 @@ fmt.Errorf("转换后的私钥与原始私钥不相等")
 
 ------
 
-#### AES [加密与解密](https://github.com/Is999/go-utils/blob/master/aes.go#L12)
+#### AES [加密与解密](aes.go)
 
 ```go
-// 实例化AES，并设置key和iv
-a, err := AES(key, WithIV(iv))
+// 固定 IV 来自双方协议，AES 要求 16 个原始字节。
+a, err := utils.AES(key, utils.WithIV(iv))
 if err != nil {
-fmt.Errorf("AES() error = %v", err)
-return
+	fmt.Printf("utils.AES() error = %v\n", err)
+	return
 }
 
-// 加密数据
-encryptStr, err := a.Encrypt(data, CBC, base64.StdEncoding.EncodeToString, PKCS7Pad)
+encryptStr, err := a.Encrypt(data, utils.CBC, base64.StdEncoding.EncodeToString, utils.PKCS7Pad)
 if err != nil {
-fmt.Errorf("Encrypt() mode = %v error = %v", CBC, err)
-return
+	fmt.Printf("Encrypt() mode = %v error = %v\n", utils.CBC, err)
+	return
 }
 
-// 解密数据
-got, err := a.Decrypt(encryptStr, CBC, base64.StdEncoding.DecodeString, PKCS7Unpad)
+got, err := a.Decrypt(encryptStr, utils.CBC, base64.StdEncoding.DecodeString, utils.PKCS7Unpad)
 if err != nil {
-fmt.Errorf("Decrypt() mode = %v error = %v", CBC, err)
-return
+	fmt.Printf("Decrypt() mode = %v error = %v\n", utils.CBC, err)
+	return
 }
+fmt.Println(got == data)
 ```
 
-备注：先实例化 AES 并设置 key；CBC/CTR/CFB/OFB 等需要显式通过 `WithIV` 设置固定 IV，或通过 `WithRandIV(true)` 使用随机 IV。
-`CTR/CFB/OFB` 属于非认证流模式，默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeStreamMode(true)` 显式开启。`ECB`
+备注：先实例化 AES 并设置 key；CBC/CTR/CFB/OFB 等需要显式通过 `WithIV` 设置固定 IV，或通过 `utils.WithRandIV(true)` 使用随机 IV。
+`CTR/CFB/OFB` 属于非认证流模式，默认禁用，仅在兼容旧系统时通过 `utils.WithAllowUnsafeStreamMode(true)` 显式开启。`ECB`
 默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
 IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `WithAllowUnsafeKeyIV(true)`。
 
@@ -2110,34 +2145,33 @@ IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `With
 
 ------
 
-#### DES 加密与解密：[utils.DES](https://github.com/Is999/go-utils/blob/master/des.go#L15) / [utils.TripleDES](https://github.com/Is999/go-utils/blob/master/des.go#L32)
+#### DES 加密与解密：[utils.DES](des.go) / [utils.TripleDES](des.go)
 
 ```go
-// 实例化DES，并设置key和iv
-a, err := DES(key, WithIV(iv))
+// 固定 IV 来自双方协议，DES/3DES 要求 8 个原始字节。
+a, err := utils.DES(key, utils.WithIV(iv))
 if err != nil {
-fmt.Errorf("DES() error = %v", err)
-return
+	fmt.Printf("utils.DES() error = %v\n", err)
+	return
 }
 
-// 加密数据
-encryptStr, err := a.Encrypt(data, CBC, base64.StdEncoding.EncodeToString, PKCS7Pad)
+encryptStr, err := a.Encrypt(data, utils.CBC, base64.StdEncoding.EncodeToString, utils.PKCS7Pad)
 if err != nil {
-fmt.Errorf("Encrypt() mode = %v error = %v", CBC, err)
-return
+	fmt.Printf("Encrypt() mode = %v error = %v\n", utils.CBC, err)
+	return
 }
 
-// 解密数据
-got, err := a.Decrypt(encryptStr, CBC, base64.StdEncoding.DecodeString, PKCS7Unpad)
+got, err := a.Decrypt(encryptStr, utils.CBC, base64.StdEncoding.DecodeString, utils.PKCS7Unpad)
 if err != nil {
-fmt.Errorf("Decrypt() mode = %v error = %v", CBC, err)
-return
+	fmt.Printf("Decrypt() mode = %v error = %v\n", utils.CBC, err)
+	return
 }
+fmt.Println(got == data)
 ```
 
 备注：DES/3DES 仅建议用于旧系统兼容，新系统应优先使用 AES-GCM。先实例化 DES 并设置 key；CBC/CTR/CFB/OFB 等需要显式通过
-`WithIV` 设置固定 IV，或通过 `WithRandIV(true)` 使用随机 IV。`CTR/CFB/OFB` 属于非认证流模式，默认禁用，仅在兼容旧系统时通过
-`WithAllowUnsafeStreamMode(true)` 显式开启。
+`WithIV` 设置固定 IV，或通过 `utils.WithRandIV(true)` 使用随机 IV。`CTR/CFB/OFB` 属于非认证流模式，默认禁用，仅在兼容旧系统时通过
+`utils.WithAllowUnsafeStreamMode(true)` 显式开启。
 `ECB` 默认禁用，仅在兼容旧系统时通过 `WithAllowUnsafeECB(true)` 显式开启；历史上“未设置 IV 时使用 key 派生
 IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `WithAllowUnsafeKeyIV(true)`。
 
@@ -2152,26 +2186,26 @@ IV”的兼容行为也默认禁用，如需兼容旧密文可显式开启 `With
 #### AES GCM（推荐）
 
 ```go
-// 实例化 AES
-a, err := AES(key)
+a, err := utils.AES(key)
 if err != nil {
-fmt.Errorf("AES() error = %v", err)
-return
+	fmt.Printf("utils.AES() error = %v\n", err)
+	return
 }
 
 // GCM 加密，additionalData 可为空
 encryptStr, err := a.EncryptGCMString(data, base64.StdEncoding.EncodeToString, []byte("request-id=r-1"))
 if err != nil {
-fmt.Errorf("EncryptGCMString() error = %v", err)
-return
+	fmt.Printf("EncryptGCMString() error = %v\n", err)
+	return
 }
 
 // GCM 解密，additionalData 必须与加密时一致
 got, err := a.DecryptGCMString(encryptStr, base64.StdEncoding.DecodeString, []byte("request-id=r-1"))
 if err != nil {
-fmt.Errorf("DecryptGCMString() error = %v", err)
-return
+	fmt.Printf("DecryptGCMString() error = %v\n", err)
+	return
 }
+fmt.Println(got == data)
 ```
 
 备注：GCM 属于 AEAD 认证加密模式，优先级高于 CBC/CTR/CFB/OFB；每次加密都会自动生成随机 nonce 并写入密文头部。
@@ -2181,24 +2215,28 @@ return
 #### NoPad / NoUnpad
 
 ```go
-// CTR 模式下直接关闭补位。CTR 不提供完整性校验，仅用于旧协议兼容。
-a, err := AES(key, WithRandIV(true), WithAllowUnsafeStreamMode(true))
+// CTR 不提供完整性校验，仅在兼容旧协议时显式开启。
+a, err := utils.AES(key, utils.WithRandIV(true), utils.WithAllowUnsafeStreamMode(true))
 if err != nil {
-return
+	fmt.Println(err)
+	return
 }
 
-encryptStr, err := a.Encrypt(data, CTR, base64.StdEncoding.EncodeToString, NoPad)
+encryptStr, err := a.Encrypt(data, utils.CTR, base64.StdEncoding.EncodeToString, utils.NoPad)
 if err != nil {
-return
+	fmt.Println(err)
+	return
 }
 
-got, err := a.Decrypt(encryptStr, CTR, base64.StdEncoding.DecodeString, NoUnpad)
+got, err := a.Decrypt(encryptStr, utils.CTR, base64.StdEncoding.DecodeString, utils.NoUnpad)
 if err != nil {
-return
+	fmt.Println(err)
+	return
 }
+fmt.Println(got == data)
 ```
 
-备注：`NoPad` / `NoUnpad` 适合 `CTR/CFB/OFB/GCM` 这类不依赖块补位的模式；其中 `CTR/CFB/OFB`
+备注：`NoPad` / `NoUnpad` 适合 `CTR/CFB/OFB` 等不依赖块补位的模式；GCM 接口不接收填充回调。`CTR/CFB/OFB`
 不提供完整性校验，默认禁用，不建议用于新协议。
 
 ------
@@ -2224,7 +2262,7 @@ go test -race ./...
 
 ------
 
-#### func [utils.PKCS7Pad](https://github.com/Is999/go-utils/blob/master/pkcs7.go#L8)
+#### func [utils.PKCS7Pad](pkcs7.go)
 
 ```go
 func PKCS7Pad(data []byte, blockSize int) []byte
@@ -2234,13 +2272,13 @@ func PKCS7Pad(data []byte, blockSize int) []byte
 
 ------
 
-#### func [utils.PKCS7Unpad](https://github.com/Is999/go-utils/blob/master/pkcs7.go#L24)
+#### func [utils.PKCS7Unpad](pkcs7.go)
 
 ```go
 func PKCS7Unpad(data []byte) ([]byte, error)
 ```
 
-备注：数据反填充。
+备注：校验并移除 PKCS7 填充，返回输入的子切片；填充不合法时返回错误。此校验不提供密文完整性认证。
 
 ------
 
@@ -2248,7 +2286,7 @@ func PKCS7Unpad(data []byte) ([]byte, error)
 
 ------
 
-#### func [utils.ZeroPad](https://github.com/Is999/go-utils/blob/master/zero.go#L8)
+#### func [utils.ZeroPad](zero.go)
 
 ```go
 func ZeroPad(data []byte, blockSize int) []byte
@@ -2258,7 +2296,7 @@ func ZeroPad(data []byte, blockSize int) []byte
 
 ------
 
-#### func [utils.ZeroUnpad](https://github.com/Is999/go-utils/blob/master/zero.go#L19)
+#### func [utils.ZeroUnpad](zero.go)
 
 ```go
 func ZeroUnpad(data []byte) ([]byte, error)
@@ -2296,23 +2334,23 @@ func Atoi(s string) (int, error)
 
 ------
 
-#### func [utils.ToInt64](https://github.com/Is999/go-utils/blob/master/strconv.go#L16)
+#### func [utils.ToInt64](strconv.go)
 
 ```go
 func ToInt64(s string) (i int64)
 ```
 
-备注：string 转 int64，转换失败返回零值。
+备注：按十进制解析为 int64，接受正负号但不去除空白；语法错误返回 0，溢出返回相应整数边界值。
 
 ------
 
-#### func [utils.ToInt](https://github.com/Is999/go-utils/blob/master/strconv.go#L10)
+#### func [utils.ToInt](strconv.go)
 
 ```go
 func ToInt(s string) (i int)
 ```
 
-备注：string 转 int，转换失败返回零值。
+备注：按十进制解析为 int，接受正负号但不去除空白；语法错误返回 0，溢出返回当前平台的 int 边界值。
 
 ------
 
@@ -2347,20 +2385,20 @@ func Itoa(i int) string
 #### func	strconv.ParseFloat
 
 ```go
-func ParseFloat(s string, bitSize int) (float64, error) 
+func ParseFloat(s string, bitSize int) (float64, error)
 ```
 
 备注：string 转 float64。
 
 ------
 
-#### func [utils.ToFloat64](https://github.com/Is999/go-utils/blob/master/strconv.go#L22)
+#### func [utils.ToFloat64](strconv.go)
 
 ```go
 func ToFloat64(s string) (i float64)
 ```
 
-备注：string 转 float64，失败返回零值。
+备注：解析为 float64；语法错误返回 0，溢出返回相应符号的 Inf，NaN 和 Inf 沿用 `strconv.ParseFloat` 规则。
 
 ------
 
@@ -2382,7 +2420,7 @@ func FormatFloat(f float64, fmt byte, prec, bitSize int) string
 
 ------
 
-#### func [utils.FormatNumber](https://github.com/Is999/go-utils/blob/master/misce.go#L39)
+#### func [utils.FormatNumber](misce.go)
 
 ```go
 func FormatNumber(number float64, decimals uint, decPoint, thousandsSep string) string
@@ -2403,7 +2441,7 @@ func FormatNumber(number float64, decimals uint, decPoint, thousandsSep string) 
 
 ------
 
-#### func [utils.BinOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L28)
+#### func [utils.BinOct](strconv.go)
 
 ```go
 func BinOct(str string) (string, error)
@@ -2413,7 +2451,7 @@ func BinOct(str string) (string, error)
 
 ------
 
-#### func [utils.BinDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L33)
+#### func [utils.BinDec](strconv.go)
 
 ```go
 func BinDec(str string) (int64, error)
@@ -2423,7 +2461,7 @@ func BinDec(str string) (int64, error)
 
 ------
 
-#### func [utils.BinHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L38)
+#### func [utils.BinHex](strconv.go)
 
 ```go
 func BinHex(str string) (string, error)
@@ -2433,7 +2471,7 @@ func BinHex(str string) (string, error)
 
 ------
 
-#### func [utils.OctBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L43)
+#### func [utils.OctBin](strconv.go)
 
 ```go
 func OctBin(data string) (string, error)
@@ -2443,7 +2481,7 @@ func OctBin(data string) (string, error)
 
 ------
 
-#### func [utils.OctDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L48)
+#### func [utils.OctDec](strconv.go)
 
 ```go
 func OctDec(str string) (int64, error)
@@ -2453,7 +2491,7 @@ func OctDec(str string) (int64, error)
 
 ------
 
-#### func [utils.OctHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L53)
+#### func [utils.OctHex](strconv.go)
 
 ```go
 func OctHex(data string) (string, error)
@@ -2463,7 +2501,7 @@ func OctHex(data string) (string, error)
 
 ------
 
-#### func [utils.DecBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L58)
+#### func [utils.DecBin](strconv.go)
 
 ```go
 func DecBin(number int64) string
@@ -2473,7 +2511,7 @@ func DecBin(number int64) string
 
 ------
 
-#### func [utils.DecOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L63)
+#### func [utils.DecOct](strconv.go)
 
 ```go
 func DecOct(number int64) string
@@ -2483,7 +2521,7 @@ func DecOct(number int64) string
 
 ------
 
-#### func [utils.DecHex](https://github.com/Is999/go-utils/blob/master/strconv.go#L68)
+#### func [utils.DecHex](strconv.go)
 
 ```go
 func DecHex(number int64) string
@@ -2493,17 +2531,17 @@ func DecHex(number int64) string
 
 ------
 
-#### func [utils.HexBin](https://github.com/Is999/go-utils/blob/master/strconv.go#L73)
+#### func [utils.HexBin](strconv.go)
 
 ```go
-func HexBin(data string) (string, error) 
+func HexBin(data string) (string, error)
 ```
 
 备注：十六进制转换为二进制。
 
 ------
 
-#### func [utils.HexOct](https://github.com/Is999/go-utils/blob/master/strconv.go#L78)
+#### func [utils.HexOct](strconv.go)
 
 ```go
 func HexOct(str string) (string, error)
@@ -2513,7 +2551,7 @@ func HexOct(str string) (string, error)
 
 ------
 
-#### func [utils.HexDec](https://github.com/Is999/go-utils/blob/master/strconv.go#L83)
+#### func [utils.HexDec](strconv.go)
 
 ```go
 func HexDec(str string) (int64, error)
@@ -2531,7 +2569,7 @@ func HexDec(str string) (int64, error)
 
 ------
 
-#### func [utils.Contains](https://github.com/Is999/go-utils/blob/master/slices.go#L10)
+#### func [utils.Contains](slices.go)
 
 ```go
 func Contains[T comparable](v T, s []T) bool
@@ -2545,7 +2583,7 @@ func Contains[T comparable](v T, s []T) bool
 
 ------
 
-#### func [utils.HasCount](https://github.com/Is999/go-utils/blob/master/slices.go#L20)
+#### func [utils.HasCount](slices.go)
 
 ```go
 func HasCount[T comparable](v T, s []T) (count int)
@@ -2559,7 +2597,7 @@ func HasCount[T comparable](v T, s []T) (count int)
 
 ------
 
-#### func [utils.Reverse](https://github.com/Is999/go-utils/blob/master/slices.go#L30)
+#### func [utils.Reverse](slices.go)
 
 ```go
 func Reverse[T any](s []T) []T
@@ -2573,13 +2611,13 @@ func Reverse[T any](s []T) []T
 
 ------
 
-#### func [utils.Unique](https://github.com/Is999/go-utils/blob/master/slices.go#L39)
+#### func [utils.Unique](slices.go)
 
 ```go
 func Unique[T comparable](s []T) []T
 ```
 
-备注：去除s中重复的值。
+备注：按首次出现顺序去重，返回独立结果切片，不深拷贝元素；空结果为非 nil 切片。
 
 ------
 
@@ -2587,13 +2625,13 @@ func Unique[T comparable](s []T) []T
 
 ------
 
-#### func [utils.Diff](https://github.com/Is999/go-utils/blob/master/slices.go#L83)
+#### func [utils.Diff](slices.go)
 
 ```go
 func Diff[T comparable](s1, s2 []T) []T
 ```
 
-备注：计算s1与s2的差集，返回结果保持 s1 原有顺序，并保留 s1 中原本存在的重复值。
+备注：返回 s1 中不在 s2 中的元素，保留 s1 的顺序和重复值；结果使用独立切片，空结果为非 nil 切片。
 
 ------
 
@@ -2601,13 +2639,13 @@ func Diff[T comparable](s1, s2 []T) []T
 
 ------
 
-#### func [utils.Intersect](https://github.com/Is999/go-utils/blob/master/slices.go#L125)
+#### func [utils.Intersect](slices.go)
 
 ```go
 func Intersect[T comparable](s1, s2 []T) []T
 ```
 
-备注：计算s1与s2的交集，返回结果保持 s1 原有顺序，并保留 s1 中原本存在的重复值。
+备注：返回 s1 中也在 s2 中的元素，保留 s1 的顺序和重复值；结果使用独立切片，空结果为非 nil 切片。
 
 ------
 
@@ -2615,7 +2653,7 @@ func Intersect[T comparable](s1, s2 []T) []T
 
 ------
 
-#### func [utils.SumSlice](https://github.com/Is999/go-utils/blob/master/slices.go#L174)
+#### func [utils.SumSlice](slices.go)
 
 ```go
 func SumSlice[T Number](nums []T) T
@@ -2625,7 +2663,9 @@ func SumSlice[T Number](nums []T) T
 
 ------
 
-### 7.8 列表 status container/list.List
+### 7.8 链表 container/list.List
+
+移动、删除和合并小节各自使用输出中列出的初始列表，不依次累加前一节的修改。
 
 ------
 
@@ -2641,7 +2681,7 @@ l.PushBack("6")
 
 // 列表遍历
 for i := l.Front(); i != nil; i = i.Next() {
-fmt.Println("Element =", i.Value)
+	fmt.Println("Element =", i.Value)
 }
 ```
 
@@ -2879,11 +2919,11 @@ Element = 8
 
 ------
 
-#### 移动到列表的最面
+#### 移动到列表的最后面
 
 ```go
 // 将ele3元素移动到列表的最后面
-l.MoveToFront(ele3)
+l.MoveToBack(ele3)
 ```
 
 输出：
@@ -2903,6 +2943,7 @@ Element = 5
 Element = 6
 Element = 8
 Element = 9
+Element = 3
 ```
 
 ------
@@ -2912,7 +2953,7 @@ Element = 9
 ```go
 // 列表正序遍历
 for i := l.Front(); i != nil; i = i.Next() {
-fmt.Println("Element =", i.Value)
+	fmt.Println("Element =", i.Value)
 }
 ```
 
@@ -2934,7 +2975,7 @@ Element = 9
 ```go
 // 列表倒叙遍历
 for i := l.Back(); i != nil; i = i.Prev() {
-fmt.Println("Element =", i.Value)
+	fmt.Println("Element =", i.Value)
 }
 ```
 
@@ -3060,13 +3101,13 @@ l.Init()
 
 ------
 
-#### func [utils.MapKeys](https://github.com/Is999/go-utils/blob/master/map.go#L8)
+#### func [utils.MapKeys](map.go)
 
 ```go
-func MapKeys[K Ordered, V any](m map[K]V) []K 
+func MapKeys[K Ordered, V any](m map[K]V) []K
 ```
 
-备注：获取map所有的key
+备注：返回所有 key，顺序不保证稳定。
 
 ------
 
@@ -3074,10 +3115,10 @@ func MapKeys[K Ordered, V any](m map[K]V) []K
 
 ------
 
-#### func [utils.MapValues](https://github.com/Is999/go-utils/blob/master/map.go#L19)
+#### func [utils.MapValues](map.go)
 
 ```go
-func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V 
+func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V
 ```
 
 | 参数          | 描述                       |
@@ -3093,7 +3134,7 @@ func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V
 
 ------
 
-#### func [utils.MapRange](https://github.com/Is999/go-utils/blob/master/map.go#L49)
+#### func [utils.MapRange](map.go)
 
 ```go
 func MapRange[K Ordered, V any](m map[K]V, f func(key K, value V) bool, isReverse ...bool)
@@ -3113,7 +3154,7 @@ func MapRange[K Ordered, V any](m map[K]V, f func(key K, value V) bool, isRevers
 
 ------
 
-#### func [utils.MapFilter](https://github.com/Is999/go-utils/blob/master/map.go#L69)
+#### func [utils.MapFilter](map.go)
 
 ```go
 func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V
@@ -3124,7 +3165,7 @@ func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V
 | *m* | map。                                                 |
 | *f* | f 函数接收key与value，返回一个bool值，如果f函数返回false则过滤掉该元素（删除该元素） |
 
-备注：使用回调函数过滤map的元素，如果f 函数返回 false则过滤掉该元素（删除该元素）。
+备注：原地删除回调返回 false 的元素，返回同一个 map。
 
 ------
 
@@ -3132,7 +3173,7 @@ func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V
 
 ------
 
-#### func [utils.MapDiff](https://github.com/Is999/go-utils/blob/master/map.go#L80)
+#### func [utils.MapDiff](map.go)
 
 ```go
 func MapDiff[K comparable, V comparable](m1, m2 map[K]V) []V
@@ -3142,10 +3183,10 @@ func MapDiff[K comparable, V comparable](m1, m2 map[K]V) []V
 
 ------
 
-#### func [utils.MapDiffKey](https://github.com/Is999/go-utils/blob/master/map.go#L113)
+#### func [utils.MapDiffKey](map.go)
 
 ```go
-func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K 
+func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K
 ```
 
 备注：计算m1与m2的键差集。
@@ -3156,7 +3197,7 @@ func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K
 
 ------
 
-#### func [utils.MapIntersect](https://github.com/Is999/go-utils/blob/master/map.go#L97)
+#### func [utils.MapIntersect](map.go)
 
 ```go
 func MapIntersect[K comparable, V comparable](m1, m2 map[K]V) []V
@@ -3166,7 +3207,7 @@ func MapIntersect[K comparable, V comparable](m1, m2 map[K]V) []V
 
 ------
 
-#### func [utils.MapIntersectKey](https://github.com/Is999/go-utils/blob/master/map.go#L124)
+#### func [utils.MapIntersectKey](map.go)
 
 ```go
 func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K
@@ -3180,7 +3221,7 @@ func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K
 
 ------
 
-#### func [utils.SumMap](https://github.com/Is999/go-utils/blob/master/map.go#L135)
+#### func [utils.SumMap](map.go)
 
 ```go
 func SumMap[K comparable, V Number](m map[K]V) V
@@ -3210,29 +3251,27 @@ m.Store("JavaScript", "Vue")
 #### 添加元素 Store
 
 ```go
-func (m *Map) Store(key, value interface{})
+func (m *Map) Store(key, value any)
 ```
 
-备注：向 map 中存入键为 key，值为 value 的键值对，这里的 key 和 value 都是 *
-*[interface](https://haicoder.net/golang/golang-interface.html)** 类型的，因此 key 和 value 可以存入任意的类型。
+备注：存入键值对；key 的动态类型必须可比较，value 可为任意类型。
 
 ------
 
 #### 获取元素 Load
 
 ```go
-func (m *Map) Load(key interface{}) (value interface{}, ok bool)
+func (m *Map) Load(key any) (value any, ok bool)
 ```
 
-备注：返回的 value 是 interface 类型的，因此 value 我们不可以直接使用，而必须要转换之后才可以使用，返回的ok是 bool
-值，表明获取是否成功。
+备注：ok 表示键是否存在；value 为 any，需要调用具体类型的方法时再做类型断言。
 
 ------
 
 #### 获取或添加 LoadOrStore
 
 ```go
-func (m *Map) LoadOrStore(key, value interface{}) (actual interface{}, loaded bool) 
+func (m *Map) LoadOrStore(key, value any) (actual any, loaded bool)
 ```
 
 备注：获取的 key 存在，返回 key 对应的元素，如果获取的 key 不存在，就返回设置的值，并且将设置的值，存入 map。
@@ -3242,7 +3281,7 @@ func (m *Map) LoadOrStore(key, value interface{}) (actual interface{}, loaded bo
 #### 删除元素 Delete
 
 ```go
-func (m *Map) Delete(key interface{})
+func (m *Map) Delete(key any)
 ```
 
 备注：删除元素，使用 sync.Map Delete 删除不存在的元素，不会报错。
@@ -3262,7 +3301,7 @@ func (m *Map) LoadAndDelete(key any) (value any, loaded bool)
 #### 遍历元素 Range
 
 ```go
-func (m *Map) Range(f func (key, value interface{}) bool)
+func (m *Map) Range(f func(key, value any) bool)
 ```
 
 备注：遍历元素，如果f 函数返回 false则终止遍历。
@@ -3278,7 +3317,7 @@ func (m *Map) Range(f func (key, value interface{}) bool)
 
 ------
 
-#### func [utils.Local](https://github.com/Is999/go-utils/blob/master/time.go#L14)
+#### func [utils.Local](time.go)
 
 ```go
 func Local() *time.Location
@@ -3288,20 +3327,20 @@ func Local() *time.Location
 
 ------
 
-#### func [utils.CST](https://github.com/Is999/go-utils/blob/master/time.go#L19)
+#### func [utils.CST](time.go)
 
 ```go
-func CST() *time.Location 
+func CST() *time.Location
 ```
 
 备注：东八时区。
 
 ------
 
-#### func [utils.UTC](https://github.com/Is999/go-utils/blob/master/time.go#L24)
+#### func [utils.UTC](time.go)
 
 ```go
-func UTC() *time.Location 
+func UTC() *time.Location
 ```
 
 备注：UTC时区。
@@ -3312,7 +3351,7 @@ func UTC() *time.Location
 
 ------
 
-#### func [utils.CheckDate](https://github.com/Is999/go-utils/blob/master/time.go#L95)
+#### func [utils.CheckDate](time.go)
 
 ```go
 func CheckDate(year, month, day int) bool
@@ -3332,7 +3371,7 @@ func CheckDate(year, month, day int) bool
 
 ------
 
-#### func [utils.MonthDay](https://github.com/Is999/go-utils/blob/master/time.go#L80)
+#### func [utils.MonthDay](time.go)
 
 ```go
 func MonthDay(year int, month int) (days int)
@@ -3351,7 +3390,7 @@ func MonthDay(year int, month int) (days int)
 
 ------
 
-#### func [utils.AddTime](https://github.com/Is999/go-utils/blob/master/time.go#L111)
+#### func [utils.AddTime](time.go)
 
 ```go
 func AddTime(t time.Time, addTimes ...string) (time.Time, error)
@@ -3359,7 +3398,7 @@ func AddTime(t time.Time, addTimes ...string) (time.Time, error)
 
 | 参数         | 描述                                   |
 |------------|--------------------------------------|
-| *addTimes* | 增加时间（Y年，M月，D日，H时，I分，S秒，L毫秒，C微妙，N纳秒)。 |
+| *addTimes* | 增加时间（Y年，M月，D日，H时，I分，S秒，L毫秒，C微秒，N纳秒)。 |
 
 备注：增加时间。
 
@@ -3369,20 +3408,20 @@ func AddTime(t time.Time, addTimes ...string) (time.Time, error)
 
 ------
 
-#### func [utils.TimeDetails](https://github.com/Is999/go-utils/blob/master/time.go#L185)
+#### func [utils.TimeDetails](time.go)
 
 ```go
-func TimeDetails(t time.Time) map[string]interface{}
+func TimeDetails(t time.Time) map[string]any
 ```
 
-备注：获取日期信息。
+备注：字段按 t 自身时区拆分；millisecond/microsecond/nanosecond 表示当前秒内的小数部分，weekDay 为 0–6（周日为 0），yearWeek 为 ISO 周数。
 
 ```
 //	返回：year int - 年，
 //		month int - 月，monthEn string - 英文月，
-//		day int - 日，yearDay int - 一年中第几日， weekDay int - 一周中第几日，
-//		hour int - 时，hour int - 分，second int - 秒，
-//		millisecond int - 毫秒，microsecond int - 微妙，nanosecond int - 纳秒，
+//		day int - 日，yearDay int - 一年中第几日，
+//		hour int - 时，minute int - 分，second int - 秒，
+//		millisecond int - 毫秒，microsecond int - 微秒，nanosecond int - 纳秒，
 //		unix int64 - 时间戳-秒，unixNano int64 - 时间戳-纳秒，
 //		weekDay int - 星期几，weekDayEn string - 星期几英文， yearWeek int - 一年中第几周，
 //		date string - 格式化日期，dateNs string - 格式化日期（纳秒)
@@ -3394,7 +3433,7 @@ func TimeDetails(t time.Time) map[string]interface{}
 
 ------
 
-#### func [utils.TimeFormat](https://github.com/Is999/go-utils/blob/master/time.go#L217)
+#### func [utils.TimeFormat](time.go)
 
 ```go
 func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) string
@@ -3404,7 +3443,7 @@ func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) stri
 |-------------|---------------------|
 | *timeZone*  | 时区。                 |
 | layout      | 格式化。                |
-| *timestamp* | Unix 时间sec秒和nsec纳秒。 |
+| *timestamp* | 不传时使用当前时间；两项按 Unix 秒、纳秒解释；单项通常为秒，仅绝对值达到 1e18 时按纳秒解释。 |
 
 备注：时间格式化为时间字符串。
 
@@ -3414,7 +3453,7 @@ func TimeFormat(timeZone *time.Location, layout string, timestamp ...int64) stri
 
 ------
 
-#### func [utils.TimeParse](https://github.com/Is999/go-utils/blob/master/time.go#L236)
+#### func [utils.TimeParse](time.go)
 
 ```go
 func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, error)
@@ -3434,10 +3473,10 @@ func TimeParse(timeZone *time.Location, layout, timeStr string) (time.Time, erro
 
 ------
 
-#### func [utils.Before](https://github.com/Is999/go-utils/blob/master/time.go#L326)
+#### func [utils.Before](time.go)
 
 ```go
-func Before(layout string, t1, t2 string) (bool, error) 
+func Before(layout string, t1, t2 string) (bool, error)
 ```
 
 | 参数     | 描述     |
@@ -3450,10 +3489,10 @@ func Before(layout string, t1, t2 string) (bool, error)
 
 ------
 
-#### func [utils.After](https://github.com/Is999/go-utils/blob/master/time.go#L335)
+#### func [utils.After](time.go)
 
 ```go
-func After(layout string, t1, t2 string) (bool, error) 
+func After(layout string, t1, t2 string) (bool, error)
 ```
 
 | 参数     | 描述     |
@@ -3466,7 +3505,7 @@ func After(layout string, t1, t2 string) (bool, error)
 
 ------
 
-#### func [utils.Equal](https://github.com/Is999/go-utils/blob/master/time.go#L344)
+#### func [utils.Equal](time.go)
 
 ```go
 func Equal(layout string, t1, t2 string) (bool, error)
@@ -3486,7 +3525,7 @@ func Equal(layout string, t1, t2 string) (bool, error)
 
 ------
 
-#### func [utils.Sub](https://github.com/Is999/go-utils/blob/master/time.go#L353)
+#### func [utils.Sub](time.go)
 
 ```go
 func Sub(layout string, t1, t2 string) (time.Duration, error)
@@ -3530,17 +3569,17 @@ fmt.Printf("运行时间：%v", diff) // 运行时间：1.001284412s
 
 ------
 
-#### func [utils.Empty](https://github.com/Is999/go-utils/blob/master/regexp.go#L142)
+#### func [utils.Empty](regexp.go)
 
 ```go
-func Empty(value string) bool 
+func Empty(value string) bool
 ```
 
 备注：空字符串验证。
 
 ------
 
-#### func [utils.QQ](https://github.com/Is999/go-utils/blob/master/regexp.go#L147)
+#### func [utils.QQ](regexp.go)
 
 ```go
 func QQ(value string) bool
@@ -3550,7 +3589,7 @@ func QQ(value string) bool
 
 ------
 
-#### func [utils.Email](https://github.com/Is999/go-utils/blob/master/regexp.go#L152)
+#### func [utils.Email](regexp.go)
 
 ```go
 func Email(value string) bool
@@ -3560,7 +3599,7 @@ func Email(value string) bool
 
 ------
 
-#### func [utils.Mobile](https://github.com/Is999/go-utils/blob/master/regexp.go#L157)
+#### func [utils.Mobile](regexp.go)
 
 ```go
 func Mobile(value string) bool
@@ -3570,7 +3609,7 @@ func Mobile(value string) bool
 
 ------
 
-#### func [utils.Phone](https://github.com/Is999/go-utils/blob/master/regexp.go#L162)
+#### func [utils.Phone](regexp.go)
 
 ```go
 func Phone(value string) bool
@@ -3580,7 +3619,7 @@ func Phone(value string) bool
 
 ------
 
-#### func [utils.Numeric](https://github.com/Is999/go-utils/blob/master/regexp.go#L167)
+#### func [utils.Numeric](regexp.go)
 
 ```go
 func Numeric(value string) bool
@@ -3590,7 +3629,7 @@ func Numeric(value string) bool
 
 ------
 
-#### func [utils.UnNumeric](https://github.com/Is999/go-utils/blob/master/regexp.go#L172)
+#### func [utils.UnNumeric](regexp.go)
 
 ```go
 func UnNumeric(value string) bool
@@ -3600,7 +3639,7 @@ func UnNumeric(value string) bool
 
 ------
 
-#### func [utils.UnInteger](https://github.com/Is999/go-utils/blob/master/regexp.go#L177)
+#### func [utils.UnInteger](regexp.go)
 
 ```go
 func UnInteger(value string) bool
@@ -3610,7 +3649,7 @@ func UnInteger(value string) bool
 
 ------
 
-#### func [utils.UnIntZero](https://github.com/Is999/go-utils/blob/master/regexp.go#L182)
+#### func [utils.UnIntZero](regexp.go)
 
 ```go
 func UnIntZero(value string) bool
@@ -3620,7 +3659,7 @@ func UnIntZero(value string) bool
 
 ------
 
-#### func [utils.Amount](https://github.com/Is999/go-utils/blob/master/regexp.go#L191)
+#### func [utils.Amount](regexp.go)
 
 ```go
 func Amount(amount string, decimal uint8, signed ...bool) bool
@@ -3636,7 +3675,7 @@ func Amount(amount string, decimal uint8, signed ...bool) bool
 
 ------
 
-#### func [utils.Alpha](https://github.com/Is999/go-utils/blob/master/regexp.go#L201)
+#### func [utils.Alpha](regexp.go)
 
 ```go
 func Alpha(value string) bool
@@ -3646,7 +3685,7 @@ func Alpha(value string) bool
 
 ------
 
-#### func [utils.Zh](https://github.com/Is999/go-utils/blob/master/regexp.go#L206)
+#### func [utils.Zh](regexp.go)
 
 ```go
 func Zh(value string) bool
@@ -3656,17 +3695,17 @@ func Zh(value string) bool
 
 ------
 
-#### func [utils.MixStr](https://github.com/Is999/go-utils/blob/master/regexp.go#L211)
+#### func [utils.MixStr](regexp.go)
 
 ```go
-func MixStr(value string) bool 
+func MixStr(value string) bool
 ```
 
 备注：英文、数字、特殊字符(不包含换行符)。
 
 ------
 
-#### func [utils.Alnum](https://github.com/Is999/go-utils/blob/master/regexp.go#L216)
+#### func [utils.Alnum](regexp.go)
 
 ```go
 func Alnum(value string) bool
@@ -3676,47 +3715,47 @@ func Alnum(value string) bool
 
 ------
 
-#### func [utils.Domain](https://github.com/Is999/go-utils/blob/master/regexp.go#L221)
+#### func [utils.Domain](regexp.go)
 
 ```go
 func Domain(value string) bool
 ```
 
-备注：域名(64位内正确的域名，可包含中文、字母、数字和.-)。
+备注：接受 ASCII 域名及可选的 http(s):// 前缀和末尾斜杠；顶级域为 2–6 个英文字母，不支持中文域名、端口或路径参数。
 
 ------
 
-#### func [utils.TimeMonth](https://github.com/Is999/go-utils/blob/master/regexp.go#L226)
+#### func [utils.TimeMonth](regexp.go)
 
 ```go
 func TimeMonth(value string) bool
 ```
 
-备注：时间格式验证 yyyy-MM yyyy/MM。
+备注：校验年和月，年份限 1000–3999，月份可为一位或两位，分隔符支持 `-`、`/`、`.`。
 
 ------
 
-#### func [utils.TimeDay](https://github.com/Is999/go-utils/blob/master/regexp.go#L231)
+#### func [utils.TimeDay](regexp.go)
 
 ```go
 func TimeDay(value string) bool
 ```
 
-备注：时间格式验证 yyyy-MM-dd。
+备注：校验真实日期；年、月规则同 TimeMonth，日可为一位或两位，两个日期分隔符须相同。
 
 ------
 
-#### func [utils.Timestamp](https://github.com/Is999/go-utils/blob/master/regexp.go#L253)
+#### func [utils.Timestamp](regexp.go)
 
 ```go
 func Timestamp(value string) bool
 ```
 
-备注：Timestamp 时间格式验证 yyyy-MM-dd hh:mm:ss。
+备注：校验 TimeDay 日期、一个空格和 24 小时时分秒；时分秒可为一位或两位，以冒号分隔。
 
 ------
 
-#### func [utils.Account](https://github.com/Is999/go-utils/blob/master/regexp.go#L274)
+#### func [utils.Account](regexp.go)
 
 ```go
 func Account(value string, min, max uint8) error
@@ -3726,17 +3765,17 @@ func Account(value string, min, max uint8) error
 
 ------
 
-#### func [utils.Password](https://github.com/Is999/go-utils/blob/master/regexp.go#L292)
+#### func [utils.Password](regexp.go)
 
 ```go
 func Password(value string, min, max uint8) error
 ```
 
-备注：密码(字母开头，允许字母数字下划线，长度在 min - max之间)。
+备注：接受 ASCII 字母、数字和下划线，长度在 min–max 之间，不要求字母开头。
 
 ------
 
-#### func [utils.StrongPassword](https://github.com/Is999/go-utils/blob/master/regexp.go#L306)
+#### func [utils.StrongPassword](regexp.go)
 
 ```go
 func StrongPassword(value string, min, max uint8) error
@@ -3746,17 +3785,17 @@ func StrongPassword(value string, min, max uint8) error
 
 ------
 
-#### func [utils.StrongPasswordWithSymbols](https://github.com/Is999/go-utils/blob/master/regexp.go#L331)
+#### func [utils.StrongPasswordWithSymbols](regexp.go)
 
 ```go
 func StrongPasswordWithSymbols(value string, min, max uint8) error
 ```
 
-备注：强密码(必须包含大小写字母和数字的组合，可以使用特殊字符，长度在min-max之间)。
+备注：必须同时包含 ASCII 大写、小写字母和数字，允许其他字符但不接受换行；长度按 Unicode 字符数计，范围为 min–max。
 
 ------
 
-#### func [utils.HasSymbols](https://github.com/Is999/go-utils/blob/master/regexp.go#L355)
+#### func [utils.HasSymbols](regexp.go)
 
 ```go
 func HasSymbols(value string) bool
@@ -3766,9 +3805,9 @@ func HasSymbols(value string) bool
 
 ------
 
-#### 相关函数：[utils.Before](https://github.com/Is999/go-utils/blob/master/time.go#L326) / [utils.After](https://github.com/Is999/go-utils/blob/master/time.go#L335) / [utils.Equal](https://github.com/Is999/go-utils/blob/master/time.go#L344)
+#### 相关函数：[utils.Before](time.go) / [utils.After](time.go) / [utils.Equal](time.go)
 
-备注：参考9.7 两个时间字符串判断。
+备注：参考9.8 两个时间字符串判断。
 
 ------
 
@@ -3784,75 +3823,67 @@ func HasSymbols(value string) bool
 
 - `Curl` 适合作为“基础模板配置 + 按请求派生实例”使用。
 - 共享基础配置时，生产环境建议使用 `Clone()` 或 `NewRequest()` 获取独立请求实例，再设置本次请求的 Header / Param / Body。
-- `NewRequest()` 会复用底层 Transport 连接池，同时为新实例生成新的 `X-Request-Id`，更适合并发场景。
+- `NewRequest()` 为新实例生成新的 `X-Request-Id`；仅共享模板已初始化的 Transport，初始化前派生的实例各自创建连接池。
 - GET/POST/PUT/PATCH/DELETE/OPTIONS 追加查询参数时只拼接已经编码好的参数串，URL 合法性由发送阶段的 `http.NewRequest` 统一校验。
 - 开启默认日志时，响应 body 只按 `SetLogBodyLimit` / dump 上限读取预览，并恢复 `Body` 供 `AfterResponse` / `AfterBody` 继续消费。
+- 无法重放的请求体只发送一次；重试分支返回的错误仍保留首次发送原因，可用 `errors.Is` / `errors.As` 判断。
+- dump 上限仅限制展示内容；Go 标准库生成出站头时仍会按 `ContentLength` 缓冲临时正文，大请求应留意这部分调试开销。
 
 示例：
 
 ```go
 baseCurl := utils.NewCurl().
-  SetTimeout(10).
-  SetHeader("Authorization", "Bearer xxx").
-  SetUserAgent("go-utils-client/1.0")
+	SetTimeout(10).
+	SetHeader("Authorization", "Bearer xxx").
+	SetUserAgent("go-utils-client/1.0")
 
 reqCurl, err := baseCurl.NewRequest()
 if err != nil {
-  return err
+	return err
 }
 
 err = reqCurl.
-  SetParam("page", "1").
-  SetBodyBytes([]byte(`{"name":"Lisa"}`)).
-  AfterBody(func(body []byte) error {
-    return json.Unmarshal(body, &result)
-  }).
-  Post("https://api.example.com/user")
+	SetParam("page", "1").
+	SetBodyBytes([]byte(`{"name":"Lisa"}`)).
+	AfterBody(func(body []byte) error {
+		return json.Unmarshal(body, &result)
+	}).
+	Post("https://api.example.com/user")
 ```
 
 ------
 
-#### func [(*Curl).Get](https://github.com/Is999/go-utils/blob/master/curl_client.go#L416)
+#### func [(*Curl).Get](curl_client.go)
 
 ```go
-func (c *Curl) Get(url string) (err error)
+func (c *Curl) Get(url string) error
 ```
 
-备注：参考测试用例：[TestGet](https://github.com/Is999/go-utils/blob/master/curl_test.go#L44)
+备注：参考测试用例：[TestGet](curl_test.go)
 
 ------
 
-#### func [(*Curl).Post](https://github.com/Is999/go-utils/blob/master/curl_client.go#L427)
+#### func [(*Curl).Post](curl_client.go)
 
 ```go
-func (c *Curl) Post(url string) (err error) 
+func (c *Curl) Post(url string) error
 ```
 
-备注：参考测试用例：[TestPost](https://github.com/Is999/go-utils/blob/master/curl_test.go#L210)
+备注：普通正文参考 [TestPost](curl_test.go)，multipart 文件上传参考 [TestPostFile](curl_test.go)。
 
 ------
 
-#### func [(*Curl).PostForm](https://github.com/Is999/go-utils/blob/master/curl_client.go#L438)
+#### func [(*Curl).PostForm](curl_client.go)
 
 ```go
-func (c *Curl) PostForm(url string) error 
+func (c *Curl) PostForm(url string) error
 ```
 
-备注：参考测试用例：[TestPostForm](https://github.com/Is999/go-utils/blob/master/curl_test.go#L382)
+备注：参考测试用例：[TestPostForm](curl_test.go)
 
 ------
 
-#### func [(*Curl).Post](https://github.com/Is999/go-utils/blob/master/curl_client.go#L427)
-
-```go
-func (c *Curl) Post(url string) (err error) 
-```
-
-备注：参考测试用例：[TestPostFile](https://github.com/Is999/go-utils/blob/master/curl_test.go#L487)
-
-------
-
-#### func [(*Curl).Clone](https://github.com/Is999/go-utils/blob/master/curl_client.go#L358) / [(*Curl).NewRequest](https://github.com/Is999/go-utils/blob/master/curl_client.go#L405)
+#### func [(*Curl).Clone](curl_client.go) / [(*Curl).NewRequest](curl_client.go)
 
 ```go
 func (c *Curl) Clone() (*Curl, error)
@@ -3861,19 +3892,23 @@ func (c *Curl) NewRequest() (*Curl, error)
 
 备注：
 
-- `Clone()` 会深拷贝 Header、Params、Cookie、StatusCode、Body 等请求级配置，并复用底层连接池。
-- `NewRequest()` 基于 `Clone()` 派生新的请求实例，并自动生成新的请求 ID。
+- `Clone()` 隔离 Header、Params、Cookie、StatusCode、Body 等请求级配置；已初始化的 Transport、Cookie Jar、Logger 和回调仍共享。
+- `NewRequest()` 基于 `Clone()` 派生实例并生成新的请求 ID；未初始化的连接池各自创建，代理或 TLS 配置变化时按原规则重建。
 - 若当前 `Body` 是不可回放的流式 Reader，`Clone()` / `NewRequest()` 会返回错误，避免多个请求共享同一读取游标。
+- 模板配置和内存请求体保持只读时可以并发派生；自定义 `io.ReadSeeker` 的访问同步与体积由调用方控制。
+- 普通流式 `io.ReadCloser` 在发送结束或发送前失败时关闭；可定位的 `io.ReadSeekCloser` 由调用方负责关闭。
 
 参考测试用例：
 
-- [TestCurlCloneDeepCopiesRequestState](https://github.com/Is999/go-utils/blob/master/curl_test.go#L934)
-- [TestCurlNewRequestGeneratesIndependentRequestID](https://github.com/Is999/go-utils/blob/master/curl_test.go#L972)
-- [TestCurlTemplateReuseWithNewRequest](https://github.com/Is999/go-utils/blob/master/curl_test.go#L1000)
+- [TestCurlCloneDeepCopiesRequestState](curl_test.go)
+- [TestCurlNewRequestGeneratesIndependentRequestID](curl_test.go)
+- [TestCurlTemplateReuseWithNewRequest](curl_test.go)
 
 ------
 
 ## 12. http/response
+
+同一个 `Response` 只提交一次最终状态；`StatusCode(103).Write(nil)` 可先发送临时响应，再设置最终状态。1xx 除 101 外都允许后续状态，直接写正文时按 `net/http` 规则使用 200。使用 `ShowRequest` / `DownloadRequest` 传入原请求后，文件响应在最终状态未提交、且使用默认状态或显式 200 时支持 Range 和缓存条件；已有最终状态或显式非 200 时直接输出文件，HEAD 只发响应头。`Show` / `Download` 使用内部 GET 请求，不读取客户端的条件头或 HEAD 方法。
 
 ------
 
@@ -3881,7 +3916,7 @@ func (c *Curl) NewRequest() (*Curl, error)
 
 ------
 
-#### func [utils.Redirect](https://github.com/Is999/go-utils/blob/master/response.go#L311)
+#### func [utils.Redirect](response.go)
 
 ```go
 func Redirect(w http.ResponseWriter, url string, opts ...ResponseOption)
@@ -3894,9 +3929,8 @@ func Redirect(w http.ResponseWriter, url string, opts ...ResponseOption)
 
 ```go
 http.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Request) {
-		// 重定向
-		utils.Redirect(w, "/response/json")
-	})
+	utils.Redirect(w, "/response/json")
+})
 ```
 
 备注：重定向，默认响应302。
@@ -3907,7 +3941,7 @@ http.HandleFunc("/response/redirect", func(w http.ResponseWriter, r *http.Reques
 
 ------
 
-#### func [utils.JSON](https://github.com/Is999/go-utils/blob/master/response.go#L298)
+#### func [utils.JSON](response.go)
 
 ```go
 // JSON 响应 JSON 数据
@@ -3923,29 +3957,25 @@ func (r *Response) Fail(code int, message string, data ...any)
 示例：
 
 ```go
-// 响应json数据
 http.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
 
-  // 获取URL查询字符串参数
-  queryParam := r.URL.Query().Get("v")
+	queryParam := r.URL.Query().Get("v")
 
-  // 响应的数据
-  user := User{
-    Name:      "张三",
-    Age:       22,
-    Sex:       "男",
-    IsMarried: false,
-    Address:   "北京市",
-    phone:     "131188889999",
-  }
+	user := User{
+		Name:      "张三",
+		Age:       22,
+		Sex:       "男",
+		IsMarried: false,
+		Address:   "北京市",
+		phone:     "131188889999",
+	}
 
-  if queryParam == "fail" {
-    // 错误响应
-	utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
-    return
-  }
-  // 成功响应
-  utils.JSON(w).Success(1000, user)
+	if queryParam == "fail" {
+		// HTTP 状态与业务码分别设置。
+		utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
+		return
+	}
+	utils.JSON(w).Success(1000, user)
 })
 ```
 
@@ -3958,11 +3988,9 @@ http.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
 ------
 
 ```go
-// 响应html
 http.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
 
-  // 响应html数据
-  utils.View(w).HTML("<p>这是一个<b style=\"color: red\">段落!</b></p>")
+	utils.View(w).HTML("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 })
 ```
 
@@ -3975,21 +4003,18 @@ http.HandleFunc("/response/html", func(w http.ResponseWriter, r *http.Request) {
 ------
 
 ```go
-// 响应xml
 http.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
 
-  // 响应的数据
-  user := User{
-    Name:      "张三",
-    Age:       22,
-    Sex:       "男",
-    IsMarried: false,
-    Address:   "北京市",
-    phone:     "131188889999",
-  }
+	user := User{
+		Name:      "张三",
+		Age:       22,
+		Sex:       "男",
+		IsMarried: false,
+		Address:   "北京市",
+		phone:     "131188889999",
+	}
 
-  // 响应xml数据
-  utils.View(w).XML(user)
+	utils.View(w).XML(user)
 })
 ```
 
@@ -4002,10 +4027,8 @@ http.HandleFunc("/response/xml", func(w http.ResponseWriter, r *http.Request) {
 ------
 
 ```go
-// 响应text
 http.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
-  // 响应text数据
-  utils.View(w).Text("<p>这是一个<b style=\"color: red\">段落!</b></p>")
+	utils.View(w).Text("<p>这是一个<b style=\"color: red\">段落!</b></p>")
 })
 ```
 
@@ -4018,18 +4041,13 @@ http.HandleFunc("/response/text", func(w http.ResponseWriter, r *http.Request) {
 ------
 
 ```go
-// 响应image
 http.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
-  // 获取URL查询字符串参数
-  file := r.URL.Query().Get("file")
-  if utils.IsExist(file) {
-    // 显示文件内容
-
-    utils.View(w).Show(file)
-    return
-  }
-  // 处理错误
-  utils.View(w, utils.WithStatusCode(http.StatusNotFound)).Text("不存在的文件：" + file)
+	file := r.URL.Query().Get("file")
+	if utils.IsExist(file) {
+		utils.View(w).Show(file)
+		return
+	}
+	utils.View(w, utils.WithStatusCode(http.StatusNotFound)).Text("不存在的文件：" + file)
 })
 ```
 
@@ -4042,17 +4060,13 @@ http.HandleFunc("/response/show", func(w http.ResponseWriter, r *http.Request) {
 ------
 
 ```go
-// 下载文件
 http.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Request) {
-		// 获取URL查询字符串参数
-		file := r.URL.Query().Get("file")
-		if utils.IsExist(file) {
-			// 下载文件数据
-			utils.View(w).Download(file)
-			return
-		}
-		// 处理错误
-		utils.View(w, utils.WithStatusCode(http.StatusNotFound)).Text("不存在的文件：" + file)
+	file := r.URL.Query().Get("file")
+	if utils.IsExist(file) {
+		utils.View(w).Download(file)
+		return
+	}
+	utils.View(w, utils.WithStatusCode(http.StatusNotFound)).Text("不存在的文件：" + file)
 })
 ```
 
@@ -4068,7 +4082,7 @@ http.HandleFunc("/response/download", func(w http.ResponseWriter, r *http.Reques
 
 ------
 
-#### func [utils.Zip](https://github.com/Is999/go-utils/blob/master/zip.go#L17)
+#### func [utils.Zip](zip.go)
 
 ```go
 func Zip(zipFile string, files []string) error
@@ -4079,11 +4093,11 @@ func Zip(zipFile string, files []string) error
 | zipFile | 打包压缩后文件    |
 | files   | 待打包压缩文件【夹】 |
 
-备注：使用 zip 打包并压缩；为保证安全，默认不支持符号链接打包。
+备注：使用 zip 打包并压缩；只接受普通文件和目录，符号链接、命名管道及设备等条目返回错误。
 
 ------
 
-#### func [utils.UnZip](https://github.com/Is999/go-utils/blob/master/zip.go#L157)
+#### func [utils.UnZip](zip.go)
 
 ```go
 func UnZip(zipFile, destDir string) error
@@ -4091,10 +4105,10 @@ func UnZip(zipFile, destDir string) error
 
 | 参数      | 描述     |
 |---------|--------|
-| zipFile | 代解压的文件 |
+| zipFile | 待解压的文件 |
 | destDir | 解压文件目录 |
 
-备注：解压 zip 文件；默认仅允许解压到目标目录内，拒绝绝对路径、目录穿越和不支持的条目类型，并尽量恢复归档中的文件权限。
+备注：解压 zip 文件；格式判定忽略路径首尾空白，实际打开的路径保持原样，与打包端一致。默认仅允许解压到目标目录内，拒绝绝对路径、目录穿越和不支持的条目类型，并尽量恢复归档中的文件权限。
 
 ------
 
@@ -4102,10 +4116,10 @@ func UnZip(zipFile, destDir string) error
 
 ------
 
-#### func [utils.Tar](https://github.com/Is999/go-utils/blob/master/tar.go#L18)
+#### func [utils.Tar](tar.go)
 
 ```go
-func Tar(tarFile string, files []string) error 
+func Tar(tarFile string, files []string) error
 ```
 
 | 参数      | 描述       |
@@ -4113,11 +4127,11 @@ func Tar(tarFile string, files []string) error
 | tarFile | 打包后文件    |
 | files   | 待打包文件【夹】 |
 
-备注：使用 tar 打包；为保证安全，默认不支持符号链接打包。
+备注：使用 tar 打包；只接受普通文件和目录，符号链接、命名管道及设备等条目返回错误。
 
 ------
 
-#### func [utils.TarGz](https://github.com/Is999/go-utils/blob/master/tar.go#L47)
+#### func [utils.TarGz](tar.go)
 
 ```go
 func TarGz(tarGzFile string, files []string) error
@@ -4128,22 +4142,22 @@ func TarGz(tarGzFile string, files []string) error
 | tarGzFile | 打包压缩后文件    |
 | files     | 待打包压缩文件【夹】 |
 
-备注：使用 tar 打包并 gzip 压缩；为保证安全，默认不支持符号链接打包。
+备注：使用 tar 打包并 gzip 压缩；输入条目限制与 Tar 相同。
 
 ------
 
-#### func [utils.UnTar](https://github.com/Is999/go-utils/blob/master/tar.go#L193)
+#### func [utils.UnTar](tar.go)
 
 ```go
-func UnTar(tarFile, destDir string) error 
+func UnTar(tarFile, destDir string) error
 ```
 
 | 参数      | 描述     |
 |---------|--------|
-| tarFile | 代解压的文件 |
+| tarFile | 待解压的文件 |
 | destDir | 解压文件目录 |
 
-备注：解压 tar 或 tar.gz 文件；默认仅允许解压到目标目录内，拒绝绝对路径、目录穿越和不支持的条目类型，并尽量恢复归档中的文件权限。
+备注：解压 tar 或 tar.gz 文件；格式判定忽略路径首尾空白，实际打开的路径保持原样。默认仅允许解压到目标目录内，拒绝绝对路径、目录穿越和不支持的条目类型，并尽量恢复归档中的文件权限。tar.gz 会校验 gzip 尾部，损坏或截断时返回错误；解包按文件写入，失败时可能已有文件落盘，调用方需要整体回滚时应使用独立临时目录。
 
 ------
 
@@ -4151,31 +4165,32 @@ func UnTar(tarFile, destDir string) error
 
 ------
 
-### 14.1 默认日志（使用标准库的 `log` 包来记录日志）
+### 14.1 默认日志（使用标准库 `log/slog`）
 
 ------
 
 #### 设置日志等级和输出格式
 
 ```go
-// 日志等级
+// 后续可修改级别，无须重建 Handler。
 levelVar := &slog.LevelVar{}
 levelVar.Set(slog.LevelDebug)
 
 opts := &slog.HandlerOptions{
-  AddSource: true,     // 输出日志的文件和行号
-  Level:     levelVar, // 日志等级
+	AddSource: true,     // 输出日志的文件和行号
+	Level:     levelVar, // 日志等级
 }
 
-//日志输出文件
 file, err := os.OpenFile("sys.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 if err != nil {
-  fmt.Printf("Failed to open error logger file: %v\n", err)
-  return
+	fmt.Printf("Failed to open error logger file: %v\n", err)
+	return
 }
 
-// 日志输出格式
-//handler := slog.NewTextHandler(os.Stdout, opts)
+// 所有使用该 handler 的写入结束后再关闭文件；此片段放在拥有其生命周期的函数中。
+defer file.Close()
+
+// 同一条 JSON 日志同时写入文件和标准错误输出。
 handler := slog.NewJSONHandler(io.MultiWriter(file, os.Stderr), opts)
 
 // 修改默认的日志输出方式
@@ -4205,10 +4220,10 @@ func Getenv(key string) string
 
 ------
 
-#### func [utils.GetEnv](https://github.com/Is999/go-utils/blob/master/env.go#L13)
+#### func [utils.GetEnv](env.go)
 
 ```go
-func GetEnv(key string, defaultVal ...string) string 
+func GetEnv(key string, defaultVal ...string) string
 ```
 
 | 参数           | 描述           |
@@ -4245,18 +4260,17 @@ func Unsetenv(key string) error
 
 ------
 
-#### func [utils.ServerIP](https://github.com/Is999/go-utils/blob/master/ip.go#L34)
+#### func [utils.ServerIP](ip.go)
 
 ```go
 func ServerIP() string
 ```
 
-备注：服务器对外IP。默认优先返回缓存值或本地网卡 IP，仅在本地 IP 不可用时才回退到 UDP 探测；如需控制超时可使用
-`ServerIPContext`。
+备注：优先返回缓存或本地网卡地址，可能是私网或回环地址，不保证为公网 IP。本地地址不可用时才回退到 UDP 探测；`ServerIPContext` 的取消与超时只控制 UDP 探测阶段。
 
 ------
 
-#### func [utils.LocalIP](https://github.com/Is999/go-utils/blob/master/ip.go#L59)
+#### func [utils.LocalIP](ip.go)
 
 ```go
 func LocalIP() string
@@ -4266,7 +4280,7 @@ func LocalIP() string
 
 ------
 
-#### func [utils.ClientIP](https://github.com/Is999/go-utils/blob/master/ip.go#L87)
+#### func [utils.ClientIP](ip.go)
 
 ```go
 func ClientIP(r *http.Request) string
@@ -4277,24 +4291,25 @@ func ClientIP(r *http.Request) string
 
 ------
 
-#### func [utils.NewTrustedProxies](https://github.com/Is999/go-utils/blob/master/ip.go#L93)
+#### func [utils.NewTrustedProxies](ip.go)
 
 ```go
 func NewTrustedProxies(values ...string) (*TrustedProxies, error)
 ```
 
-备注：构造可信代理白名单，支持单个 IP 或 CIDR，例如 `10.0.0.10`、`10.0.0.0/8`、`fd00::/8`。
+备注：构造可信代理白名单，支持单个 IP 或 CIDR，例如 `10.0.0.10`、`10.0.0.0/8`、`fd00::/8`。IPv4 映射前缀按对应 IPv4 网段匹配，例如 `::ffff:192.0.2.0/120` 等价于 `192.0.2.0/24`；短于 96 位的 IPv6 前缀仍只匹配 IPv6。
 
 ------
 
-#### func [utils.ClientIPWithTrustedProxies](https://github.com/Is999/go-utils/blob/master/ip.go#L137)
+#### func [utils.ClientIPWithTrustedProxies](ip.go)
 
 ```go
 func ClientIPWithTrustedProxies(r *http.Request, trustedProxies *TrustedProxies) string
 ```
 
 备注：使用显式可信代理白名单解析客户端 IP。生产环境建议按网关、负载均衡或 Ingress 固定地址配置可信代理；只有 `RemoteAddr`
-命中白名单时才读取转发头。
+命中白名单时才读取转发头。多个同名 `X-Forwarded-For` 按接收顺序合并，再从右向左跳过可信代理。
+白名单只比较 IP，不按 IPv6 zone 区分网卡；匹配过程不移除最终 IPv6 地址中的 zone（如 `%en0`）。
 
 ------
 
@@ -4302,10 +4317,10 @@ func ClientIPWithTrustedProxies(r *http.Request, trustedProxies *TrustedProxies)
 
 ------
 
-#### func [utils.Ternary](https://github.com/Is999/go-utils/blob/master/misce.go#L26)
+#### func [utils.Ternary](misce.go)
 
 ```go
-func Ternary[T any](expr bool, trueVal, falseVal T) T 
+func Ternary[T any](expr bool, trueVal, falseVal T) T
 ```
 
 | 参数        | 描述              |
@@ -4320,7 +4335,7 @@ func Ternary[T any](expr bool, trueVal, falseVal T) T
 
 ------
 
-#### func [utils.RuntimeInfo](https://github.com/Is999/go-utils/blob/master/runtime.go#L16)
+#### func [utils.RuntimeInfo](runtime.go)
 
 ```go
 func RuntimeInfo(skip int) *Frame
@@ -4330,10 +4345,10 @@ func RuntimeInfo(skip int) *Frame
 
 ------
 
-#### func [utils.GetFunctionName](https://github.com/Is999/go-utils/blob/master/runtime.go#L38)
+#### func [utils.GetFunctionName](runtime.go)
 
 ```go
-func GetFunctionName(i interface{}) string
+func GetFunctionName(i any) string
 ```
 
 备注：获取函数名（普通函数、结构体方法或匿名函数）。
@@ -4344,7 +4359,7 @@ func GetFunctionName(i interface{}) string
 
 ------
 
-#### func [utils.Retry](https://github.com/Is999/go-utils/blob/master/misce.go#L101)
+#### func [utils.Retry](misce.go)
 
 ```go
 func Retry(maxRetries uint8, fn func(tries int) error) error
@@ -4352,7 +4367,7 @@ func Retry(maxRetries uint8, fn func(tries int) error) error
 
 | 参数           | 描述                                 |
 |--------------|------------------------------------|
-| *maxRetries* | 最大重试次数。                            |
+| *maxRetries* | 最大尝试次数，包含首次执行。 |
 | *fn*         | 要执行的函数，参数tries为当前第几次尝试，返回nil则停止重试。 |
 
 备注：尝试执行 fn，如果 fn 返回错误则进行重试；当前退避从第一次失败后的 `100ms~200ms` 区间起步，按 2 倍指数退避并加入随机抖动，最大不超过
@@ -4365,23 +4380,22 @@ func Retry(maxRetries uint8, fn func(tries int) error) error
 
 ------
 
-#### struct [utils.Once](https://github.com/Is999/go-utils/blob/master/once.go#L12)
+#### struct [utils.Once](once.go)
 
 ```go
 var o utils.Once
 
-// 执行带重试机制的函数调用（线程安全）
-err := o.Do(func () error {
-// 业务逻辑
-return nil
-}, 3) // 最大重试3次
+// 并发调用共享同一轮结果。
+err := o.Do(func() error {
+	// 失败返回错误以触发重试，成功返回 nil。
+	return nil
+}, 3) // 最多尝试 3 次，包含首次执行
 
-// 重置状态，使其可再次执行
+// 等待当前轮结束，再允许下一轮执行。
 o.Reset()
 ```
 
-备注：线程安全的带重试机制的一次性执行器；同一轮只会有一个 goroutine 真正执行目标函数，其余调用方等待最终结果。成功或最终失败后会缓存结果，需重新执行时调用
-`Reset()`。
+备注：零值可用，使用后不可复制。同一轮由一个调用方执行，其余调用方共享成功或最终失败的结果；Reset 等待当前轮结束后清空结果，不会中断函数。执行函数不能重入同一个 Once 的 Do、DoContext 或 Reset。
 
 ------
 
@@ -4389,25 +4403,23 @@ o.Reset()
 
 ------
 
-#### struct [utils.Pool](https://github.com/Is999/go-utils/blob/master/pool.go#L10)
+#### struct [utils.Pool](pool.go)
 
 ```go
-// 创建对象池
-pool := utils.NewPool(func () *bytes.Buffer {
-return new(bytes.Buffer)
-}, utils.WithPoolReset(func (b *bytes.Buffer) {
-b.Reset()
+pool := utils.NewPool(func() *bytes.Buffer {
+	return new(bytes.Buffer)
+}, utils.WithPoolReset(func(b *bytes.Buffer) {
+	b.Reset()
 }))
 
-// 获取对象
+// 池可丢弃闲置对象，Get 不保证取回上次归还的实例。
 buf := pool.Get()
 
-// 归还对象（自动执行重置逻辑）
+// 归还时执行重置回调，之后不再使用 buf。
 pool.Put(buf)
 ```
 
-备注：基于 sync.Pool 封装的泛型对象池，支持通过 `WithPoolReset` 设置对象归还时的重置函数；未传工厂函数时会回退为 `new(T)`，
-`Put(nil)` 会被安全忽略。
+备注：通过 NewPool 创建，nil 工厂使用 `new(T)`，`Put(nil)` 会被忽略。对象归还前执行重置回调，归还后不可继续使用；缓存可能随 GC 丢弃，不能用于持久保存资源。
 
 ------
 
@@ -4415,18 +4427,18 @@ pool.Put(buf)
 
 ------
 
-#### func [utils.Configure](https://github.com/Is999/go-utils/blob/master/config.go#L95)
+#### func [utils.Configure](config.go)
 
 ```go
 func Configure(opts ...Option)
 ```
 
-备注：设置全局参数入口，只需在程序入口处设置一次。目前支持通过 WithJSON 设置自定义 JSON 编解码器，通过 WithLogger 设置自定义日志实现。
+备注：仅第一次调用生效，包括无参数调用；多个选项应在启动时一起传入。自定义编解码器和日志实例会被共享调用，内部可变状态由实现方同步。
 
 ```go
-// 使用自定义 JSON 编解码器
-utils.Configure(utils.WithJSON(customMarshal, customUnmarshal))
-
-// 使用自定义 Logger
-utils.Configure(utils.WithLogger(customLogger))
+// 编解码器和日志器在同一次 Configure 中安装。
+utils.Configure(
+	utils.WithJSON(customMarshal, customUnmarshal),
+	utils.WithLogger(customLogger),
+)
 ```
