@@ -1,4 +1,4 @@
 package utils
 
-// - 将html文本中的字符转换为实体字符 - html.EscapeString(s)
-// - 将实体字符转换为可编译的html字符 - html.UnescapeString(s)
+// HTML 实体转换直接使用 html.EscapeString 和 html.UnescapeString。
+// 这两个函数只处理实体编码，不负责 HTML 标签过滤。

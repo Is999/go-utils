@@ -2,10 +2,146 @@ package utils_test
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/Is999/go-utils"
 )
+
+// BenchmarkAccount 对比短账号、最大长度账号与末尾连续下划线的扫描成本。
+func BenchmarkAccount(b *testing.B) {
+	for _, value := range []string{"Account8", strings.Repeat("a", 255), strings.Repeat("a", 253) + "__"} {
+		name := "short"
+		if len(value) == 255 {
+			name = "long"
+			if strings.HasSuffix(value, "__") {
+				name = "underscores"
+			}
+		}
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				utils.Account(value, 1, 255)
+			}
+		})
+	}
+}
+
+// BenchmarkNumericValidation 固定有效值与超精度值，区分整段扫描和长度边界的成本。
+func BenchmarkNumericValidation(b *testing.B) {
+	for _, tc := range []struct {
+		name, value string
+		validate    func(string) bool
+	}{
+		{"qq_short", "12345", utils.QQ},
+		{"qq_long", "123456789012", utils.QQ},
+		{"qq_invalid", "12345678901x", utils.QQ},
+		{"amount", "12345678.90", func(s string) bool { return utils.Amount(s, 2) }},
+		{"amount_precision", "12345678." + strings.Repeat("1", 64), func(s string) bool { return utils.Amount(s, 2) }},
+		{"numeric", "12345678.90123456", utils.Numeric},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				tc.validate(tc.value)
+			}
+		})
+	}
+}
+
+// BenchmarkDateValidation 区分有效日期、分隔符不一致和真实日期不存在的检查成本。
+func BenchmarkDateValidation(b *testing.B) {
+	for _, tc := range []struct {
+		name, value string
+		validate    func(string) bool
+	}{
+		{"date", "2024-02-29", utils.TimeDay},
+		{"date_mixed_separator", "2024-02/29", utils.TimeDay},
+		{"date_non_leap", "2023-02-29", utils.TimeDay},
+		{"timestamp", "2024-02-29 23:59:59", utils.Timestamp},
+		{"timestamp_short", "2024/2/29 3:4:5", utils.Timestamp},
+		{"timestamp_mixed_separator", "2024-02/29 23:59:59", utils.Timestamp},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				tc.validate(tc.value)
+			}
+		})
+	}
+}
+
+// TestDateValidationBoundaries 固定日期范围、闰年以及日期和时间组合时允许的位数与空白。
+func TestDateValidationBoundaries(t *testing.T) {
+	for _, date := range []struct {
+		value string
+		valid bool
+	}{
+		{"1000-1-1", true}, {"3999.12.31", true}, {"2024/2/9", true}, {"2024/02/09", true},
+		{"2000-2-29", true}, {"2024-2-29", true}, {"1900-2-29", false}, {"2023-2-29", false},
+		{"2024-4-31", false}, {"2024-0-1", false}, {"2024-1-0", false}, {"4000-1-1", false},
+		{"999-1-1", false}, {"", false}, {"2024-2-29 ", false}, {" 2024-2-29", false},
+		{"2024-2-29\n", false}, {"2024-2\xff29", false},
+	} {
+		if got := utils.TimeDay(date.value); got != date.valid {
+			t.Errorf("TimeDay(%q) = %v, want %v", date.value, got, date.valid)
+		}
+		for _, clock := range []struct {
+			value string
+			valid bool
+		}{
+			{"0:0:0", true}, {"03:04:05", true}, {"23:59:59", true},
+			{"24:0:0", false}, {"1:60:0", false}, {"1:1:60", false}, {"", false},
+			{" 1:1:1", false}, {"1:1:1 ", false}, {"1:1:1\n", false},
+		} {
+			value := date.value + " " + clock.value
+			if got, want := utils.Timestamp(value), date.valid && clock.valid; got != want {
+				t.Errorf("Timestamp(%q) = %v, want %v", value, got, want)
+			}
+		}
+	}
+	// 两处分隔符必须相同，单独允许的分隔符不能交叉使用。
+	for _, first := range []string{"-", "/", "."} {
+		for _, second := range []string{"-", "/", "."} {
+			date := "2024" + first + "2" + second + "29"
+			if got := utils.TimeDay(date); got != (first == second) {
+				t.Errorf("TimeDay(%q) = %v", date, got)
+			}
+			if got := utils.Timestamp(date + " 3:4:5"); got != (first == second) {
+				t.Errorf("Timestamp(%q) = %v", date, got)
+			}
+		}
+	}
+}
+
+// TestNumericValidationMatchesPatterns 用独立正则规则核对数字解析的符号、前导零和精度边界。
+func TestNumericValidationMatchesPatterns(t *testing.T) {
+	for _, tc := range []struct {
+		name, pattern string
+		validate      func(string) bool
+	}{
+		{"qq", `^[1-9][0-9]{4,11}$`, utils.QQ},
+		{"numeric", `^[+-]?(0|[1-9][0-9]*)(\.[0-9]+)?$`, utils.Numeric},
+		{"unsigned", `^(0|[1-9][0-9]*)(\.[0-9]+)?$`, utils.UnNumeric},
+		{"amount_integer", `^(0|[1-9][0-9]*)$`, func(s string) bool { return utils.Amount(s, 0) }},
+		{"amount_decimal", `^[+-]?(0|[1-9][0-9]*)(\.[0-9]{1,2})?$`, func(s string) bool { return utils.Amount(s, 2, true) }},
+		{"amount_max_precision", `^(0|[1-9][0-9]*)(\.[0-9]{1,255})?$`, func(s string) bool { return utils.Amount(s, 255) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reference := regexp.MustCompile(tc.pattern)
+			for _, value := range []string{
+				"", "+", "-", "0", "00", "01", "+0", "-0", "+01", "1.", ".1", "0.00", "1.001",
+				"1234", "12345", "123456789012", "1234567890123", "012345", "12345\n", "12\xff34", "１２３４５",
+				"0." + strings.Repeat("1", 255), "0." + strings.Repeat("1", 256),
+			} {
+				if got, want := tc.validate(value), reference.MatchString(value); got != want {
+					t.Errorf("validate(%q) = %v, want %v", value, got, want)
+				}
+			}
+		})
+	}
+}
 
 func TestAmount(t *testing.T) {
 	type args struct {
@@ -18,7 +154,6 @@ func TestAmount(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "100", decimal: 0}, want: true},
 		{name: "s-002", args: args{value: "5.23", decimal: 2}, want: true},
 		{name: "s-003", args: args{value: "-120", decimal: 2, signed: true}, want: true},
@@ -28,7 +163,6 @@ func TestAmount(t *testing.T) {
 		{name: "s-007", args: args{value: "+1", decimal: 2, signed: true}, want: true},
 		{name: "s-008", args: args{value: "5.3", decimal: 1}, want: true},
 		{name: "s-009", args: args{value: "-15.4324", decimal: 4, signed: true}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "5.432", decimal: 2}, want: false}, // 保留小数位长度错误
 		{name: "e-002", args: args{value: "321,875.34", decimal: 2}, want: false},
 		{name: "e-003", args: args{value: "00", decimal: 2}, want: false},
@@ -53,14 +187,12 @@ func TestEmail(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "abc@qq.com"}, want: true},
 		{name: "s-002", args: args{value: "abc0.12-12@qq.com.cn"}, want: true},
 		{name: "s-003", args: args{value: "abc_012-12@qq.com.cn"}, want: true},
 		{name: "s-004", args: args{value: "abc_012-12@qq.com.cn"}, want: true},
 		{name: "s-005", args: args{value: "abc_1@qq.com"}, want: true},
 		{name: "s-006", args: args{value: "abc01212.w@gamil.com.cn"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "_abc01212@qq.com"}, want: false},         // 错误: 不能_开头
 		{name: "e-002", args: args{value: "abc01@212@qq.com"}, want: false},         // 错误: 不能出现多个 @
 		{name: "e-003", args: args{value: "abc01212@gamil.com.cn.tt"}, want: false}, // 错误: 超过2次.xx
@@ -86,11 +218,9 @@ func TestAlnum(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "0123456789"}, want: true},
 		{name: "s-002", args: args{value: "hello"}, want: true},
 		{name: "s-003", args: args{value: "hello0123456789"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "中文"}, want: false},
 		{name: "e-002", args: args{value: "hello01234 56789"}, want: false},
 	}
@@ -112,9 +242,7 @@ func TestAlpha(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "helloWorld"}, want: true},
-		// 错误的格式 非存英文字符串
 		{name: "e-001", args: args{value: "0123456789"}, want: false},       // 数字
 		{name: "e-002", args: args{value: "中文"}, want: false},               // 中文
 		{name: "e-003", args: args{value: "hello0123456789"}, want: false},  // 包含数字
@@ -139,15 +267,13 @@ func TestUnInteger(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "100"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "+123"}, want: false},    // 错误: 包含符号
 		{name: "e-002", args: args{value: "5.23"}, want: false},    // 错误: 小数
-		{name: "e-003", args: args{value: "5.432"}, want: false},   // 错误: 多出小数位
+		{name: "e-003", args: args{value: "5.432"}, want: false},   // 不接受小数。
 		{name: "e-004", args: args{value: "-120"}, want: false},    // 错误: 负数
 		{name: "e-005", args: args{value: "-100.45"}, want: false}, // 错误: 负数
-		{name: "e-006", args: args{value: "0"}, want: false},       // 错误: 0非整数
+		{name: "e-006", args: args{value: "0"}, want: false},       // 不接受 0
 		{name: "e-007", args: args{value: "321,875"}, want: false}, // 错误: 千分位格式
 		{name: "e-008", args: args{value: "0.00"}, want: false},    // 错误: 非整数
 		{name: "e-009", args: args{value: "ab"}, want: false},      // 错误: 非数字
@@ -197,9 +323,7 @@ func TestMobile(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "13148888999"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "123456789"}, want: false},
 	}
 	for _, tt := range tests {
@@ -220,10 +344,8 @@ func TestEmpty(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 空字符串
 		{name: "s-001", args: args{value: "   "}, want: true},
 		{name: "s-002", args: args{value: ""}, want: true},
-		// 非空字符串
 		{name: "e-001", args: args{value: "100.23"}, want: false}, // 非空
 		{name: "e-002", args: args{value: "abc"}, want: false},    // 非空
 	}
@@ -245,13 +367,11 @@ func TestNumeric(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "-100.23"}, want: true},
 		{name: "s-002", args: args{value: "100.23"}, want: true},
 		{name: "s-003", args: args{value: `+100.23`}, want: true},
 		{name: "s-004", args: args{value: "100.030"}, want: true},
 		{name: "s-005", args: args{value: "0.00"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "0100.03"}, want: false},
 		{name: "e-002", args: args{value: "+0100.23"}, want: false},
 		{name: "e-003", args: args{value: "00.23"}, want: false},
@@ -275,7 +395,6 @@ func TestPhone(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "123456789"}, want: true},
 		{name: "s-002", args: args{value: "4001-1046618"}, want: true},
 		{name: "s-003", args: args{value: "533-74177002"}, want: true},
@@ -283,7 +402,6 @@ func TestPhone(t *testing.T) {
 		{name: "s-005", args: args{value: "2010014"}, want: true},
 		{name: "s-006", args: args{value: "13148888999"}, want: true},
 		{name: "s-007", args: args{value: "95599"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "53374-177002"}, want: false},
 	}
 	for _, tt := range tests {
@@ -304,10 +422,8 @@ func TestQQ(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "20205"}, want: true},
 		{name: "s-002", args: args{value: "125339782132"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "1999"}, want: false},          // 长度
 		{name: "e-002", args: args{value: "2020-01-01"}, want: false},    // 符号
 		{name: "e-003", args: args{value: "1253397821256"}, want: false}, // 长度
@@ -331,7 +447,6 @@ func TestTimeDay(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "2020-01-01"}, want: true},
 		{name: "s-002", args: args{value: "2020-02-29"}, want: true},
 		{name: "s-003", args: args{value: "2020-01-31"}, want: true},
@@ -341,7 +456,6 @@ func TestTimeDay(t *testing.T) {
 		{name: "s-007", args: args{value: "2020-9-08"}, want: true},
 		{name: "s-008", args: args{value: "2020/01/20"}, want: true},
 		{name: "s-009", args: args{value: "2020.5.4"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "1999-02-31"}, want: false},          // 格式正确, 时间错误
 		{name: "e-002", args: args{value: "1999-02-29"}, want: false},          // 格式正确, 时间错误
 		{name: "e-003", args: args{value: "2020-01-32"}, want: false},          // 时间错误
@@ -376,13 +490,11 @@ func TestTimeMonth(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确格式
 		{name: "s-001", args: args{value: "2020-01"}, want: true},
 		{name: "s-002", args: args{value: "2020-02"}, want: true},
 		{name: "s-003", args: args{value: "1999-02"}, want: true},
 		{name: "s-004", args: args{value: "1999-2"}, want: true},
 		{name: "s-005", args: args{value: "1999-10"}, want: true},
-		// 错误格式
 		{name: "e-001", args: args{value: "1999-02-27"}, want: false},
 		{name: "e-002", args: args{value: "1999-13"}, want: false},
 		{name: "e-003", args: args{value: "1999-0"}, want: false},
@@ -406,7 +518,6 @@ func TestTimestamp(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "2020-01-01 23:59:59"}, want: true},
 		{name: "s-002", args: args{value: "2020-02-29 00:00:00"}, want: true},
 		{name: "s-003", args: args{value: "2020-01-31 01:01:59"}, want: true},
@@ -417,7 +528,6 @@ func TestTimestamp(t *testing.T) {
 		{name: "s-008", args: args{value: "2020-9-08 23:23:23"}, want: true},
 		{name: "s-009", args: args{value: "2020.5.4 23:23:23"}, want: true},
 		{name: "s-010", args: args{value: "2020.10.11 22:00:00"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "1999-02-31 23:23:23"}, want: false}, // 格式正确, 时间错误
 		{name: "e-002", args: args{value: "1999-02-29 23:23:23"}, want: false}, // 格式正确, 时间错误
 		{name: "e-003", args: args{value: "2020-01-32 23:23:23"}, want: false}, // 时间错误
@@ -432,7 +542,7 @@ func TestTimestamp(t *testing.T) {
 		{name: "e-012", args: args{value: "2020.05.00 23:23:23"}, want: false}, // 时间错误
 		{name: "e-013", args: args{value: "2020.0.11 23:23:23"}, want: false},  // 时间错误
 		{name: "e-014", args: args{value: "2020.00.11 23:23:23"}, want: false}, // 时间错误
-		{name: "e-015", args: args{value: "2020.10.11 24:00:00"}, want: false}, // 时间错误 24点 即 00:00:00
+		{name: "e-015", args: args{value: "2020.10.11 24:00:00"}, want: false}, // 小时上限为 23。
 		{name: "e-016", args: args{value: "2020.10.11 22:60:00"}, want: false}, // 时间错误
 		{name: "e-017", args: args{value: "2020.10.11 22:00:60"}, want: false}, // 时间错误
 		{name: "e-018", args: args{value: "2020.10.11-22:00:00"}, want: false}, // 格式错误
@@ -457,13 +567,11 @@ func TestUnNumeric(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "100"}, want: true},
 		{name: "s-002", args: args{value: "5.23"}, want: true},
 		{name: "s-003", args: args{value: "5.432"}, want: true},
 		{name: "s-004", args: args{value: "0"}, want: true},
 		{name: "s-005", args: args{value: "0.00"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "-120"}, want: false},    // 负数
 		{name: "e-002", args: args{value: "-100.45"}, want: false}, // 负数
 		{name: "e-003", args: args{value: "321,875"}, want: false}, // 千分位格式
@@ -489,10 +597,8 @@ func TestUnIntZero(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "100"}, want: true},
 		{name: "s-002", args: args{value: "0"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "5.23"}, want: false},
 		{name: "e-002", args: args{value: "5.432"}, want: false},
 		{name: "e-003", args: args{value: "-120"}, want: false},
@@ -521,9 +627,7 @@ func TestZh(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "中文汉字"}, want: true},
-		// 错误的格式
 		{name: "e-001", args: args{value: "中文汉字523"}, want: false},    // 数字
 		{name: "e-002", args: args{value: "中文汉字,博大精深."}, want: false}, //英文符号
 		{name: "e-003", args: args{value: "中文汉字，博大精深。"}, want: false}, //中文符号
@@ -546,15 +650,13 @@ func TestDomain(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 正确的格式
 		{name: "s-001", args: args{value: "https://wanwang.aliyun.com"}, want: true},
 		{name: "s-002", args: args{value: "https://wanwang.aliyun.com/"}, want: true},
 		{name: "s-003", args: args{value: "https://wanwang.aliyun.com.cn"}, want: true},
 		{name: "s-004", args: args{value: "https://wanwang.aliyun.com.cn/"}, want: true},
 		{name: "s-005", args: args{value: "https://wan-wang.aliyun.com.cn/"}, want: true},
-		// 错误的格式
-		{name: "e-001", args: args{value: "https://wan_wang.aliyun.com.cn/"}, want: false},     // 64位内正确的域名，可包含中文、字母、数字和.-
-		{name: "e-002", args: args{value: "https://wanwang.aliyun.com.cn//"}, want: false},     // / 后不能有参数
+		{name: "e-001", args: args{value: "https://wan_wang.aliyun.com.cn/"}, want: false},     // 下划线不属于允许的域名字符
+		{name: "e-002", args: args{value: "https://wanwang.aliyun.com.cn//"}, want: false},     // 末尾至多一个斜线。
 		{name: "e-003", args: args{value: "https://wanwang.aliyun.com.cn/incex"}, want: false}, // 不能带路径或参数
 	}
 	for _, tt := range tests {
@@ -573,29 +675,23 @@ func TestPassword(t *testing.T) {
 		max   uint8
 	}
 	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
+		name      string
+		args      args
+		wantValid bool // true 表示应通过校验。
 	}{
-		// 正确的格式
-		{name: "s-001", args: args{value: "ABC12321cb", min: 8, max: 12}, wantErr: true},
-		{name: "s-002", args: args{value: "ABC123_1cb", min: 8, max: 12}, wantErr: true},
-		{name: "s-003", args: args{value: "ABC123__1cb", min: 8, max: 12}, wantErr: true},
-		{name: "s-004", args: args{value: "ABC123___1cb", min: 8, max: 12}, wantErr: true},
-		{name: "s-005", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, wantErr: true},
-		{name: "s-006", args: args{value: "abcefghjkl", min: 8, max: 12}, wantErr: true},
-		{name: "s-007", args: args{value: "123456789", min: 8, max: 12}, wantErr: true},
-		// 错误的格式
-		{name: "e-001", args: args{value: "ABC123#1cb", min: 8, max: 12}, wantErr: false}, // 不能使用特殊字符
+		{name: "s-001", args: args{value: "ABC12321cb", min: 8, max: 12}, wantValid: true},
+		{name: "s-002", args: args{value: "ABC123_1cb", min: 8, max: 12}, wantValid: true},
+		{name: "s-003", args: args{value: "ABC123__1cb", min: 8, max: 12}, wantValid: true},
+		{name: "s-004", args: args{value: "ABC123___1cb", min: 8, max: 12}, wantValid: true},
+		{name: "s-005", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, wantValid: true},
+		{name: "s-006", args: args{value: "abcefghjkl", min: 8, max: 12}, wantValid: true},
+		{name: "s-007", args: args{value: "123456789", min: 8, max: 12}, wantValid: true},
+		{name: "e-001", args: args{value: "ABC123#1cb", min: 8, max: 12}, wantValid: false}, // 不能使用特殊字符
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.Password(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
-				t.Errorf("Password() WrapError = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
-			} else {
-				if err != nil {
-					//t.Logf("Password() WrapError = %v, length = %v", WrapError, len(tt.args.value))
-				}
+			if err := utils.Password(tt.args.value, tt.args.min, tt.args.max); (err == nil) != tt.wantValid {
+				t.Errorf("Password() error = %v, wantValid %v, input = %q", err, tt.wantValid, tt.args.value)
 			}
 		})
 	}
@@ -608,32 +704,26 @@ func TestStrongPassword(t *testing.T) {
 		max   uint8
 	}
 	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
+		name      string
+		args      args
+		wantValid bool // true 表示应通过校验。
 	}{
-		// 正确的格式
-		{name: "s-001", args: args{value: "ABC12321cb", min: 8, max: 12}, wantErr: true},
-		// 错误的格式
-		{name: "e-001", args: args{value: "ABC123#1cb", min: 8, max: 12}, wantErr: false},   // 不能使用特殊字符
-		{name: "e-002", args: args{value: "ABC123_1cb", min: 8, max: 12}, wantErr: false},   // 不能使用特殊字符
-		{name: "e-003", args: args{value: "ABC123__1cb", min: 8, max: 12}, wantErr: false},  // 不能使用特殊字符
-		{name: "e-004", args: args{value: "ABC123___1cb", min: 8, max: 12}, wantErr: false}, // 不能使用特殊字符
-		{name: "e-005", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, wantErr: false},   // 必须包含小写字母
-		{name: "e-006", args: args{value: "abcefghjkl", min: 8, max: 12}, wantErr: false},   // 必须包含大写字母
-		{name: "e-007", args: args{value: "123456789", min: 8, max: 12}, wantErr: false},    // 必须包含小写字母
-		{name: "e-008", args: args{value: "ABCEFghjkl", min: 8, max: 12}, wantErr: false},   // 必须包含数字
-		{name: "e-009", args: args{value: "ABCE56789", min: 8, max: 12}, wantErr: false},    // 必须包含小写字母
-		{name: "e-010", args: args{value: "abce56789", min: 8, max: 12}, wantErr: false},    // 必须包含大写字母
+		{name: "s-001", args: args{value: "ABC12321cb", min: 8, max: 12}, wantValid: true},
+		{name: "e-001", args: args{value: "ABC123#1cb", min: 8, max: 12}, wantValid: false},   // 不能使用特殊字符
+		{name: "e-002", args: args{value: "ABC123_1cb", min: 8, max: 12}, wantValid: false},   // 不能使用特殊字符
+		{name: "e-003", args: args{value: "ABC123__1cb", min: 8, max: 12}, wantValid: false},  // 不能使用特殊字符
+		{name: "e-004", args: args{value: "ABC123___1cb", min: 8, max: 12}, wantValid: false}, // 不能使用特殊字符
+		{name: "e-005", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, wantValid: false},   // 必须包含小写字母
+		{name: "e-006", args: args{value: "abcefghjkl", min: 8, max: 12}, wantValid: false},   // 必须包含大写字母
+		{name: "e-007", args: args{value: "123456789", min: 8, max: 12}, wantValid: false},    // 必须包含小写字母
+		{name: "e-008", args: args{value: "ABCEFghjkl", min: 8, max: 12}, wantValid: false},   // 必须包含数字
+		{name: "e-009", args: args{value: "ABCE56789", min: 8, max: 12}, wantValid: false},    // 必须包含小写字母
+		{name: "e-010", args: args{value: "abce56789", min: 8, max: 12}, wantValid: false},    // 必须包含大写字母
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.StrongPassword(tt.args.value, 8, 12); (err == nil) != tt.wantErr {
-				t.Errorf("StrongPassword() WrapError = %v, wantErr %v, length = %v", err, tt.wantErr, len(tt.args.value))
-			} else {
-				if err != nil {
-					//t.Logf("StrongPassword() WrapError = %v, length = %v", WrapError, len(tt.args.value))
-				}
+			if err := utils.StrongPassword(tt.args.value, tt.args.min, tt.args.max); (err == nil) != tt.wantValid {
+				t.Errorf("StrongPassword() error = %v, wantValid %v, input = %q", err, tt.wantValid, tt.args.value)
 			}
 		})
 	}
@@ -646,31 +736,26 @@ func TestStrongPasswordWithSymbols(t *testing.T) {
 		max   uint8
 	}
 	tests := []struct {
-		name string
-		args args
-		want bool
+		name      string
+		args      args
+		wantValid bool // true 表示应通过校验。
 	}{
-		// 正确的格式
-		{name: "s-001", args: args{value: "ABC*-f&#21c", min: 8, max: 12}, want: true},
-		{name: "s-002", args: args{value: "*-Af&#2c", min: 8, max: 12}, want: true},
-		{name: "s-003", args: args{value: "ABc你123*", min: 8, max: 8}, want: true},
-		// 错误的格式
-		{name: "e-001", args: args{value: "Fg2B*-AAf&#256cb", min: 8, max: 12}, want: false}, // 长度16 不在 8 - 12之间
-		{name: "e-002", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, want: false},       // 必须包含小写字母
-		{name: "e-003", args: args{value: "abcefghjkl", min: 8, max: 12}, want: false},       // 必须包含大写字母
-		{name: "e-004", args: args{value: "123456789", min: 8, max: 12}, want: false},        // 必须包含小写字母
-		{name: "e-005", args: args{value: "ABCEFghjkl", min: 8, max: 12}, want: false},       // 必须包含数字
-		{name: "e-006", args: args{value: "ABCE56789", min: 8, max: 12}, want: false},        // 必须包含小写字母
-		{name: "e-007", args: args{value: "abce56789", min: 8, max: 12}, want: false},        // 必须包含大写字母
+		{name: "s-001", args: args{value: "ABC*-f&#21c", min: 8, max: 12}, wantValid: true},
+		{name: "s-002", args: args{value: "*-Af&#2c", min: 8, max: 12}, wantValid: true},
+		{name: "s-003", args: args{value: "ABc你123*", min: 8, max: 8}, wantValid: true},
+		{name: "e-001", args: args{value: "Fg2B*-AAf&#256cb", min: 8, max: 12}, wantValid: false}, // 超过最大字符数
+		{name: "e-002", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, wantValid: false},       // 必须包含小写字母
+		{name: "e-003", args: args{value: "abcefghjkl", min: 8, max: 12}, wantValid: false},       // 必须包含大写字母
+		{name: "e-004", args: args{value: "123456789", min: 8, max: 12}, wantValid: false},        // 必须包含小写字母
+		{name: "e-005", args: args{value: "ABCEFghjkl", min: 8, max: 12}, wantValid: false},       // 必须包含数字
+		{name: "e-006", args: args{value: "ABCE56789", min: 8, max: 12}, wantValid: false},        // 必须包含小写字母
+		{name: "e-007", args: args{value: "abce56789", min: 8, max: 12}, wantValid: false},        // 必须包含大写字母
+		{name: "e-008", args: args{value: "ABc你123*4", min: 8, max: 8}, wantValid: false},         // 超过表内最大字符数
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.StrongPasswordWithSymbols(tt.args.value, 8, 12); (err == nil) != tt.want {
-				t.Errorf("StrongPasswordWithSymbols() WrapError = %v, want %v, length = %v", err, tt.want, len(tt.args.value))
-			} else {
-				if err != nil {
-					//t.Logf("StrongPasswordWithSymbols() WrapError = %v, length = %v", WrapError, len(tt.args.value))
-				}
+			if err := utils.StrongPasswordWithSymbols(tt.args.value, tt.args.min, tt.args.max); (err == nil) != tt.wantValid {
+				t.Errorf("StrongPasswordWithSymbols() error = %v, wantValid %v, input = %q", err, tt.wantValid, tt.args.value)
 			}
 		})
 	}
@@ -683,29 +768,23 @@ func TestAccount(t *testing.T) {
 		max   uint8
 	}
 	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
+		name      string
+		args      args
+		wantValid bool // true 表示应通过校验。
 	}{
-		// 正确的格式
-		{name: "s-001", args: args{value: "ABC12321cb", min: 8, max: 12}, wantErr: true},
-		{name: "s-002", args: args{value: "ABC123_1cb", min: 8, max: 12}, wantErr: true},
-		{name: "s-003", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, wantErr: true},
-		{name: "s-004", args: args{value: "abcefghjkl", min: 8, max: 12}, wantErr: true},
-		// 错误的格式
-		{name: "e-001", args: args{value: "ABC123#1cb", min: 8, max: 12}, wantErr: false},   // 不能使用特殊字符
-		{name: "e-002", args: args{value: "ABC123__1cb", min: 8, max: 12}, wantErr: false},  // 不能连续出现下滑线'_'两次或两次以上
-		{name: "e-003", args: args{value: "ABC123___1cb", min: 8, max: 12}, wantErr: false}, // 不能连续出现下滑线'_'两次或两次以上
-		{name: "e-004", args: args{value: "123456789", min: 8, max: 12}, wantErr: false},    // 非字母开头
+		{name: "s-001", args: args{value: "ABC12321cb", min: 8, max: 12}, wantValid: true},
+		{name: "s-002", args: args{value: "ABC123_1cb", min: 8, max: 12}, wantValid: true},
+		{name: "s-003", args: args{value: "ABCEFGHJKL", min: 8, max: 12}, wantValid: true},
+		{name: "s-004", args: args{value: "abcefghjkl", min: 8, max: 12}, wantValid: true},
+		{name: "e-001", args: args{value: "ABC123#1cb", min: 8, max: 12}, wantValid: false},   // 不能使用特殊字符
+		{name: "e-002", args: args{value: "ABC123__1cb", min: 8, max: 12}, wantValid: false},  // 不接受连续下划线。
+		{name: "e-003", args: args{value: "ABC123___1cb", min: 8, max: 12}, wantValid: false}, // 不接受连续下划线。
+		{name: "e-004", args: args{value: "123456789", min: 8, max: 12}, wantValid: false},    // 非字母开头
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.Account(tt.args.value, tt.args.min, tt.args.max); (err == nil) != tt.wantErr {
-				t.Errorf("Account() error = %v, wantErr %v", err, tt.wantErr)
-			} else {
-				if err != nil {
-					//t.Logf("Account() WrapError = %v, length = %v", WrapError, len(tt.args.value))
-				}
+			if err := utils.Account(tt.args.value, tt.args.min, tt.args.max); (err == nil) != tt.wantValid {
+				t.Errorf("Account() error = %v, wantValid %v", err, tt.wantValid)
 			}
 		})
 	}
@@ -729,6 +808,20 @@ func TestValidationErrorClassification(t *testing.T) {
 		{
 			name:       "account_consecutive_underscore",
 			run:        func() error { return utils.Account("abc__123", 8, 12) },
+			wantReason: utils.ValidationReasonConsecutiveUnderscore,
+			wantMin:    8,
+			wantMax:    12,
+		},
+		{
+			name:       "account_length_before_underscore",
+			run:        func() error { return utils.Account("__", 8, 12) },
+			wantReason: utils.ValidationReasonLengthOutOfRange,
+			wantMin:    8,
+			wantMax:    12,
+		},
+		{
+			name:       "account_underscore_before_charset",
+			run:        func() error { return utils.Account("!abc__12", 8, 12) },
 			wantReason: utils.ValidationReasonConsecutiveUnderscore,
 			wantMin:    8,
 			wantMax:    12,
@@ -783,6 +876,11 @@ func TestValidationErrorDefaultMessage(t *testing.T) {
 		err  error
 		want string
 	}{
+		{
+			name: "nil_receiver",
+			err:  (*utils.ValidationError)(nil),
+			want: "",
+		},
 		{
 			name: "account_length",
 			err:  utils.Account("abc", 8, 12),
@@ -880,14 +978,12 @@ func Test_hasSymbols(t *testing.T) {
 		args args
 		want bool
 	}{
-		// 错误
 		{name: "001", args: args{value: "A"}, want: false},
 		{name: "002", args: args{value: "a"}, want: false},
 		{name: "003", args: args{value: "1"}, want: false},
 		{name: "004", args: args{value: "aB"}, want: false},
 		{name: "005", args: args{value: "A1"}, want: false},
 		{name: "006", args: args{value: "中文"}, want: false},
-		// 正确的
 		{name: "007", args: args{value: "&"}, want: true},
 		{name: "008", args: args{value: "$"}, want: true},
 		{name: "009", args: args{value: "$."}, want: true},

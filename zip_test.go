@@ -3,8 +3,10 @@ package utils_test
 import (
 	"archive/zip"
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Is999/go-utils"
@@ -12,20 +14,9 @@ import (
 
 func TestZip(t *testing.T) {
 	srcDir := createArchiveFixture(t)
-	tests := []struct {
-		name    string
-		files   []string
-		zipFile string
-		wantErr bool
-	}{
-		{name: "001", files: []string{srcDir}, zipFile: filepath.Join(t.TempDir(), "go-utils.zip"), wantErr: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.Zip(tt.zipFile, tt.files); (err != nil) != tt.wantErr {
-				t.Errorf("Zip() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	zipFile := filepath.Join(t.TempDir(), "go-utils.zip")
+	if err := utils.Zip(zipFile, []string{srcDir}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -54,6 +45,115 @@ func TestAddFileToZipHonorsBaseDirForDirectory(t *testing.T) {
 	}
 }
 
+func TestZipDirectoriesWorkWithStandardFS(t *testing.T) {
+	// 标准库的 ZIP 文件系统按名称末尾的 / 识别目录，空目录也必须可枚举。
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(filepath.Join(source, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "file.txt"), []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	if err := utils.AddFileToZip(writer, source, "root"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fs.ReadDir(reader, "root/source")
+	if err != nil {
+		t.Fatalf("ReadDir(source) error = %v", err)
+	}
+	if len(entries) != 2 || entries[0].Name() != "empty" || !entries[0].IsDir() || entries[1].Name() != "file.txt" {
+		t.Fatalf("ReadDir(source) = %v, want empty directory and file.txt", entries)
+	}
+	entries, err = fs.ReadDir(reader, "root/source/empty")
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("ReadDir(empty) = (%v, %v), want empty directory", entries, err)
+	}
+	data, err := fs.ReadFile(reader, "root/source/file.txt")
+	if err != nil || string(data) != "payload" {
+		t.Fatalf("ReadFile() = (%q, %v), want payload", data, err)
+	}
+}
+
+func TestArchivePathsPreserveSpaces(t *testing.T) {
+	// 打包输入、输出目录和解包目录都保留原始名称，避免校验与实际 I/O 使用不同路径。
+	root := t.TempDir()
+	source := filepath.Join(root, " source ")
+	if err := os.MkdirAll(filepath.Join(source, " empty "), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, " file "), []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		suffix string
+		pack   func(string, []string) error
+		unpack func(string, string) error
+	}{
+		{suffix: ".zip", pack: utils.Zip, unpack: utils.UnZip},
+		{suffix: ".tar", pack: utils.Tar, unpack: utils.UnTar},
+		{suffix: ".tar.gz", pack: utils.TarGz, unpack: utils.UnTar},
+	} {
+		t.Run(tt.suffix, func(t *testing.T) {
+			outputDir := filepath.Join(t.TempDir(), " archives ")
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			output := filepath.Join(outputDir, "bundle"+tt.suffix)
+			if err := tt.pack(output, []string{source}); err != nil {
+				t.Fatalf("pack() error = %v", err)
+			}
+			dest := filepath.Join(t.TempDir(), " extracted ")
+			if err := tt.unpack(output, dest); err != nil {
+				t.Fatalf("unpack() error = %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(dest, " source ", " file "))
+			if err != nil || string(got) != "payload" {
+				t.Fatalf("extracted file = (%q, %v), want payload", got, err)
+			}
+			if !utils.IsDir(filepath.Join(dest, " source ", " empty ")) {
+				t.Fatal("empty directory was not preserved")
+			}
+			// 输出名的后缀判断仍允许末尾空白，但落盘时必须使用完整原始文件名。
+			if err := tt.pack(output+" ", []string{source}); err != nil {
+				t.Fatalf("pack(output with trailing space) error = %v", err)
+			}
+			if _, err := os.Stat(output + " "); err != nil {
+				t.Fatal(err)
+			}
+			// 移除无空白的同名归档，避免误打开裁剪后的路径也能通过回归。
+			if err := os.Remove(output); err != nil {
+				t.Fatal(err)
+			}
+			// 同一公开库产出的归档应可直接解包，格式判定不得改写实际打开的文件名。
+			spaceDest := t.TempDir()
+			if err := tt.unpack(output+" ", spaceDest); err != nil {
+				t.Fatalf("unpack(output with trailing space) error = %v", err)
+			}
+			got, err = os.ReadFile(filepath.Join(spaceDest, " source ", " file "))
+			if err != nil || string(got) != "payload" {
+				t.Fatalf("extracted trailing-space archive = (%q, %v), want payload", got, err)
+			}
+			// 同时存在裁剪后的目录时，仍须按原输入目录拒绝把输出归档写入自身。
+			if err := os.MkdirAll(strings.TrimSpace(source), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			err = tt.pack(filepath.Join(source, "inside"+tt.suffix), []string{source})
+			if err == nil || !strings.Contains(err.Error(), "输出文件不能位于待打包目录内") {
+				t.Fatalf("pack(output inside source) error = %v", err)
+			}
+		})
+	}
+}
+
 func TestUnZip(t *testing.T) {
 	srcDir := createArchiveFixture(t)
 	zipPath := filepath.Join(t.TempDir(), "go-utils.zip")
@@ -61,22 +161,11 @@ func TestUnZip(t *testing.T) {
 		t.Fatalf("Zip() error = %v", err)
 	}
 
-	tests := []struct {
-		name    string
-		zipFile string
-		destDir string
-		wantErr bool
-	}{
-		{name: "001", zipFile: zipPath, destDir: filepath.Join(t.TempDir(), "zip")},
+	destDir := filepath.Join(t.TempDir(), "zip")
+	if err := utils.UnZip(zipPath, destDir); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.UnZip(tt.zipFile, tt.destDir); (err != nil) != tt.wantErr {
-				t.Errorf("UnZip() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			assertArchiveExtracted(t, tt.destDir, filepath.Base(srcDir))
-		})
-	}
+	assertArchiveExtracted(t, destDir, filepath.Base(srcDir))
 }
 
 func TestUnZipRejectsPathTraversal(t *testing.T) {

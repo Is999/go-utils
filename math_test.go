@@ -44,8 +44,6 @@ func TestRand(t *testing.T) {
 						if got := utils.Rand(tt.args.min, tt.args.max, r); !(got >= min && got <= max) {
 							t.Errorf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.min, tt.args.max)
 							break
-						} else {
-							//t.Logf("%v-%v%v Rand() = %v, want %v-%v", tt.name, i, j, got, tt.args.min, tt.args.max)
 						}
 					}
 				}(minInt, maxInt, i, tt)
@@ -66,7 +64,6 @@ func BenchmarkRand(t *testing.B) {
 		args args
 	}
 	tests := []testCase{
-		//{name: "001", args: args{min: -1, max: 2}},
 		{name: "002", args: args{min: 10000, max: 100000}},
 	}
 	r := utils.RandSource

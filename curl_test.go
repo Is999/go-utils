@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,33 +22,31 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-func setLogConfig() {
-	// 日志等级
+// setLogConfig 只在当前测试期间开启日志，结束后恢复其他用例使用的默认实例。
+func setLogConfig(t *testing.T) {
+	t.Helper()
+	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
 	levelVar := &slog.LevelVar{}
+	// 允许 Debug，使请求初始化、重试和关闭日志都能进入测试输出。
 	levelVar.Set(slog.LevelDebug)
 
 	opts := &slog.HandlerOptions{
-		AddSource: true,     // 输出日志的文件和行号
-		Level:     levelVar, // 日志等级
+		AddSource: true,
+		Level:     levelVar,
 	}
 
-	// 日志输出格式
 	handler := slog.NewTextHandler(os.Stdout, opts)
-	//handler := slog.NewJSONHandler(os.Stdout, opts)
-
-	// 修改默认的日志输出方式
 	slog.SetDefault(slog.New(handler))
 }
 
+// TestGet 核对查询参数回显，以及成功和已允许失败状态下的完整 JSON 响应。
 func TestGet(t *testing.T) {
-	// 日志配置
-	setLogConfig()
+	setLogConfig(t)
 
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("/curl/get", func(w http.ResponseWriter, r *http.Request) {
-		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
-
-		// user 是服务端按查询参数回显的响应数据。
+		// user 按查询参数回显，未导出的 phone 不会写入 JSON。
 		user := User{
 			Name:      r.URL.Query().Get("Name"),
 			Age:       utils.ToInt(r.URL.Query().Get("Age")),
@@ -58,7 +55,6 @@ func TestGet(t *testing.T) {
 			Address:   r.URL.Query().Get("Address"),
 			phone:     r.URL.Query().Get("phone"),
 		}
-
 		if r.URL.Query().Get("success") == "false" {
 			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(20000, "fail", user)
 			return
@@ -68,166 +64,73 @@ func TestGet(t *testing.T) {
 	server := httptest.NewServer(serveMux)
 	defer server.Close()
 
-	// 创建一个curl，开启默认日志
-	curl := utils.NewCurl().SetDefaultLogOutput(true)
-
-	type args struct {
-		url         string
-		user        User
-		wantSuccess bool
-		resolve     func(body []byte) error
-	}
-
+	curl := utils.NewCurl().SetDefaultLogOutput(true).
+		SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
+	defer curl.CloseIdleConnections()
 	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
+		name        string
+		user        User // 原始输入，覆盖数字、布尔值和中文参数。
+		wantSuccess bool // 控制服务端业务分支；失败场景的 406 已加入允许列表。
 	}{
-		{name: "001", args: args{
-			url: server.URL + "/curl/get",
-			resolve: func(body []byte) error {
-				res := &RespBody[User]{}
-				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Tag(err)
-				}
-				if !res.Success {
-					// 错误处理
-					curl.Logger.Error("失败", "body", res)
-				} else {
-					// 正常处理
-					curl.Logger.Info("成功", "body", res)
-				}
-				return nil
-			},
-			user: User{
-				Name:      "Andy",
-				Age:       18,
-				Sex:       "男",
-				IsMarried: false,
-				Address:   "火星",
-				phone:     "18899995555",
-			},
-			wantSuccess: true,
-		}, wantErr: false},
-		{name: "002", args: args{
-			url: server.URL + "/curl/get",
-			resolve: func(body []byte) error {
-				res := &RespBody[User]{}
-				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Tag(err)
-				}
-				if !res.Success {
-					// 错误处理
-					curl.Logger.Error("失败", "body", res)
-				} else {
-					// 正常处理
-					curl.Logger.Info("成功", "body", res)
-				}
-				return nil
-			},
-			user: User{
-				Name:      "Lisa",
-				Age:       28,
-				Sex:       "女",
-				IsMarried: true,
-				Address:   "月星",
-				phone:     "18899996666",
-			},
-			wantSuccess: true,
-		}, wantErr: false},
-		{name: "003", args: args{
-			url: server.URL + "/curl/get",
-			resolve: func(body []byte) error {
-				res := &RespBody[User]{}
-				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Tag(err)
-				}
-				if !res.Success {
-					// 错误处理
-					curl.Logger.Error("失败", "body", res)
-				} else {
-					// 正常处理
-					curl.Logger.Info("成功", "body", res)
-				}
-				return nil
-			},
-			user: User{
-				Name:      "Jack",
-				Age:       38,
-				Sex:       "男",
-				IsMarried: false,
-				Address:   "金星",
-				phone:     "18899998888",
-			},
-		}, wantErr: false},
+		{name: "001", user: User{
+			Name: "Andy", Age: 18, Sex: "男", IsMarried: false,
+			Address: "火星", phone: "18899995555",
+		}, wantSuccess: true},
+		{name: "002", user: User{
+			Name: "Lisa", Age: 28, Sex: "女", IsMarried: true,
+			Address: "月星", phone: "18899996666",
+		}, wantSuccess: true},
+		{name: "003", user: User{
+			Name: "Jack", Age: 38, Sex: "男", IsMarried: false,
+			Address: "金星", phone: "18899998888",
+		}},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			//defer func() {
-			//	// 关闭连接
-			//	Curl.CloseIdleConnections()
-			//}()
-
-			// 设置请求ID
-			curl.SetRequestID()
-
-			// 设置记录日志模式
-			//Curl.SetDump(true)
-
-			// 设置重试次数
-			//Curl.SetMaxRetry(5)
-
-			// 设置ContentType
-			//Curl.SetContentType("application/json")
-
-			// 添加请求参数
-			curl.SetParam("success", fmt.Sprint(tt.args.wantSuccess))
-
+			curl.SetRequestID().SetParam("success", fmt.Sprint(tt.wantSuccess))
 			userType := reflect.TypeFor[User]()
-			userValue := reflect.ValueOf(tt.args.user)
+			userValue := reflect.ValueOf(tt.user)
 			for field := range userType.Fields() {
-				// 获取每个成员的结构体字段类型
-				value := userValue.FieldByName(field.Name)
-				curl.SetParam(field.Name, fmt.Sprint(value))
+				curl.SetParam(field.Name, fmt.Sprint(userValue.FieldByName(field.Name)))
 			}
 
-			// 解析响应数据
-			curl.AfterBody(tt.args.resolve)
-
-			// 设置响应状态码
-			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
-
-			if err := curl.Get(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", errors.Trace(err))
-				t.Errorf("TestGet() error = %v, wantErr %v", err, tt.wantErr)
+			var got RespBody[User] // 回调未执行或响应字段丢失时，也会与完整期望值不符。
+			curl.AfterBody(func(body []byte) error { return utils.Unmarshal(body, &got) })
+			if err := curl.Get(server.URL + "/curl/get"); err != nil {
+				t.Fatalf("Get() error = %v", err)
+			}
+			want := RespBody[User]{Success: tt.wantSuccess, Code: 10000, Message: "SUCCESS", Data: tt.user}
+			want.Data.phone = "" // JSON 不传输未导出字段。
+			if !tt.wantSuccess {
+				want.Code, want.Message = 20000, "fail"
+			}
+			if got != want {
+				t.Fatalf("response = %+v, want %+v", got, want)
 			}
 		})
 	}
-
 }
 
+// TestPost 核对 JSON 请求体回显，并区分 HTTP 发送成功与业务失败响应。
 func TestPost(t *testing.T) {
-	// 日志配置
-	setLogConfig()
+	setLogConfig(t)
 
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("/curl/post", func(w http.ResponseWriter, r *http.Request) {
-		slog.Info(fmt.Sprintf("%v", r.URL.Query()))
 		if r.Method != http.MethodPost {
 			utils.JSON(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
 			return
 		}
-
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			utils.JSON(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Failed to read request body")
 			return
 		}
-		slog.Info("Received POST", "body", string(body))
-
 		user := new(User)
-		utils.Unmarshal(body, user)
+		if err := utils.Unmarshal(body, user); err != nil {
+			utils.JSON(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Invalid JSON request body")
+			return
+		}
 		if r.URL.Query().Get("success") == "false" {
 			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", user)
 			return
@@ -237,151 +140,57 @@ func TestPost(t *testing.T) {
 	server := httptest.NewServer(serveMux)
 	defer server.Close()
 
-	// 创建一个curl
-	curl := utils.NewCurl()
-
-	type args struct {
-		url         string
-		user        User
-		wantSuccess bool
-		resolve     func(body []byte) error
-	}
-
+	curl := utils.NewCurl().SetDump(true).SetMaxRetry(3).SetContentType("application/json").
+		SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
+	defer curl.CloseIdleConnections()
 	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
+		name        string
+		user        User // 序列化到请求体，覆盖中文、数字和布尔字段。
+		wantSuccess bool // 控制 URL 参数选定的服务端业务分支。
 	}{
-		{name: "001", args: args{
-			url: server.URL + "/curl/post",
-			resolve: func(body []byte) error {
-				res := &RespBody[User]{}
-				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Tag(err)
-				}
-				if !res.Success {
-					// 错误处理
-					curl.Logger.Error("失败", "body", res)
-				} else {
-					// 正常处理
-					curl.Logger.Info("成功", "body", res)
-				}
-				return nil
-			},
-			user: User{
-				Name:      "Andy",
-				Age:       18,
-				Sex:       "男",
-				IsMarried: false,
-				Address:   "火星",
-				phone:     "18899995555",
-			},
-			wantSuccess: true,
-		}, wantErr: false},
-		{name: "002", args: args{
-			url: server.URL + "/curl/post",
-			resolve: func(body []byte) error {
-				res := &RespBody[User]{}
-				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Tag(err)
-				}
-				if !res.Success {
-					// 错误处理
-					curl.Logger.Error("失败", "body", res)
-				} else {
-					// 正常处理
-					curl.Logger.Info("成功", "body", res)
-				}
-				return nil
-			},
-			user: User{
-				Name:      "Lisa",
-				Age:       28,
-				Sex:       "女",
-				IsMarried: true,
-				Address:   "月星",
-				phone:     "18899996666",
-			},
-			wantSuccess: true,
-		}, wantErr: false},
-		{name: "003", args: args{
-			url: server.URL + "/curl/post",
-			resolve: func(body []byte) error {
-				res := &RespBody[User]{}
-				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Tag(err)
-				}
-				if !res.Success {
-					// 错误处理
-					curl.Logger.Error("失败", "body", res)
-				} else {
-					// 正常处理
-					curl.Logger.Info("成功", "body", res)
-				}
-				return nil
-			},
-			user: User{
-				Name:      "Jack",
-				Age:       38,
-				Sex:       "男",
-				IsMarried: false,
-				Address:   "金星",
-				phone:     "18899998888",
-			},
-		}, wantErr: false},
+		{name: "001", user: User{
+			Name: "Andy", Age: 18, Sex: "男", IsMarried: false,
+			Address: "火星", phone: "18899995555",
+		}, wantSuccess: true},
+		{name: "002", user: User{
+			Name: "Lisa", Age: 28, Sex: "女", IsMarried: true,
+			Address: "月星", phone: "18899996666",
+		}, wantSuccess: true},
+		{name: "003", user: User{
+			Name: "Jack", Age: 38, Sex: "男", IsMarried: false,
+			Address: "金星", phone: "18899998888",
+		}},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			marshal, err := utils.Marshal(tt.args.user)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("TestPost Marshal() error = %v, wantErr %v", err, tt.wantErr)
+			body, err := utils.Marshal(tt.user)
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
 			}
-			defer func() {
-				// 关闭连接
-				// Curl.CloseIdleConnections()
+			defer curl.ResetParams(nil)
+			curl.SetRequestID().SetParam("page", "2").AddParam("limit", "10").
+				SetParam("success", fmt.Sprint(tt.wantSuccess)).SetBodyBytes(body)
 
-				// 清空params
-				curl.ResetParams(nil) // 清空params
-			}()
-
-			// 设置请求ID
-			curl.SetRequestID()
-
-			// 设置记录日志模式
-			curl.SetDump(true)
-
-			// 设置重试次数
-			curl.SetMaxRetry(3)
-
-			// 设置ContentType
-			curl.SetContentType("application/json")
-
-			// 添加参数url pathinfo模式参数
-			curl.SetParam("page", "2").AddParam("limit", "10")
-			curl.SetParam("success", fmt.Sprint(tt.args.wantSuccess))
-
-			// 添加post参数
-			curl.SetBodyBytes(marshal)
-
-			// 解析响应数据
-			curl.AfterBody(tt.args.resolve)
-
-			// 设置响应状态码
-			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
-
-			if err := curl.Post(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", errors.Trace(err))
-				t.Errorf("TestPost() error = %v, wantErr %v", err, tt.wantErr)
+			var got RespBody[User] // 直接断言完整响应，日志输出不能代表业务结果正确。
+			curl.AfterBody(func(body []byte) error { return utils.Unmarshal(body, &got) })
+			if err := curl.Post(server.URL + "/curl/post"); err != nil {
+				t.Fatalf("Post() error = %v", err)
 			}
-
+			want := RespBody[User]{Success: tt.wantSuccess, Code: 1000, Message: "SUCCESS", Data: tt.user}
+			want.Data.phone = "" // JSON 不传输未导出字段。
+			if !tt.wantSuccess {
+				want.Code, want.Message = 2000, "fail"
+			}
+			if got != want {
+				t.Fatalf("response = %+v, want %+v", got, want)
+			}
 		})
 	}
 }
 
+// TestPostForm 核对表单字段回显和同名值的追加顺序，发送成功还必须得到预期业务响应。
 func TestPostForm(t *testing.T) {
-	// 日志配置
-	setLogConfig()
+	setLogConfig(t)
 
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("/curl/form", func(w http.ResponseWriter, r *http.Request) {
@@ -393,15 +202,13 @@ func TestPostForm(t *testing.T) {
 			utils.JSON(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
 			return
 		}
-		slog.Info("Received POST FORM", "form", r.Form)
-
-		info := make(map[string]any)
-		info["name"] = r.FormValue("name")
-		info["age"] = r.FormValue("age")
-		info["language"] = r.FormValue("language")
-		info["friends"] = r.Form["friends"]
-		info["hobby"] = r.Form["hobby"]
-
+		info := map[string]any{ // 回显实际解析值，避免仅验证本地 Params 配置。
+			"name":     r.FormValue("name"),
+			"age":      r.FormValue("age"),
+			"language": r.FormValue("language"),
+			"friends":  r.Form["friends"],
+			"hobby":    r.Form["hobby"],
+		}
 		if r.URL.Query().Get("success") == "false" {
 			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
 			return
@@ -411,223 +218,123 @@ func TestPostForm(t *testing.T) {
 	server := httptest.NewServer(serveMux)
 	defer server.Close()
 
-	// 创建一个curl
-	curl := utils.NewCurl()
+	curl := utils.NewCurl().SetDefaultLogOutput(true).SetRequestID().SetMaxRetry(3).
+		SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
+	defer curl.CloseIdleConnections()
+	curl.SetParams(map[string]string{"name": "Lisa", "age": "22"}).
+		AddParams(map[string][]string{
+			"hobby":   {"读书", "游泳", "旅游"},
+			"friends": {"Kelly", "Shirley"},
+		}).
+		SetParam("language", "English,中文,Français").
+		AddParam("hobby", "骑行").AddParam("hobby", "冒险")
 
-	type args struct {
-		url     string
-		resolve func(body []byte) error
+	var got RespBody[map[string]any] // 没有执行回调时，零值也无法通过下面的业务字段断言。
+	curl.AfterBody(func(body []byte) error { return utils.Unmarshal(body, &got) })
+	if err := curl.PostForm(server.URL + "/curl/form"); err != nil {
+		t.Fatalf("PostForm() error = %v", err)
 	}
-
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{name: "001", args: args{
-			url: server.URL + "/curl/form",
-			resolve: func(body []byte) error {
-				res := &RespBody[map[string]any]{}
-				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Tag(err)
-				}
-				if !res.Success {
-					// 错误处理
-					curl.Logger.Error("失败", "body", res)
-				} else {
-					// 正常处理
-					curl.Logger.Info("成功", "body", res)
-				}
-				return nil
-			},
-		}, wantErr: false},
+	want := RespBody[map[string]any]{
+		Success: true, Code: 1000, Message: "SUCCESS",
+		Data: map[string]any{
+			"name":     "Lisa",
+			"age":      "22",
+			"language": "English,中文,Français",
+			// JSON 数组解码到 []any；保留多值字段在请求中的添加顺序。
+			"friends": []any{"Kelly", "Shirley"},
+			"hobby":   []any{"读书", "游泳", "旅游", "骑行", "冒险"},
+		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// 开启默认日志
-			curl.SetDefaultLogOutput(true)
-
-			// 设置请求ID
-			curl.SetRequestID()
-
-			// 设置重试次数
-			curl.SetMaxRetry(3)
-
-			// 添加参数url pathinfo模式参数
-			curl.SetParams(map[string]string{
-				// 批量设置请求参数
-				"name": "Lisa",
-				"age":  "22",
-			}).
-				AddParams(map[string][]string{
-					// 批量设置checkbox类型请求参数,与其他语言通信参数名后面或许需加上`[]`, 如：`hobby[]`
-					"hobby":   {"读书", "游泳", "旅游"},
-					"friends": {"Kelly", "Shirley"},
-				}).
-				SetParam("language", "English,中文,Français").
-				AddParam("hobby", "骑行"). // hobby 追加值
-				AddParam("hobby", "冒险")  // hobby 追加值
-
-			// 解析响应数据
-			curl.AfterBody(tt.args.resolve)
-
-			// 设置响应状态码
-			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
-
-			if err := curl.PostForm(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", errors.Trace(err))
-				t.Errorf("TestPostForm() error = %v, wantErr %v", err, tt.wantErr)
-			}
-
-		})
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("response = %#v, want %#v", got, want)
 	}
 }
 
+// TestPostFile 验证 multipart 上传在服务端的实际解析结果。
 func TestPostFile(t *testing.T) {
-	// 日志配置
-	setLogConfig()
+	wantParams := map[string][]string{
+		"name": {"Lisa"}, "age": {"22"}, "language": {"English,中文,Français"},
+		"hobby": {"读书", "游泳", "旅游", "骑行"}, "friends": {"Kelly", "Shirley"},
+	}
+	// 同一字段的文件名按上传顺序排列。
+	wantFiles := map[string][]string{
+		"json_file": {"data.json"}, "env_file": {"settings.env"}, "files": {"one.txt", "two.txt"},
+	}
+	form := utils.NewForm().AddParams(wantParams)
+	// 独立夹具固定文件名和正文，避免测试依赖仓库源码的大小与内容。
+	dir := t.TempDir()
+	for field, names := range wantFiles {
+		for _, name := range names {
+			path := filepath.Join(dir, name)
+			if err := os.WriteFile(path, []byte("body:"+name), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			form.AddFile(field, path)
+		}
+	}
 
-	serveMux := http.NewServeMux()
-	serveMux.HandleFunc("/curl/file", func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			utils.JSON(w, utils.WithStatusCode(http.StatusMethodNotAllowed)).Fail(2000, "Method not allowed")
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("ParseMultipartForm() error = %v", err)
+			http.Error(w, "invalid multipart body", http.StatusBadRequest)
 			return
 		}
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
-			utils.JSON(w, utils.WithStatusCode(http.StatusBadRequest)).Fail(2000, "Error parsing form")
-			return
+		defer r.MultipartForm.RemoveAll()
+		if !reflect.DeepEqual(r.MultipartForm.Value, wantParams) {
+			t.Errorf("form fields = %v, want %v", r.MultipartForm.Value, wantParams)
 		}
-
-		slog.Info("Received POST FORM", "form", r.Form)
-
-		info := make(map[string]any)
-		info["name"] = r.FormValue("name")
-		info["age"] = r.FormValue("age")
-		info["language"] = r.FormValue("language")
-		info["friends"] = r.Form["friends"]
-		info["hobby"] = r.Form["hobby"]
-
-		slog.Info("Received POST File", "File", r.MultipartForm.File)
-
-		_, fileHeader, err := r.FormFile("json_file")
-		if err != nil {
-			utils.JSON(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
-			return
+		if len(r.MultipartForm.File) != len(wantFiles) {
+			t.Errorf("file fields = %d, want %d", len(r.MultipartForm.File), len(wantFiles))
 		}
-		info["json_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
-
-		_, fileHeader, err = r.FormFile("env_file")
-		if err != nil {
-			utils.JSON(w, utils.WithStatusCode(http.StatusInternalServerError)).Fail(2000, "Error retrieving file")
-			return
+		for field, names := range wantFiles {
+			headers := r.MultipartForm.File[field]
+			if len(headers) != len(names) {
+				t.Errorf("file field %q count = %d, want %d", field, len(headers), len(names))
+				continue
+			}
+			for i, header := range headers {
+				file, err := header.Open()
+				if err != nil {
+					t.Errorf("Open(%q) error = %v", header.Filename, err)
+					continue
+				}
+				data, readErr := io.ReadAll(file)
+				closeErr := file.Close()
+				if readErr != nil || closeErr != nil {
+					t.Errorf("file %s[%d]: read=%v close=%v", field, i, readErr, closeErr)
+					continue
+				}
+				wantBody := "body:" + names[i]
+				if header.Filename != names[i] || header.Size != int64(len(wantBody)) {
+					t.Errorf("file %s[%d]: name=%q size=%d", field, i, header.Filename, header.Size)
+				}
+				if string(data) != wantBody {
+					t.Errorf("file %s[%d]: body=%q, want %q", field, i, data, wantBody)
+				}
+			}
 		}
-		info["env_file"] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
-
-		files := r.MultipartForm.File["files"]
-		filesInfo := make([]map[string]any, len(files))
-		for i, fileHeader := range files {
-			filesInfo[i] = map[string]any{"name": fileHeader.Filename, "size": fileHeader.Size, "type": mime.TypeByExtension(filepath.Ext(fileHeader.Filename))}
-		}
-		info["files"] = filesInfo
-
-		if r.URL.Query().Get("success") == "false" {
-			utils.JSON(w, utils.WithStatusCode(http.StatusNotAcceptable)).Fail(2000, "fail", info)
-			return
-		}
-		utils.JSON(w).Success(1000, info)
-	})
-	server := httptest.NewServer(serveMux)
+		utils.JSON(w).Success(1000, "uploaded")
+	}))
 	defer server.Close()
 
-	// 创建一个curl
-	curl := utils.NewCurl()
-
-	type args struct {
-		url     string
-		resolve func(body []byte) error
+	body, contentType, err := form.Reader()
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{name: "001", args: args{
-			url: server.URL + "/curl/file",
-			resolve: func(body []byte) error {
-				res := &RespBody[map[string]any]{}
-				if err := utils.Unmarshal(body, res); err != nil {
-					return errors.Tag(err)
-				}
-				if !res.Success {
-					// 错误处理
-					curl.Logger.Error("失败", "body", res)
-				} else {
-					// 正常处理
-					curl.Logger.Info("成功", "body", res)
-				}
-				return nil
-			},
-		}, wantErr: false},
+	var got RespBody[string]
+	// boundary 必须使用本次 Reader 返回的值。
+	curl := utils.NewCurl().SetContentType(contentType).SetBody(body).
+		AfterBody(func(body []byte) error { return utils.Unmarshal(body, &got) })
+	defer curl.CloseIdleConnections()
+	if err := curl.PostContext(t.Context(), server.URL); err != nil {
+		t.Fatal(err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// 创建一个form
-			form := utils.Form{
-				Params: map[string][]string{},
-				Files:  map[string][]string{},
-			}
-
-			// 设置请求参数
-			form.SetParams(map[string]string{
-				// 批量设置请求参数
-				"name": "Lisa",
-				"age":  "22",
-			}).AddParams(map[string][]string{
-				// 批量设置checkbox类型请求参数,与其他语言通信参数名后面或许需加上`[]`, 如：`hobby[]`
-				"hobby":   {"读书", "游泳", "旅游"},
-				"friends": {"Kelly", "Shirley"},
-			}).SetFiles(map[string]string{
-				// 批量上传文件
-				"json_file": "./json.go",
-				"env_file":  "./env.go",
-			}).AddFiles(map[string][]string{
-				// 上传多个文件
-				"files": {"./html.go", "./aes.go"},
-			}).AddParam("hobby", "骑行") // 对参数追加值（checkbox类型追加值才有意义，否则接收到的参数可能是非期望值）
-
-			// 获取 body 和 contentType
-			body, contentType, err := form.Reader()
-			if err != nil {
-				t.Errorf("form.Reade() err=%v", err)
-			}
-
-			// 设置请求ID
-			curl.SetRequestID()
-
-			// 设置重试次数
-			curl.SetMaxRetry(3)
-
-			// 设置响应状态码
-			curl.SetStatusCode(http.StatusUnauthorized, http.StatusNotAcceptable)
-
-			// 设置contentType
-			curl.SetContentType(contentType)
-
-			// 解析响应数据
-			curl.AfterBody(tt.args.resolve)
-
-			// 设置传输的body
-			curl.SetBody(body)
-
-			// 发送请求
-			if err = curl.Post(tt.args.url); (err != nil) != tt.wantErr {
-				slog.Error(err.Error(), "trace", errors.Trace(err))
-				t.Errorf("TestPostFile() error = %#v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	want := RespBody[string]{Success: true, Code: 1000, Message: "SUCCESS", Data: "uploaded"}
+	if got != want {
+		t.Fatalf("response = %+v, want %+v", got, want)
 	}
 }
 
@@ -649,15 +356,17 @@ func (curlTestLogger) Enabled(context.Context, utils.LogLevel) bool {
 }
 
 func TestDebugLoggingPreservesRequestAndResponseBody(t *testing.T) {
-	const payload = `{"name":"codex"}`
+	const payload = `{"name":"alice"}`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("server ReadAll() error = %v", err)
+			t.Errorf("server ReadAll() error = %v", err)
+			return
 		}
 		if string(body) != payload {
-			t.Fatalf("request body = %q, want %q", body, payload)
+			t.Errorf("request body = %q, want %q", body, payload)
+			return
 		}
 		_, _ = w.Write(body)
 	}))
@@ -686,16 +395,19 @@ func TestDebugLoggingDoesNotConsumeCustomReadSeekCloser(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("server ReadAll() error = %v", err)
+			t.Errorf("server ReadAll() error = %v", err)
+			return
 		}
 		if string(body) != payload {
-			t.Fatalf("server body = %q, want %q", body, payload)
+			t.Errorf("server body = %q, want %q", body, payload)
+			return
 		}
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
 	body := &trackingReadSeekCloser{Reader: bytes.NewReader([]byte(payload))}
+	defer body.Close()
 	err := utils.NewCurl(
 		utils.WithCurlLogger(curlTestLogger{}),
 		utils.WithCurlDefLogOutput(true),
@@ -704,6 +416,9 @@ func TestDebugLoggingDoesNotConsumeCustomReadSeekCloser(t *testing.T) {
 		Post(srv.URL)
 	if err != nil {
 		t.Fatalf("Post() error = %v", err)
+	}
+	if body.closed.Load() {
+		t.Fatal("Post() closed the caller-owned seekable body")
 	}
 }
 
@@ -833,7 +548,8 @@ func TestCurlBytesBufferBodyCanBeSentRepeatedly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("server ReadAll() error = %v", err)
+			t.Errorf("server ReadAll() error = %v", err)
+			return
 		}
 		bodies = append(bodies, string(body))
 		_, _ = w.Write([]byte("ok"))
@@ -854,8 +570,9 @@ func TestCurlBytesBufferBodyCanBeSentRepeatedly(t *testing.T) {
 func TestCurlGetPreservesExistingQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		if query.Get("lang") != "go" || query.Get("page") != "2" || query.Get("q") != "codex" {
-			t.Fatalf("query = %v", query)
+		if query.Get("lang") != "go" || query.Get("page") != "2" || query.Get("q") != "alice" {
+			t.Errorf("query = %v", query)
+			return
 		}
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -863,7 +580,7 @@ func TestCurlGetPreservesExistingQuery(t *testing.T) {
 
 	err := utils.NewCurl().
 		SetParam("page", "2").
-		SetParam("q", "codex").
+		SetParam("q", "alice").
 		Get(srv.URL + "?lang=go#top")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
@@ -876,7 +593,8 @@ func TestCurlParamsReflectExternalMutation(t *testing.T) {
 		if r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				t.Fatalf("server ReadAll() error = %v", err)
+				t.Errorf("server ReadAll() error = %v", err)
+				return
 			}
 			_, _ = w.Write(body)
 			return
@@ -995,6 +713,11 @@ func TestSetStatusCodeOverridesPreviousValues(t *testing.T) {
 	if got := c.GetStatusCode()[0]; got != http.StatusAccepted {
 		t.Fatalf("status code = %d, want %d", got, http.StatusAccepted)
 	}
+	// 无参数调用清空上一次配置，恢复只接受默认成功状态码。
+	c.SetStatusCode()
+	if got := c.GetStatusCode(); len(got) != 0 {
+		t.Fatalf("status codes after reset = %v, want empty", got)
+	}
 }
 
 func TestCurlCloneDeepCopiesRequestState(t *testing.T) {
@@ -1035,6 +758,7 @@ func TestCurlCloneDeepCopiesRequestState(t *testing.T) {
 	}
 }
 
+// TestCurlNewRequestGeneratesIndependentRequestID 防止派生请求沿用模板 ID，混淆请求日志。
 func TestCurlNewRequestGeneratesIndependentRequestID(t *testing.T) {
 	base := utils.NewCurl().SetRequestID("req-base")
 
@@ -1045,8 +769,8 @@ func TestCurlNewRequestGeneratesIndependentRequestID(t *testing.T) {
 	if requestCurl == base {
 		t.Fatal("NewRequest() should return a new instance")
 	}
-	if got := requestCurl.GetRequestID(); got == "" || got == base.GetRequestID() {
-		t.Fatalf("request id = %q, want new non-empty id", got)
+	if got := requestCurl.GetRequestID(); len(got) != 16 || got == base.GetRequestID() {
+		t.Fatalf("request id = %q, want independent 16-character id", got)
 	}
 	if got := base.GetRequestID(); got != "req-base" {
 		t.Fatalf("base request id = %q, want req-base", got)
@@ -1067,7 +791,8 @@ func TestCurlTemplateReuseWithNewRequest(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("server ReadAll() error = %v", err)
+			t.Errorf("server ReadAll() error = %v", err)
+			return
 		}
 		_, _ = w.Write([]byte(r.Header.Get("X-Req") + "|" + r.URL.Query().Get("id") + "|" + string(body)))
 	}))
@@ -1288,7 +1013,7 @@ func (r *trackingReadCloser) Close() error {
 // trackingReadSeekCloser 是测试用可读、可 Seek、可关闭请求体，用于覆盖日志预览对读取游标的影响。
 type trackingReadSeekCloser struct {
 	*bytes.Reader             // 内存请求体数据源，模拟业务侧传入的可回放 body。
-	closed        atomic.Bool // 记录 Close 是否被调用，便于后续扩展资源释放断言。
+	closed        atomic.Bool // 验证发送结束后仍由调用方持有关闭责任。
 }
 
 // Close 记录关闭状态，模拟真实请求体资源释放。

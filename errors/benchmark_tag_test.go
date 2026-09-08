@@ -7,49 +7,44 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// 基准测试：Tag vs Wrap 性能对比
+// Tag 与 Wrap 分别测量保留消息和追加消息的成本；已有栈时 Tag 返回原错误，Wrap 仍创建包装。
 func BenchmarkTagStdlibError(b *testing.B) {
 	originalErr := fmt.Errorf("stdlib error")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = errors.Tag(originalErr)
+	for b.Loop() {
+		benchErr = errors.Tag(originalErr)
 	}
 }
 
 func BenchmarkWrapStdlibError(b *testing.B) {
 	originalErr := fmt.Errorf("stdlib error")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = errors.Wrap(originalErr, "wrapped")
+	for b.Loop() {
+		benchErr = errors.Wrap(originalErr, "wrapped")
 	}
 }
 
 func BenchmarkTagTrackedError(b *testing.B) {
 	trackedErr := errors.New("already tracked")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = errors.Tag(trackedErr)
+	for b.Loop() {
+		benchErr = errors.Tag(trackedErr)
 	}
 }
 
 func BenchmarkWrapTrackedError(b *testing.B) {
 	trackedErr := errors.New("already tracked")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = errors.Wrap(trackedErr, "wrapped")
+	for b.Loop() {
+		benchErr = errors.Wrap(trackedErr, "wrapped")
 	}
 }
 
-// 测试层层包装的性能
+// 连续 Tag 不增加已有栈的错误层级；对应 Wrap 基准保留逐层附加的消息。
 func BenchmarkTagLayeredWrapping(b *testing.B) {
 	originalErr := fmt.Errorf("original error")
 	wrapped1 := errors.Tag(originalErr)
 	wrapped2 := errors.Tag(wrapped1)
 	wrapped3 := errors.Tag(wrapped2)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = errors.Tag(wrapped3)
+	for b.Loop() {
+		benchErr = errors.Tag(wrapped3)
 	}
 }
 
@@ -59,25 +54,22 @@ func BenchmarkWrapLayeredWrapping(b *testing.B) {
 	wrapped2 := errors.Wrap(wrapped1, "layer2")
 	wrapped3 := errors.Wrap(wrapped2, "layer3")
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = errors.Wrap(wrapped3, "layer4")
+	for b.Loop() {
+		benchErr = errors.Wrap(wrapped3, "layer4")
 	}
 }
 
-// 测试HasStack的性能
+// HasStack 分开测量无栈叶子和已采集栈的错误。
 func BenchmarkHasStackStdlib(b *testing.B) {
 	originalErr := fmt.Errorf("stdlib error")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = errors.HasStack(originalErr)
+	for b.Loop() {
+		benchBool = errors.HasStack(originalErr)
 	}
 }
 
 func BenchmarkHasStackTracked(b *testing.B) {
 	trackedErr := errors.New("tracked error")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = errors.HasStack(trackedErr)
+	for b.Loop() {
+		benchBool = errors.HasStack(trackedErr)
 	}
 }

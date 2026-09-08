@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
+	"runtime"
 	"testing"
 
 	errutils "github.com/Is999/go-utils/errors"
@@ -196,38 +196,28 @@ func BenchmarkTraceJSON(b *testing.B) {
 	}
 }
 
+// BenchmarkConcurrentRead 由测试框架分配恰好 b.N 次读取，避免固定分组遗漏余数。
 func BenchmarkConcurrentRead(b *testing.B) {
 	source := &typedError{msg: "source"}
 	err := errutils.Wrap(errutils.Wrap(errutils.Wrap(source, "inner"), "middle"), "outer")
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
 	b.ResetTimer()
-	for range 8 {
-		wg.Go(func() {
-			var localErr error
-			var localBool bool
-			var localText string
-			var localCode int
-			for j := 0; j < b.N/8; j++ {
-				localText = err.Error()
-				localCode += len(localText)
-				localText = fmt.Sprintf("%+v", err)
-				localCode += len(localText)
-				localText = errutils.TraceString(err)
-				localCode += len(localText)
-				localBool = errutils.Is(err, source)
-				localErr = errutils.Source(err)
-			}
-			mu.Lock()
-			benchErr = localErr
-			benchBool = localBool
-			benchText = localText
-			benchCode = localCode
-			mu.Unlock()
-		})
-	}
-	wg.Wait()
+	b.RunParallel(func(pb *testing.PB) {
+		// 各 goroutine 独占结果，避免用汇总锁干扰并发读取成本。
+		var localErr error
+		var localBool bool
+		var textSize int
+		for pb.Next() {
+			textSize += len(err.Error())
+			textSize += len(fmt.Sprintf("%+v", err))
+			textSize += len(errutils.TraceString(err))
+			localBool = errutils.Is(err, source)
+			localErr = errutils.Source(err)
+		}
+		runtime.KeepAlive(localErr)
+		runtime.KeepAlive(localBool)
+		runtime.KeepAlive(textSize)
+	})
 }
 
 func BenchmarkCompareToStdlib(b *testing.B) {

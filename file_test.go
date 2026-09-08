@@ -2,7 +2,11 @@ package utils_test
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,79 +14,63 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 
 	"github.com/Is999/go-utils"
 )
 
+// TestFindFiles 使用独立目录验证匹配和递归，避免访问仓库之外的文件。
 func TestFindFiles(t *testing.T) {
-	type args struct {
-		path  string
-		depth bool
-		match []string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{name: "001", args: args{`./`, false, []string{}}, wantErr: false},                                                 // 匹配所有文件
-		{name: "002", args: args{`./`, false, []string{`*`, "test.go"}}, wantErr: false},                                   // 匹配所有文件
-		{name: "003", args: args{`./../`, true, []string{`p`, `co`, `ip`}}, wantErr: false},                                // 匹配前缀为str开头的文件
-		{name: "004", args: args{`./`, false, []string{`s`, `test.go`}}, wantErr: false},                                   // 匹配后缀为test.go结尾的文件
-		{name: "005", args: args{`./`, false, []string{`r`, `^([[a-Z]{2,4})_test.go`}}, wantErr: true},                     // 错误表达式, 返回错误信息
-		{name: "006", args: args{`./`, false, []string{`r`, `^([[A-z]{2,4})_test.go`, `^([[A-z]{2}).go`}}, wantErr: false}, // 正则表达式匹配文件
-		{name: "007", args: args{`./`, false, []string{`file.go`}}, wantErr: false},                                        // 精准匹配文件名为file.go的文件
-		{name: "008", args: args{`./`, false, []string{`e`, `file.go`, `ip.go`}}, wantErr: false},                          // 精准匹配文件名为file.go的文件
-		{name: "009", args: args{`./`, false, []string{`e`, `file`}}, wantErr: false},                                      // 精准匹配文件名为file的文件(文件不存在, 返回空)
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			//t.Logf("FindFiles 匹配规则 path = %v, match = %v", tt.args.path, tt.args.match)
-			//got, WrapError := utils.FindFiles(tt.args.path, tt.args.depth, tt.args.match...)
-			_, err := utils.FindFiles(tt.args.path, tt.args.depth, tt.args.match...)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("FindFiles() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			//for i, info := range got {
-			//	t.Logf("FindFiles() i = %v, path = %v, info.name = %+v", i, info.Path, info.FileInfo.Name())
-			//}
-		})
-	}
-}
-
-func TestFindFilesMatcherModes(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"alpha.txt", "beta.log", "app.yaml"} {
-		path := filepath.Join(dir, name)
+	for _, name := range []string{"alpha.txt", "app.yaml", "beta.log", "nested/app.yaml", "nested/deep/beta.log"} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
-			t.Fatalf("WriteFile(%s) error = %v", name, err)
+			t.Fatal(err)
 		}
 	}
 
 	tests := []struct {
-		name  string
-		match []string
-		want  []string
+		name    string
+		depth   bool
+		match   []string
+		want    []string // 相对测试目录的路径，顺序与目录遍历结果一致。
+		wantErr bool
 	}{
-		{name: "all", match: nil, want: []string{"alpha.txt", "app.yaml", "beta.log"}},
+		{name: "all", want: []string{"alpha.txt", "app.yaml", "beta.log"}},
+		{name: "wildcard", match: []string{"*"}, want: []string{"alpha.txt", "app.yaml", "beta.log"}},
+		{name: "wildcard ignores rules", match: []string{"*", ".txt"}, want: []string{"alpha.txt", "app.yaml", "beta.log"}},
 		{name: "prefix", match: []string{"p", "a"}, want: []string{"alpha.txt", "app.yaml"}},
 		{name: "suffix", match: []string{"s", ".log"}, want: []string{"beta.log"}},
-		{name: "exact", match: []string{"e", "app.yaml"}, want: []string{"app.yaml"}},
-		{name: "regexp", match: []string{"r", `^a.*\.txt$`}, want: []string{"alpha.txt"}},
+		{name: "exact", match: []string{"e", "app.yaml", "beta.log"}, want: []string{"app.yaml", "beta.log"}},
+		{name: "single name", match: []string{"app.yaml"}, want: []string{"app.yaml"}},
+		{name: "no match", match: []string{"e", "absent"}},
+		{name: "regexp", match: []string{"r", `^a.*\.txt$`, `^beta\.log$`}, want: []string{"alpha.txt", "beta.log"}},
+		{name: "invalid regexp", match: []string{"r", "["}, wantErr: true},
+		{name: "recursive", depth: true, want: []string{"alpha.txt", "app.yaml", "beta.log", "nested/app.yaml", "nested/deep/beta.log"}},
+		{name: "recursive prefix", depth: true, match: []string{"p", "app", "beta"}, want: []string{"app.yaml", "beta.log", "nested/app.yaml", "nested/deep/beta.log"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := utils.FindFiles(dir, false, tt.match...)
-			if err != nil {
-				t.Fatalf("FindFiles() error = %v", err)
+			got, err := utils.FindFiles(dir, tt.depth, tt.match...)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("FindFiles() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			names := make([]string, 0, len(got))
+			paths := make([]string, 0, len(got))
 			for _, file := range got {
-				names = append(names, file.Name())
+				if !filepath.IsAbs(file.Path) || file.IsDir() || file.Name() != filepath.Base(file.Path) {
+					t.Fatalf("FindFiles() invalid file metadata: %+v", file)
+				}
+				rel, err := filepath.Rel(dir, file.Path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				paths = append(paths, filepath.ToSlash(rel))
 			}
-			if !slices.Equal(names, tt.want) {
-				t.Fatalf("FindFiles() names = %#v, want %#v", names, tt.want)
+			if !slices.Equal(paths, tt.want) {
+				t.Fatalf("FindFiles() paths = %#v, want %#v", paths, tt.want)
 			}
 		})
 	}
@@ -98,7 +86,7 @@ func TestIsDir(t *testing.T) {
 		want bool
 	}{
 		{name: "001", args: args{"./errors"}, want: true},
-		{name: "002", args: args{"./slices.go"}, want: false}, // 文件-非目录
+		{name: "002", args: args{"./slices.go"}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,9 +106,9 @@ func TestIsFile(t *testing.T) {
 		args args
 		want bool
 	}{
-		{name: "001", args: args{"./errors"}, want: false},   // 目录-非文件
-		{name: "002", args: args{"./slices.go"}, want: true}, // 存在的文件
-		{name: "003", args: args{"./array.go"}, want: false}, // 不存在的文件
+		{name: "001", args: args{"./errors"}, want: false},
+		{name: "002", args: args{"./slices.go"}, want: true},
+		{name: "003", args: args{"./array.go"}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -140,10 +128,10 @@ func TestIsExist(t *testing.T) {
 		args args
 		want bool
 	}{
-		{name: "001", args: args{"./errors"}, want: true},        // 目录的大小
-		{name: "002", args: args{"./slices.go"}, want: true},     // 文件大小
-		{name: "003", args: args{"./not_exist.go"}, want: false}, // 不存在的文件
-		{name: "004", args: args{"./file.go"}, want: true},       // 文件大小
+		{name: "001", args: args{"./errors"}, want: true},
+		{name: "002", args: args{"./slices.go"}, want: true},
+		{name: "003", args: args{"./not_exist.go"}, want: false},
+		{name: "004", args: args{"./file.go"}, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -152,31 +140,24 @@ func TestIsExist(t *testing.T) {
 			}
 			if size, err := utils.Size(tt.args.path); (err != nil) == tt.want {
 				t.Errorf("Size() path = %v, size = %v, WrapError %v", tt.args.path, utils.FormatFileSize(size, 4), err)
-			} else {
-				//t.Logf("Size() path = %v, size = %d, Humane = %v", tt.args.path, size, FormatFileSize(size, 4))
 			}
 		})
 	}
 }
 
 func TestCopy(t *testing.T) {
-	type args struct {
-		source string
-		dest   string
+	want, err := os.ReadFile("json.go")
+	if err != nil {
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{name: "001", args: args{source: "./json.go", dest: "/tmp/json.txt"}, wantErr: false},
+	// 源码只读，复制目标由当前用例独占并清理。
+	dest := filepath.Join(t.TempDir(), "json.txt")
+	if err := utils.Copy("json.go", dest); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := utils.Copy(tt.args.source, tt.args.dest); (err != nil) != tt.wantErr {
-				t.Errorf("Copy() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("Copy() content = %q, error = %v; want source content", got, err)
 	}
 }
 
@@ -258,198 +239,78 @@ func TestCopyRejectsSymlinkDestination(t *testing.T) {
 }
 
 func TestScan(t *testing.T) {
-	type args struct {
-		name string
-		size []int
+	want, err := os.ReadFile("file.go")
+	if err != nil {
+		t.Fatal(err)
 	}
+	file, err := os.Open("file.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
 
-	type test struct {
-		name    string
-		args    args
-		wantErr bool
-	}
-	tests := []test{
-		{name: "001", args: args{name: "./file.go", size: []int{int(utils.MB)}}},
-	}
-	//setLogConfig()
-	var f = func(t *testing.T, tt test) {
-		// 打开文件
-		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
-		if err != nil {
-			t.Errorf("Open() WrapError %v", err)
-			return
+	var content []byte
+	lines := 0
+	err = utils.Scan(file, func(number int, line []byte, readErr error) error {
+		lines++
+		if number != lines || readErr != nil {
+			t.Fatalf("Scan() callback = (%d, %v), want (%d, nil)", number, readErr, lines)
 		}
-		// 关闭文件
-		defer func() {
-			if err := open.Close(); err != nil {
-				t.Errorf("Close() WrapError %v", err)
-			}
-		}()
-
-		// 处理扫描的行数据
-		stat, _ := open.Stat()
-		var content = make([]byte, 0, stat.Size())
-		var handle = func(num int, line []byte, err error) error {
-			if err != nil {
-				if err == io.EOF {
-					return utils.DONE
-				}
-				t.Errorf("handle() WrapError %v", err)
-				return err
-			}
-
-			// 读取前20行数据
-			//if num > 20 {
-			//	return utils.DONE
-			//}
-
-			content = append(content, line...)
-			content = append(content, '\n')
-
-			//t.Logf("第%d行 %v\n", num, string(line))
-			return nil
-		}
-
-		if err := utils.Scan(open, handle, tt.args.size...); (err != nil) != tt.wantErr {
-			//slog.Info("错误了", "err", err)
-			t.Errorf("Scan() error = %v, wantErr %v", err, tt.wantErr)
-		}
-		//t.Logf("content size = %v, fileSize = %v", len(content), stat.Size())
-		//t.Logf("content\n%v", string(content))
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f(t, tt)
-		})
+		// 源码 fixture 使用 LF，补回分隔符后应与原文件逐字节一致。
+		content = append(content, line...)
+		content = append(content, '\n')
+		return nil
+	}, int(utils.MB))
+	if err != nil || !bytes.Equal(content, want) {
+		t.Fatalf("Scan() read %d bytes, error = %v; want %d matching bytes", len(content), err, len(want))
 	}
 }
 
 // go test -bench=Scan$ -run ^$  -count 5 -benchmem
-func BenchmarkScan(t *testing.B) {
-	type args struct {
-		name string
-		size []int
-	}
-
-	type test struct {
-		name    string
-		args    args
-		wantErr bool
-	}
-	tests := []test{
-		{name: "001", args: args{name: "./file.go", size: []int{int(utils.MB)}}},
-	}
-
-	var f = func(t *testing.B, tt test) {
-		// 打开文件
-		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
+func BenchmarkScan(b *testing.B) {
+	// 每次操作包含打开、完整扫描和关闭，不额外复制正文。
+	for b.Loop() {
+		file, err := os.Open("file.go")
 		if err != nil {
-			t.Errorf("Open() WrapError %v", err)
-			return
+			b.Fatal(err)
 		}
-		// 关闭文件
-		defer func() {
-			if err := open.Close(); err != nil {
-				t.Errorf("Close() WrapError %v", err)
-			}
-		}()
-
-		// 处理扫描的行数据
-		//stat, _ := open.Stat()
-		//var content = make([]byte, 0, stat.Size())
-		var handle = func(num int, line []byte, err error) error {
-			if err != nil {
-				if err == io.EOF {
-					return utils.DONE
-				}
-				t.Errorf("handle() WrapError %v", err)
-				return err
-			}
-
-			// 读取前20行数据
-			//if num > 20 {
-			//	return utils.DONE
-			//}
-
-			//content = append(content, line...)
-			//content = append(content, '\n')
-
-			//t.Logf("第%d行 %v\n", num, string(line))
-			return nil
+		readErr := utils.Scan(file, func(int, []byte, error) error { return nil }, int(utils.MB))
+		closeErr := file.Close()
+		if readErr != nil {
+			b.Fatal(readErr)
 		}
-
-		if err := utils.Scan(open, handle, tt.args.size...); (err != nil) != tt.wantErr {
-			t.Errorf("Scan() error = %v, wantErr %v", err, tt.wantErr)
+		if closeErr != nil {
+			b.Fatal(closeErr)
 		}
-		//t.Logf("content size = %v, fileSize = %v", len(content), stat.Size())
-		//t.Logf("content\n%v", string(content))
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.B) {
-			for i := 0; i < t.N; i++ {
-				f(t, tt)
-			}
-		})
 	}
 }
 
 func TestLine(t *testing.T) {
-	type args struct {
-		name string
+	want, err := os.ReadFile("file.go")
+	if err != nil {
+		t.Fatal(err)
 	}
+	file, err := os.Open("file.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
 
-	type test struct {
-		name    string
-		args    args
-		wantErr bool
-	}
-	tests := []test{
-		{name: "001", args: args{name: "./file.go"}},
-	}
-
-	var f = func(t *testing.T, tt test) {
-		// 打开文件
-		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
-		if err != nil {
-			t.Errorf("Open() WrapError %v", err)
-			return
+	var content []byte
+	lines := 0
+	err = utils.Line(file, func(number int, line []byte, done bool) error {
+		if number != lines+1 {
+			t.Fatalf("Line() number = %d, want %d", number, lines+1)
 		}
-		// 关闭文件
-		defer func() {
-			if err := open.Close(); err != nil {
-				t.Errorf("Close() WrapError %v", err)
-			}
-		}()
-
-		// 处理读取的数据
-		stat, _ := open.Stat()
-		var content = make([]byte, 0, stat.Size())
-		var handle = func(num int, line []byte, lineDone bool) error {
-			if err != nil {
-				t.Errorf("handle() WrapError %v", err)
-				return err
-			}
-
-			content = append(content, line...)
-			if lineDone {
-				content = append(content, '\n') // 每行数据末尾添加换行符
-			}
-			return nil
+		content = append(content, line...)
+		if done {
+			lines++
+			content = append(content, '\n')
 		}
-
-		if err := utils.Line(open, handle); (err != nil) != tt.wantErr {
-			t.Errorf("Line() error = %v, wantErr %v", err, tt.wantErr)
-		}
-		//t.Logf("content size = %v, fileSize = %v", len(content), stat.Size())
-		//t.Logf("content\n%v", string(content))
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f(t, tt)
-		})
+		return nil
+	})
+	if err != nil || !bytes.Equal(content, want) {
+		t.Fatalf("Line() read %d bytes, error = %v; want %d matching bytes", len(content), err, len(want))
 	}
 }
 
@@ -481,164 +342,303 @@ func TestLineKeepsPhysicalLineNumberAcrossLongLineChunks(t *testing.T) {
 	}
 }
 
-// go test -bench=Line$ -run ^$  -count 5 -benchmem
-func BenchmarkLine(t *testing.B) {
-	type args struct {
-		name string
-	}
-
-	type test struct {
-		name    string
-		args    args
-		wantErr bool
-	}
-	tests := []test{
-		{name: "001", args: args{name: "./file.go"}},
-	}
-
-	var f = func(t *testing.B, tt test) {
-		// 打开文件
-		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
-		if err != nil {
-			t.Errorf("Open() WrapError %v", err)
-			return
-		}
-		// 关闭文件
-		defer func() {
-			if err := open.Close(); err != nil {
-				t.Errorf("Close() WrapError %v", err)
+func TestLineDataWithError(t *testing.T) {
+	// Reader 可以同时返回有效尾块和读取错误；回调处理尾块后仍须返回原读取错误。
+	readErr := errors.New("read failed")
+	for _, handlerErr := range []error{nil, utils.DONE, errors.New("handler failed")} {
+		t.Run(fmt.Sprint(handlerErr), func(t *testing.T) {
+			read := false
+			reader := fileReadFunc(func(p []byte) (int, error) {
+				if read {
+					return 0, io.EOF
+				}
+				read = true
+				return copy(p, "payload"), readErr
+			})
+			var content string
+			err := utils.Line(reader, func(number int, data []byte, done bool) error {
+				if number != 1 || !done {
+					t.Fatalf("Line() callback = (%d, %t), want (1, true)", number, done)
+				}
+				content = string(data)
+				return handlerErr
+			})
+			wantErr := readErr
+			if handlerErr != nil {
+				wantErr = handlerErr
 			}
-		}()
-
-		// 处理读取的数据
-		//stat, _ := open.Stat()
-		//var content = make([]byte, 0, stat.Size())
-		var handle = func(num int, line []byte, lineDone bool) error {
-			if err != nil {
-				t.Errorf("handle() WrapError %v", err)
-				return err
+			if handlerErr == utils.DONE {
+				wantErr = nil
 			}
-
-			//content = append(content, line...)
-			//if lineDone {
-			//	content = append(content, '\n')
-			//}
-			return nil
-		}
-
-		if err := utils.Line(open, handle); (err != nil) != tt.wantErr {
-			t.Errorf("Line() error = %v, wantErr %v", err, tt.wantErr)
-		}
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.B) {
-			for i := 0; i < t.N; i++ {
-				f(t, tt)
+			if content != "payload" || !errors.Is(err, wantErr) {
+				t.Fatalf("Line() = (%q, %v), want (payload, %v)", content, err, wantErr)
 			}
 		})
 	}
 }
 
-func TestRead(t *testing.T) {
-	type args struct {
-		name string
-	}
-
-	type test struct {
-		name    string
-		args    args
-		wantErr bool
-	}
-	tests := []test{
-		{name: "001", args: args{name: "./file.go"}},
-	}
-
-	var f = func(t *testing.T, tt test) {
-		// 打开文件
-		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
-		if err != nil {
-			t.Errorf("Open() WrapError %v", err)
-			return
-		}
-		// 关闭文件
-		defer func() {
-			if err := open.Close(); err != nil {
-				t.Errorf("Close() WrapError %v", err)
-			}
-		}()
-
-		// 处理读取的数据
-		stat, _ := open.Stat()
-		var content = make([]byte, 0, stat.Size())
-		var handle = func(size int, block []byte) error {
-			// t.Logf("handle() size = %v", num)
-			content = append(content, block...)
-			return nil
-		}
-
-		if err := utils.Read(open, handle); (err != nil) != tt.wantErr {
-			t.Errorf("Read() error = %v, wantErr %v", err, tt.wantErr)
-		}
-		// t.Logf("content \n%v", string(content))
-	}
-
-	for _, tt := range tests {
+// TestLineCompletesFinalLine 保证末行完成通知不依赖 Reader 是否同时返回数据与 EOF。
+func TestLineCompletesFinalLine(t *testing.T) {
+	block := strings.Repeat("x", bufio.MaxScanTokenSize)
+	for _, tt := range []struct {
+		name  string
+		input string
+		want  []string // 回调拼接并完成的物理行，不含 LF/CRLF。
+	}{
+		{name: "empty"},
+		{name: "below boundary", input: block[1:], want: []string{block[1:]}},
+		{name: "at boundary", input: block, want: []string{block}},
+		{name: "above boundary", input: block + "x", want: []string{block + "x"}},
+		{name: "two blocks", input: block + block, want: []string{block + block}},
+		{name: "after complete line", input: "first\n" + block, want: []string{"first", block}},
+		{name: "with LF", input: block + "\n", want: []string{block}},
+		{name: "split CRLF", input: block[1:] + "\r\n", want: []string{block[1:]}},
+		{name: "trailing CR", input: block + "\r", want: []string{block + "\r"}},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			f(t, tt)
+			for _, eofWithData := range []bool{false, true} {
+				var input io.Reader = strings.NewReader(tt.input)
+				if eofWithData {
+					input = iotest.DataErrReader(input)
+				}
+				var lines []string // 仅在收到 done 后提交完整行。
+				var line strings.Builder
+				err := utils.Line(input, func(number int, data []byte, done bool) error {
+					if number != len(lines)+1 {
+						t.Fatalf("line number = %d, want %d", number, len(lines)+1)
+					}
+					line.Write(data)
+					if done {
+						lines = append(lines, line.String())
+						line.Reset()
+					}
+					return nil
+				})
+				if err != nil || !slices.Equal(lines, tt.want) || line.Len() != 0 {
+					t.Fatalf("Line() completed %d lines, pending %d bytes, error = %v; want %d lines (EOF with data: %t)", len(lines), line.Len(), err, len(tt.want), eofWithData)
+				}
+			}
+		})
+	}
+}
+
+// TestLineFinalNotificationError 在空末块通知中仍遵循 DONE、回调错误、读取错误的优先级。
+func TestLineFinalNotificationError(t *testing.T) {
+	block := strings.Repeat("x", bufio.MaxScanTokenSize)
+	readErr := errors.New("read failed")
+	handlerErr := errors.New("handler failed")
+	for _, tt := range []struct {
+		name        string
+		readErr     error
+		callbackErr error
+		wantErr     error
+	}{
+		{name: "EOF", readErr: io.EOF},
+		{name: "EOF and DONE", readErr: io.EOF, callbackErr: utils.DONE},
+		{name: "EOF and callback error", readErr: io.EOF, callbackErr: handlerErr, wantErr: handlerErr},
+		{name: "read error", readErr: readErr, wantErr: readErr},
+		{name: "read error and DONE", readErr: readErr, callbackErr: utils.DONE},
+		{name: "read and callback errors", readErr: readErr, callbackErr: handlerErr, wantErr: handlerErr},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// 先交付完整缓冲区，再单独报告 EOF 或读取失败。
+			reader := io.MultiReader(strings.NewReader(block), fileReadFunc(func([]byte) (int, error) {
+				return 0, tt.readErr
+			}))
+			completed := false // 结束通知必须发生在同一行的空末块。
+			err := utils.Line(reader, func(number int, data []byte, done bool) error {
+				if number != 1 {
+					t.Fatalf("line number = %d, want 1", number)
+				}
+				if !done {
+					return nil
+				}
+				if completed || len(data) != 0 {
+					t.Fatalf("unexpected final notification: completed=%t, bytes=%d", completed, len(data))
+				}
+				completed = true
+				return tt.callbackErr
+			})
+			if !completed || !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Line() completed=%t, error=%v; want completed=true, error=%v", completed, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLineFraming(t *testing.T) {
+	// 记录每次回调的实际片段，覆盖 CRLF 恰好跨越内部缓冲区的情况。
+	type chunk struct {
+		line int
+		data string
+		done bool
+	}
+	block := strings.Repeat("x", bufio.MaxScanTokenSize)
+	for _, tt := range []struct {
+		name  string
+		input string
+		want  []chunk
+	}{
+		{name: "empty"},
+		{name: "line endings", input: "\n\r\nx\r\r\nlast\r", want: []chunk{{1, "", true}, {2, "", true}, {3, "x\r", true}, {4, "last\r", true}}},
+		{name: "long line", input: block + "tail\n", want: []chunk{{1, block, false}, {1, "tail", true}}},
+		{name: "split CRLF", input: block[1:] + "\r\nnext", want: []chunk{{1, block[1:], false}, {1, "", true}, {2, "next", true}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, eofWithData := range []bool{false, true} {
+				var input io.Reader = strings.NewReader(tt.input)
+				var reference io.Reader = strings.NewReader(tt.input)
+				if eofWithData {
+					input = iotest.DataErrReader(input)
+					reference = iotest.DataErrReader(reference)
+				}
+				var got []chunk
+				err := utils.Line(input, func(number int, data []byte, done bool) error {
+					got = append(got, chunk{number, string(data), done})
+					return nil
+				})
+				if err != nil || !slices.Equal(got, tt.want) {
+					t.Fatalf("Line() returned %d chunks, error = %v; want %d chunks with matching numbers, data and done flags", len(got), err, len(tt.want))
+				}
+				// 成功读取时逐片段对照标准库，保留长行和 CRLF 的分块协议。
+				reader := bufio.NewReaderSize(reference, bufio.MaxScanTokenSize)
+				var standard []chunk
+				number := 1
+				for {
+					line, prefix, err := reader.ReadLine()
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					standard = append(standard, chunk{number, string(line), !prefix})
+					if !prefix {
+						number++
+					}
+				}
+				if !slices.Equal(got, standard) {
+					t.Fatalf("Line() framing differs from bufio.ReadLine (EOF with data: %t)", eofWithData)
+				}
+			}
+		})
+	}
+}
+
+// go test -bench=Line$ -run ^$  -count 5 -benchmem
+func BenchmarkLine(b *testing.B) {
+	// 每次操作包含打开、完整读取和关闭，不在循环间复用文件游标。
+	for b.Loop() {
+		file, err := os.Open("file.go")
+		if err != nil {
+			b.Fatal(err)
+		}
+		readErr := utils.Line(file, func(int, []byte, bool) error { return nil })
+		closeErr := file.Close()
+		if readErr != nil {
+			b.Fatal(readErr)
+		}
+		if closeErr != nil {
+			b.Fatal(closeErr)
+		}
+	}
+}
+
+func TestRead(t *testing.T) {
+	want, err := os.ReadFile("file.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open("file.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	var content []byte
+	err = utils.Read(file, func(size int, block []byte) error {
+		if size != len(block) {
+			t.Fatalf("Read() block size = %d, want %d", size, len(block))
+		}
+		content = append(content, block...)
+		return nil
+	})
+	if err != nil || !bytes.Equal(content, want) {
+		t.Fatalf("Read() read %d bytes, error = %v; want %d matching bytes", len(content), err, len(want))
+	}
+}
+
+// fileReadFunc 用于逐次控制 Reader 的数据和错误，覆盖文件读取以外的合法返回组合。
+type fileReadFunc func([]byte) (int, error)
+
+func (f fileReadFunc) Read(p []byte) (int, error) { return f(p) }
+
+func TestReadTransientEmptyRead(t *testing.T) {
+	// 首次空读不代表 EOF；下次同时返回最后一块数据和 EOF。
+	reads := 0
+	reader := fileReadFunc(func(p []byte) (int, error) {
+		reads++
+		if reads == 1 {
+			return 0, nil
+		}
+		return copy(p, "payload"), io.EOF
+	})
+	var content strings.Builder
+	err := utils.Read(reader, func(size int, data []byte) error {
+		if size != len(data) {
+			t.Fatalf("Read() block size = %d, want %d", size, len(data))
+		}
+		content.Write(data)
+		return nil
+	})
+	if err != nil || content.String() != "payload" || reads != 2 {
+		t.Fatalf("Read() = (%q, %v), reads = %d; want (payload, nil), 2", content.String(), err, reads)
+	}
+}
+
+func TestReadDataWithError(t *testing.T) {
+	// Reader 可以在同一次调用中返回有效数据和错误；数据先交给回调，再传播错误。
+	readErr := errors.New("read failed")
+	for _, handlerErr := range []error{nil, utils.DONE, errors.New("handler failed")} {
+		t.Run(fmt.Sprint(handlerErr), func(t *testing.T) {
+			reader := fileReadFunc(func(p []byte) (int, error) {
+				return copy(p, "payload"), readErr
+			})
+			var content string
+			err := utils.Read(reader, func(_ int, data []byte) error {
+				content = string(data)
+				return handlerErr
+			})
+			wantErr := readErr
+			if handlerErr != nil {
+				wantErr = handlerErr
+			}
+			if handlerErr == utils.DONE {
+				wantErr = nil
+			}
+			if content != "payload" || !errors.Is(err, wantErr) {
+				t.Fatalf("Read() = (%q, %v), want (payload, %v)", content, err, wantErr)
+			}
 		})
 	}
 }
 
 // go test -bench=Read$ -run ^$  -count 5 -benchmem
-func BenchmarkRead(t *testing.B) {
-	type args struct {
-		name string
-	}
-
-	type test struct {
-		name    string
-		args    args
-		wantErr bool
-	}
-	tests := []test{
-		{name: "001", args: args{name: "./file.go"}},
-	}
-
-	var f = func(t *testing.B, tt test) {
-		// 打开文件
-		open, err := os.OpenFile(tt.args.name, os.O_RDONLY, 0)
+func BenchmarkRead(b *testing.B) {
+	// 每次操作包含打开、读到 EOF 和关闭，回调不额外复制正文。
+	for b.Loop() {
+		file, err := os.Open("file.go")
 		if err != nil {
-			t.Errorf("Open() WrapError %v", err)
-			return
+			b.Fatal(err)
 		}
-		// 关闭文件
-		defer func() {
-			if err := open.Close(); err != nil {
-				t.Errorf("Close() WrapError %v", err)
-			}
-		}()
-
-		// 处理读取的数据
-		//stat, _ := open.Stat()
-		//var content = make([]byte, 0, stat.Size())
-		var handle = func(size int, block []byte) error {
-			// t.Logf("handle() size = %v", num)
-			// content = append(content, block...)
-			return nil
+		readErr := utils.Read(file, func(int, []byte) error { return nil })
+		closeErr := file.Close()
+		if readErr != nil {
+			b.Fatal(readErr)
 		}
-
-		if err := utils.Read(open, handle); (err != nil) != tt.wantErr {
-			t.Errorf("Read() error = %v, wantErr %v", err, tt.wantErr)
+		if closeErr != nil {
+			b.Fatal(closeErr)
 		}
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.B) {
-			for i := 0; i < t.N; i++ {
-				f(t, tt)
-			}
-		})
 	}
 }
 
@@ -654,30 +654,28 @@ func TestWrite(t *testing.T) {
 		args    args
 		wantErr bool
 	}{
-		{name: "001", args: args{fileName: "/tmp/test.log", perm: 0744, isAppend: false}},           // 不追加
-		{name: "002", args: args{fileName: "/tmp/test2.log", perm: 0744, isAppend: true}},           // 追加
-		{name: "003", args: args{fileName: "/tmp/test/test/test.log", perm: 0711, isAppend: false}}, // 创建多级目录
+		{name: "001", args: args{fileName: "test.log", perm: 0744, isAppend: false}},
+		{name: "002", args: args{fileName: "test2.log", perm: 0744, isAppend: true}},
+		{name: "003", args: args{fileName: "test/test/test.log", perm: 0711, isAppend: false}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w, err := utils.NewWrite(tt.args.fileName, utils.WithWriteAppend(tt.args.isAppend), utils.WithWritePerm(tt.args.perm))
+			// 各用例独占目录，追加与多级目录测试不继承其他运行留下的数据。
+			fileName := filepath.Join(t.TempDir(), tt.args.fileName)
+			w, err := utils.NewWrite(fileName, utils.WithWriteAppend(tt.args.isAppend), utils.WithWritePerm(tt.args.perm))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewWrite() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			// 关闭文件
 			defer func() {
 				if err := w.Close(); err != nil {
 					t.Errorf("Close() WrapError %v", err)
 				}
 			}()
 
-			group := &sync.WaitGroup{}
-			// 写入数据
+			var group sync.WaitGroup
 			for i := 1; i <= 30; i++ {
-				group.Add(1)
-				go func(g *sync.WaitGroup, i int, t *testing.T) {
-					defer g.Done()
+				group.Go(func() {
 					if i%3 == 0 {
 						for j := range 10 {
 							_, err := w.Write(fmt.Appendf(nil, "Write %d-%d Name %v; 太液仙舟迥，西园引上才。未晓征车度，鸡鸣关早开。\n", i, j, tt.name))
@@ -685,7 +683,6 @@ func TestWrite(t *testing.T) {
 								t.Errorf("Write() error = %v", err)
 								return
 							}
-							// t.Logf("Write content size = %v", size)
 						}
 					} else if i%3 == 1 {
 						for j := range 10 {
@@ -694,7 +691,6 @@ func TestWrite(t *testing.T) {
 								t.Errorf("WriteString() error = %v", err)
 								return
 							}
-							//t.Logf("WriteString content size = %v", size)
 						}
 
 					} else {
@@ -711,24 +707,28 @@ func TestWrite(t *testing.T) {
 							t.Errorf("WriteBuf() error = %v", err)
 							return
 						}
-						//t.Logf("WriteBuf content size = %v", size)
 					}
-				}(group, i, t)
+				})
 			}
 			group.Wait()
 
-			/*open, WrapError := os.Open(tt.args.fileName)
-			if WrapError != nil {
-				t.Errorf("Open() error = %v", WrapError)
+			file, err := os.Open(fileName)
+			if err != nil {
+				t.Fatal(err)
 			}
-
-			if WrapError := Line(open, func(num int, line []byte, lineDone bool) error {
-				t.Logf("第%d行 %v\n", num, string(line))
-				return nil
-			}); WrapError != nil {
-				t.Errorf("Line() error = %v", WrapError)
-			}*/
-
+			defer file.Close()
+			scanner := bufio.NewScanner(file)
+			lines := 0
+			for scanner.Scan() {
+				lines++
+			}
+			if err := scanner.Err(); err != nil {
+				t.Fatal(err)
+			}
+			// 每种写入方式各有 10 个 worker，全部返回后不应丢失任何一行。
+			if want := 10 * (10 + 10 + 10000); lines != want {
+				t.Fatalf("written lines = %d, want %d", lines, want)
+			}
 		})
 	}
 }
@@ -785,8 +785,41 @@ func TestFileType(t *testing.T) {
 	}
 }
 
+// TestWriteBufReturnsFlushError 区分缓冲写入成功与最终 Flush 失败。
 func TestWriteBufReturnsFlushError(t *testing.T) {
 	fileName := filepath.Join(t.TempDir(), "flush.log")
+	if err := os.WriteFile(fileName, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &utils.WriteFile{File: file}
+	defer w.Close()
+
+	// 短内容只进入缓冲区，回调成功后 Flush 才会触达只读文件。
+	const content = "flush error test"
+	called := false
+	n, err := w.WriteBuf(func(write *bufio.Writer) (int, error) {
+		called = true
+		n, writeErr := write.WriteString(content)
+		if writeErr != nil {
+			t.Fatalf("buffered WriteString() error = %v", writeErr)
+		}
+		return n, nil
+	})
+	if !called || n != len(content) {
+		t.Fatalf("WriteBuf() called = %v, n = %d, want true, %d", called, n, len(content))
+	}
+	if pathErr, ok := errors.AsType[*os.PathError](err); !ok || pathErr.Op != "write" || pathErr.Path != fileName {
+		t.Fatalf("WriteBuf() error = %v, want write PathError for %q", err, fileName)
+	}
+}
+
+// TestWriteFileRejectsClosedWrites 验证三种写入入口均拒绝关闭句柄，不执行用户回调。
+func TestWriteFileRejectsClosedWrites(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "closed.log")
 	w, err := utils.NewWrite(fileName)
 	if err != nil {
 		t.Fatal(err)
@@ -795,22 +828,38 @@ func TestWriteBufReturnsFlushError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = w.WriteBuf(func(write *bufio.Writer) (int, error) {
-		n, writeErr := write.WriteString("flush error test")
-		return n, writeErr
-	})
-	if err == nil {
-		t.Fatal("WriteBuf() expected flush error after file closed")
+	called := false
+	for name, write := range map[string]func() (int, error){
+		"Write":       func() (int, error) { return w.Write([]byte("closed")) },
+		"WriteString": func() (int, error) { return w.WriteString("closed") },
+		"WriteBuf": func() (int, error) {
+			return w.WriteBuf(func(*bufio.Writer) (int, error) {
+				called = true
+				return 0, nil
+			})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			n, err := write()
+			if called || n != 0 || err == nil || err.Error() != "文件已关闭" {
+				t.Fatalf("%s() called = %v, n = %d, error = %v, want false, 0, 文件已关闭", name, called, n, err)
+			}
+		})
+	}
+	if n, err := w.WriteBuf(nil); n != 0 || err == nil || err.Error() != "handler 不能为空" {
+		t.Fatalf("WriteBuf(nil) = (%d, %v), want handler error before closed-file error", n, err)
 	}
 }
 
-func TestWriteFileCloseWaitsForInFlightWriteBuf(t *testing.T) {
-	fileName := filepath.Join(t.TempDir(), "close-waits.log")
+// TestWriteBufConcurrentClose 验证写回调与关闭并发完成后，正文仍完整保留。
+func TestWriteBufConcurrentClose(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "concurrent-close.log")
 	w, err := utils.NewWrite(fileName)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	const content = "in-flight write"
 	started := make(chan struct{})
 	allowReturn := make(chan struct{})
 	writeDone := make(chan error, 1)
@@ -818,12 +867,10 @@ func TestWriteFileCloseWaitsForInFlightWriteBuf(t *testing.T) {
 
 	go func() {
 		_, err := w.WriteBuf(func(write *bufio.Writer) (int, error) {
-			if _, err := write.WriteString("in-flight write"); err != nil {
-				return 0, err
-			}
+			n, err := write.WriteString(content)
 			close(started)
 			<-allowReturn
-			return len("in-flight write"), nil
+			return n, err
 		})
 		writeDone <- err
 	}()
@@ -834,19 +881,15 @@ func TestWriteFileCloseWaitsForInFlightWriteBuf(t *testing.T) {
 		closeDone <- w.Close()
 	}()
 
-	select {
-	case err := <-closeDone:
-		t.Fatalf("Close() returned before WriteBuf() finished: %v", err)
-	default:
-	}
-
 	close(allowReturn)
 
-	if err := <-writeDone; err != nil {
-		t.Fatalf("WriteBuf() error = %v", err)
+	writeErr, closeErr := <-writeDone, <-closeDone
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("WriteBuf() error = %v, Close() error = %v", writeErr, closeErr)
 	}
-	if err := <-closeDone; err != nil {
-		t.Fatalf("Close() error = %v", err)
+	got, err := os.ReadFile(fileName)
+	if err != nil || string(got) != content {
+		t.Fatalf("file after Close() = (%q, %v), want %q", got, err, content)
 	}
 }
 
@@ -972,32 +1015,99 @@ func TestNewWriteRejectsSymlinkDirectory(t *testing.T) {
 	}
 }
 
+func TestWritePathsPreserveSpaces(t *testing.T) {
+	// 空格属于文件系统路径本身，空值校验不能改写包含首尾空格的目录或文件名。
+	dir := filepath.Join(t.TempDir(), " directory ")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	atomicPath := filepath.Join(dir, " atomic ")
+	if err := utils.WriteFileAtomic(atomicPath, []byte("payload"), 0o600); err != nil {
+		t.Fatalf("WriteFileAtomic() error = %v", err)
+	}
+	writePath := filepath.Join(dir, " writer ")
+	writer, err := utils.NewWrite(writePath, utils.WithWritePerm(0o600))
+	if err != nil {
+		t.Fatalf("NewWrite() error = %v", err)
+	}
+	if _, err := writer.WriteString("payload"); err != nil {
+		_ = writer.Close()
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{atomicPath, writePath} {
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != "payload" {
+			t.Fatalf("ReadFile(%q) = (%q, %v), want payload", path, got, err)
+		}
+	}
+}
+
+// TestFileTypePreservesOffset 验证类型取自文件头，短文件和完整缓冲区读取都不影响调用方游标。
 func TestFileTypePreservesOffset(t *testing.T) {
-	fileName := filepath.Join(t.TempDir(), "sample")
-	content := []byte("hello world for content type")
-	if err := os.WriteFile(fileName, content, 0644); err != nil {
+	var content bytes.Buffer
+	if err := png.Encode(&content, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
 		t.Fatal(err)
 	}
+	for _, tc := range []struct {
+		name     string
+		fileName string // 未知扩展名触发读取；已知扩展名无需检查正文。
+		content  []byte // PNG 尾部填充用于覆盖一次读满 512 字节的情况。
+		want     string // 保持标准库 MIME 类型及 charset 格式。
+	}{
+		{name: "short PNG", fileName: "sample", content: content.Bytes(), want: "image/png"},
+		{name: "long PNG", fileName: "sample.unknown", content: append(bytes.Clone(content.Bytes()), make([]byte, 512)...), want: "image/png"},
+		{name: "known extension", fileName: "sample.txt", content: content.Bytes(), want: "text/plain; charset=utf-8"},
+		{name: "empty", fileName: "sample", want: "text/plain; charset=utf-8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fileName := filepath.Join(t.TempDir(), tc.fileName)
+			if err := os.WriteFile(fileName, tc.content, 0644); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Open(fileName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
 
-	f, err := os.Open(fileName)
-	if err != nil {
-		t.Fatal(err)
+			for _, offset := range []int64{0, int64(len(tc.content) / 2), int64(len(tc.content))} {
+				if _, err := f.Seek(offset, io.SeekStart); err != nil {
+					t.Fatal(err)
+				}
+				if got, err := utils.FileType(f); err != nil || got != tc.want {
+					t.Errorf("FileType() at offset %d = (%q, %v), want (%q, nil)", offset, got, err, tc.want)
+				}
+				if got, err := f.Seek(0, io.SeekCurrent); err != nil || got != offset {
+					t.Fatalf("file offset = %d, error = %v; want %d", got, err, offset)
+				}
+			}
+		})
 	}
-	defer f.Close()
+}
 
-	if _, err := f.Seek(5, io.SeekStart); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := utils.FileType(f); err != nil {
-		t.Fatalf("FileType() error = %v", err)
-	}
-
-	offset, err := f.Seek(0, io.SeekCurrent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if offset != 5 {
-		t.Fatalf("file offset = %d, want %d", offset, 5)
+// TestFileTypeClosedFile 保留已知扩展名无需读文件的行为，实际读取失败时返回原始错误链。
+func TestFileTypeClosedFile(t *testing.T) {
+	for _, fileName := range []string{"sample", "sample.png"} {
+		t.Run(fileName, func(t *testing.T) {
+			f, err := os.Create(filepath.Join(t.TempDir(), fileName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+			got, err := utils.FileType(f)
+			if fileName == "sample.png" {
+				if err != nil || got != "image/png" {
+					t.Fatalf("FileType() = (%q, %v), want (image/png, nil)", got, err)
+				}
+			} else if !errors.Is(err, os.ErrClosed) || got != "" {
+				t.Fatalf("FileType() = (%q, %v), want empty type and os.ErrClosed", got, err)
+			}
+		})
 	}
 }
 
@@ -1014,11 +1124,12 @@ func BenchmarkWrite(t *testing.B) {
 		args    args
 		wantErr bool
 	}{
-		{name: "001", args: args{fileName: "/tmp/test3.log", perm: 0744, isAppend: false}},
+		{name: "001", args: args{fileName: "test3.log", perm: 0744, isAppend: false}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.B) {
-			w, err := utils.NewWrite(tt.args.fileName, utils.WithWriteAppend(tt.args.isAppend), utils.WithWritePerm(tt.args.perm))
+			fileName := filepath.Join(t.TempDir(), tt.args.fileName)
+			w, err := utils.NewWrite(fileName, utils.WithWriteAppend(tt.args.isAppend), utils.WithWritePerm(tt.args.perm))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewWrite() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -1029,10 +1140,8 @@ func BenchmarkWrite(t *testing.B) {
 				}
 			}()
 
-			t.ResetTimer()
-			// 写入10行数据
-			for i := 0; i <= t.N; i++ {
-				// 写入带缓存(测试结果速度最快)
+			// 每次迭代写入 10 行，WriteBuf 返回前完成刷新。
+			for t.Loop() {
 				_, err := w.WriteBuf(func(write *bufio.Writer) (int, error) {
 					for range 10 {
 						_, err := write.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
@@ -1046,47 +1155,6 @@ func BenchmarkWrite(t *testing.B) {
 					t.Errorf("WriteBuf() error = %v", err)
 					return
 				}
-
-				// 加锁
-				/*for j := 0; j < 10; j++ {
-					_, WrapError := w.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
-					if WrapError != nil {
-						t.Errorf("WriteString() error = %v", WrapError)
-						return
-					}
-					//t.Logf("WriteString content size = %v", size)
-				}*/
-
-				// 不加锁
-				/*for j := 0; j < 10; j++ {
-					_, WrapError := w.File.WriteString("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n")
-					if WrapError != nil {
-						t.Errorf("File.WriteString() error = %v", WrapError)
-						return
-					}
-					//t.Logf("WriteString content size = %v", size)
-				}*/
-
-				// 加锁
-				/*for j := 0; j < 10; j++ {
-					_, WrapError := w.Write([]byte("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n"))
-					if WrapError != nil {
-						t.Errorf("Write() error = %v", WrapError)
-						return
-					}
-					// t.Logf("Write content size = %v", size)
-				}*/
-
-				// 不加锁
-				/*for j := 0; j < 10; j++ {
-					_, WrapError := w.File.Write([]byte("红酥肯放琼苞碎。探著南枝开遍未。不知酝藉几多香，但见包藏无限意。道人憔悴春窗底。闷损阑干愁不倚。要来小酌便来休，未必明朝风不起。\n"))
-					if WrapError != nil {
-						t.Errorf("Write() error = %v", WrapError)
-						return
-					}
-					// t.Logf("Write content size = %v", size)
-				}*/
-
 			}
 		})
 	}

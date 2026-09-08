@@ -1,123 +1,18 @@
 package utils_test
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"runtime"
 	"sync"
 	"testing"
 
 	utils "github.com/Is999/go-utils"
 )
 
-// mockLogger 模拟第三方日志库（如 zap、logrus）的实现
-type mockLogger struct {
-	debugCalled   bool
-	infoCalled    bool
-	warnCalled    bool
-	errorCalled   bool
-	withCalled    bool
-	enabledCalled bool
-	lastMsg       string
-	lastArgs      []any
-	lastLevel     utils.LogLevel
-	isEnabled     bool
-}
-
-func (m *mockLogger) Debug(msg string, args ...any) {
-	m.debugCalled = true
-	m.lastMsg = msg
-	m.lastArgs = args
-}
-
-func (m *mockLogger) Info(msg string, args ...any) {
-	m.infoCalled = true
-	m.lastMsg = msg
-	m.lastArgs = args
-}
-
-func (m *mockLogger) Warn(msg string, args ...any) {
-	m.warnCalled = true
-	m.lastMsg = msg
-	m.lastArgs = args
-}
-
-func (m *mockLogger) Error(msg string, args ...any) {
-	m.errorCalled = true
-	m.lastMsg = msg
-	m.lastArgs = args
-}
-
-func (m *mockLogger) With(args ...any) utils.Logger {
-	m.withCalled = true
-	m.lastArgs = args
-	return m
-}
-
-func (m *mockLogger) Enabled(ctx context.Context, level utils.LogLevel) bool {
-	m.enabledCalled = true
-	m.lastLevel = level
-	return m.isEnabled
-}
-
-// TestThirdPartyLoggerCompatibility 测试第三方日志库兼容性
-func TestThirdPartyLoggerCompatibility(t *testing.T) {
-	mock := &mockLogger{isEnabled: true}
-	var logger utils.Logger = mock
-
-	// 测试 Debug 方法
-	logger.Debug("debug message", "key", "value")
-	if !mock.debugCalled {
-		t.Error("Debug() was not called")
-	}
-	if mock.lastMsg != "debug message" {
-		t.Errorf("Debug() message = %v, want %v", mock.lastMsg, "debug message")
-	}
-
-	// 测试 Info 方法
-	logger.Info("info message")
-	if !mock.infoCalled {
-		t.Error("Info() was not called")
-	}
-	if mock.lastMsg != "info message" {
-		t.Errorf("Info() message = %v, want %v", mock.lastMsg, "info message")
-	}
-
-	// 测试 Warn 方法
-	logger.Warn("warn message")
-	if !mock.warnCalled {
-		t.Error("Warn() was not called")
-	}
-
-	// 测试 Error 方法
-	logger.Error("error message")
-	if !mock.errorCalled {
-		t.Error("Error() was not called")
-	}
-
-	// 测试 With 方法
-	newLogger := logger.With("request_id", "12345")
-	if !mock.withCalled {
-		t.Error("With() was not called")
-	}
-	if newLogger == nil {
-		t.Error("With() returned nil")
-	}
-
-	// 测试 Enabled 方法
-	enabled := logger.Enabled(context.Background(), utils.LevelInfo)
-	if !mock.enabledCalled {
-		t.Error("Enabled() was not called")
-	}
-	if !enabled {
-		t.Error("Enabled() returned false, want true")
-	}
-	if mock.lastLevel != utils.LevelInfo {
-		t.Errorf("Enabled() level = %v, want %v", mock.lastLevel, utils.LevelInfo)
-	}
-}
-
-// TestLogLevels 测试日志级别定义
+// TestLogLevels 固定与 slog 对应的级别数值，供第三方适配器直接转换。
 func TestLogLevels(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -137,63 +32,116 @@ func TestLogLevels(t *testing.T) {
 			}
 		})
 	}
+}
 
-	// 验证级别大小关系
-	if utils.LevelDebug >= utils.LevelInfo {
-		t.Error("LevelDebug should be less than LevelInfo")
-	}
-	if utils.LevelInfo >= utils.LevelWarn {
-		t.Error("LevelInfo should be less than LevelWarn")
-	}
-	if utils.LevelWarn >= utils.LevelError {
-		t.Error("LevelWarn should be less than LevelError")
+// TestSlogLoggerSource 通过公开 Logger 方法记录日志，源码位置应指向调用方而非适配器。
+func TestSlogLoggerSource(t *testing.T) {
+	for _, withFields := range []bool{false, true} {
+		name := "default"
+		if withFields {
+			name = "with fields"
+		}
+		t.Run(name, func(t *testing.T) {
+			previous := slog.Default() // 全局替换仅限当前用例，避免影响其他日志测试。
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			logger := utils.Log()   // 默认实例应跟随后续的 SetDefault。
+			var output bytes.Buffer // 捕获实际 JSONHandler 输出，包括调用位置和属性。
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{
+				AddSource: true,
+				Level:     slog.LevelDebug,
+			})))
+			if withFields {
+				logger = logger.With("component", "worker")
+				// 子 Logger 已绑定原 Handler，切换全局默认值不应改变它的输出目标。
+				slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+			}
+			for _, level := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError} {
+				output.Reset()
+				var writeLog func(string, ...any) // 方法值也应保留实际调用位置。
+				switch level {
+				case slog.LevelDebug:
+					writeLog = logger.Debug
+				case slog.LevelInfo:
+					writeLog = logger.Info
+				case slog.LevelWarn:
+					writeLog = logger.Warn
+				case slog.LevelError:
+					writeLog = logger.Error
+				}
+				pc, file, line, _ := runtime.Caller(0)
+				writeLog("ready", "attempt", 2, slog.String("state", "ok"), "dangling")
+
+				var record struct {
+					Source    slog.Source `json:"source"`    // Handler 实际输出的调用位置。
+					Level     string      `json:"level"`     // 沿用 slog 的级别名称。
+					Message   string      `json:"msg"`       // 调用方消息。
+					Component string      `json:"component"` // With 绑定的字段。
+					Attempt   int         `json:"attempt"`   // 普通键值对参数。
+					State     string      `json:"state"`     // slog.Attr 参数。
+					BadKey    string      `json:"!BADKEY"`   // 未配对参数沿用 slog 的表示方式。
+				}
+				if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+					t.Fatal(err)
+				}
+				if record.Source.File != file || record.Source.Line != line+1 || record.Source.Function != runtime.FuncForPC(pc).Name() {
+					t.Errorf("%s source = %+v, want %s:%d", level, record.Source, file, line+1)
+				}
+				if record.Level != level.String() || record.Message != "ready" || record.Attempt != 2 || record.State != "ok" || record.BadKey != "dangling" {
+					t.Errorf("%s changed message or attributes: %s", level, output.Bytes())
+				}
+				if withFields && record.Component != "worker" {
+					t.Errorf("%s lost With field: %s", level, output.Bytes())
+				}
+			}
+		})
 	}
 }
 
-// TestDefaultSlogLogger 测试默认的 slog logger 实现
-func TestDefaultSlogLogger(t *testing.T) {
-	// 使用默认 logger
+// TestSlogLoggerLevelFilter 保证包装方法仍由底层 Handler 决定是否输出。
+func TestSlogLoggerLevelFilter(t *testing.T) {
+	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	var output bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelError})))
 	logger := utils.Log()
-	if logger == nil {
-		t.Fatal("Log() returned nil")
+	for _, level := range []utils.LogLevel{utils.LevelDebug, utils.LevelInfo, utils.LevelWarn} {
+		if logger.Enabled(t.Context(), level) {
+			t.Errorf("Enabled(%d) = true below handler threshold", level)
+		}
 	}
-
-	// 测试各级别方法不会 panic
-	logger.Debug("debug test")
-	logger.Info("info test")
-	logger.Warn("warn test")
-	logger.Error("error test")
-
-	// 测试 With 返回新的 Logger
-	newLogger := logger.With("key", "value")
-	if newLogger == nil {
-		t.Error("With() returned nil")
+	if !logger.Enabled(t.Context(), utils.LevelError) {
+		t.Fatal("Enabled(LevelError) = false at handler threshold")
 	}
-
-	// 测试 Enabled 方法
-	ctx := context.Background()
-	for _, level := range []utils.LogLevel{
-		utils.LevelDebug,
-		utils.LevelInfo,
-		utils.LevelWarn,
-		utils.LevelError,
-	} {
-		// 不期望 panic
-		_ = logger.Enabled(ctx, level)
+	logger.Debug("debug")
+	logger.Info("info")
+	logger.Warn("warn")
+	if output.Len() != 0 {
+		t.Fatalf("filtered logs reached output: %s", output.Bytes())
+	}
+	logger.Error("error")
+	if output.Len() == 0 {
+		t.Fatal("enabled error log was filtered")
 	}
 }
 
+// TestLogConcurrentAccess 覆盖共享 Logger 和 With 子实例的并发输出。
 func TestLogConcurrentAccess(t *testing.T) {
 	if logger := utils.Log(); logger == nil {
 		t.Fatal("Log() returned nil")
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	var output bytes.Buffer // 标准 Handler 负责并发写入同步，等待结束后再读取。
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
 
 	var wg sync.WaitGroup
-	for range 32 {
+	for worker := range 32 {
 		wg.Go(func() {
-			_ = utils.Log()
+			utils.Log().With("worker", worker).Info("ready")
 		})
 	}
 	wg.Wait()
+	if count := bytes.Count(output.Bytes(), []byte{'\n'}); count != 32 {
+		t.Fatalf("concurrent logs = %d, want 32", count)
+	}
 }

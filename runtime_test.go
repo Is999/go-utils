@@ -1,6 +1,8 @@
 package utils_test
 
 import (
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -8,26 +10,23 @@ import (
 )
 
 func TestGetRuntimeInfo(t *testing.T) {
-	type args struct {
-		skip int
+	info := utils.RuntimeInfo(0)
+	if info.Func != utils.GetFunctionName(utils.RuntimeInfo) || filepath.Base(info.File) != "runtime.go" || info.Line <= 0 {
+		t.Fatalf("RuntimeInfo(0) = %+v, want its own source frame", info)
 	}
-	tests := []struct {
-		name string
-		args args
-	}{
-		{name: "001", args: args{0}},
-		{name: "002", args: args{1}},
+
+	// 相邻调用计算预期行号，避免硬编码文件绝对路径或源码行号。
+	pc, file, line, ok := runtime.Caller(0)
+	info = utils.RuntimeInfo(1)
+	if !ok {
+		t.Fatal("runtime.Caller() did not locate the test frame")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			utils.RuntimeInfo(tt.args.skip)
-			//t.Logf("RuntimeInfo() = %+v", got)
-		})
+	if info.Func != runtime.FuncForPC(pc).Name() || info.File != file || info.Line != line+1 {
+		t.Fatalf("RuntimeInfo(1) = %+v, want caller at %s:%d", info, file, line+1)
 	}
 }
 
 func TestGetFunctionName(t *testing.T) {
-	// 普通函数
 	t.Run("named_function", func(t *testing.T) {
 		name := utils.GetFunctionName(utils.MD5)
 		if !strings.Contains(name, "MD5") {
@@ -35,7 +34,6 @@ func TestGetFunctionName(t *testing.T) {
 		}
 	})
 
-	// 匿名函数
 	t.Run("anonymous_function", func(t *testing.T) {
 		fn := func() {}
 		name := utils.GetFunctionName(fn)
@@ -54,7 +52,6 @@ func TestGetFunctionName(t *testing.T) {
 }
 
 func TestRuntimeInfo_InvalidSkip(t *testing.T) {
-	// 超大skip值导致Caller失败
 	info := utils.RuntimeInfo(999)
 	if info.File != "Unknown File" {
 		t.Errorf("RuntimeInfo(999).File = %v, want 'Unknown File'", info.File)

@@ -8,28 +8,31 @@ import (
 
 var (
 	benchCurl *utils.Curl
-	benchID   string
 	benchBody int
 )
 
+// BenchmarkNew 计量请求实例与默认配置的构造成本。
 func BenchmarkNew(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		benchCurl = utils.NewCurl(utils.WithCurlLogger(curlTestLogger{}))
 	}
 }
 
+// BenchmarkCurlRequestID 使用空日志器测量 ID 生成与请求头更新，不包含 Curl 构造。
 func BenchmarkCurlRequestID(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		benchID = utils.RandomID(16)
+	curl := utils.NewCurl(utils.WithCurlLogger(curlTestLogger{}))
+	for b.Loop() {
+		curl.SetRequestID()
 	}
 }
 
+// BenchmarkFormReaderURLEncoded 计量固定字段的编码与正文读取，不包含表单配置。
 func BenchmarkFormReaderURLEncoded(b *testing.B) {
 	form := utils.NewForm().
 		SetParam("page", "2").
-		SetParam("q", "codex")
+		SetParam("q", "alice")
 	var buf [64]byte
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		body, contentType, err := form.Reader()
 		if err != nil {
 			b.Fatal(err)

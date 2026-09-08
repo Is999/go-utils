@@ -46,7 +46,7 @@ func TestMapValues(t *testing.T) {
 	tests := []struct {
 		name string
 		args args[string, string]
-		want utils.Slice[string]
+		want []string // 按键顺序排列的值，避免按值重算期望。
 	}{
 		{name: "001", args: args[string, string]{m: map[string]string{
 			"key01": "001",
@@ -61,7 +61,7 @@ func TestMapValues(t *testing.T) {
 			"key02": "002",
 			"key05": "005",
 			"key03": "003",
-		}, isReverse: true}, want: []string{"001", "002", "003", "004", "005"}},
+		}, isReverse: true}, want: []string{"005", "004", "003", "002", "001"}},
 		{name: "003", args: args[string, string]{m: map[string]string{
 			"abceg": "abceg",
 			"dbdrf": "dbdrf",
@@ -75,17 +75,18 @@ func TestMapValues(t *testing.T) {
 			"xdghf": "xdghf",
 			"abreq": "abreq",
 			"xbghf": "xbghf",
-		}, isReverse: true}, want: []string{"abceg", "dbdrf", "xdghf", "abreq", "xbghf"}},
+		}, isReverse: true}, want: []string{"xdghf", "xbghf", "dbdrf", "abreq", "abceg"}},
+		// 键和值的顺序不同，避免按值排序也能通过测试。
+		{name: "values_follow_ascending_keys", args: args[string, string]{m: map[string]string{
+			"a": "003", "b": "001", "c": "002",
+		}}, want: []string{"003", "001", "002"}},
+		{name: "values_follow_descending_keys", args: args[string, string]{m: map[string]string{
+			"a": "003", "b": "001", "c": "002",
+		}, isReverse: true}, want: []string{"002", "001", "003"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.args.isReverse {
-				sort.Sort(sort.Reverse(tt.want))
-				//t.Logf("Reverse want = %v \n", tt.want)
-			} else {
-				sort.Sort(tt.want)
-			}
-			if got := utils.MapValues(tt.args.m, tt.args.isReverse); !reflect.DeepEqual(got, []string(tt.want)) {
+			if got := utils.MapValues(tt.args.m, tt.args.isReverse); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("MapValues() = %v, want %v", got, tt.want)
 			}
 		})
@@ -274,6 +275,13 @@ func TestMapFilter(t *testing.T) {
 }
 
 func TestMapRange(t *testing.T) {
+	// entry 保存每次回调的实参，包括触发停止的当前项。
+	type entry struct {
+		// key 用于核对排序及停止位置。
+		key string
+		// val 用于核对键值对应关系。
+		val int
+	}
 	type args[K utils.Ordered, V any] struct {
 		m         map[K]V
 		f         func(key K, val V) bool
@@ -282,44 +290,61 @@ func TestMapRange(t *testing.T) {
 	type testCase[K utils.Ordered, V any] struct {
 		name string
 		args args[K, V]
+		want []entry // 预期回调顺序，包含触发停止的项。
 	}
 	tests := []testCase[string, int]{
-		{name: "001", args: args[string, int]{m: map[string]int{
+		{name: "升序按键停止", args: args[string, int]{m: map[string]int{
 			"key01": 100,
 			"key02": 200,
 			"key03": 300,
 			"key04": 400,
 			"key05": 500,
 		}, f: func(key string, val int) bool {
-			if key == "key04" {
-				return false
-			}
-			//t.Logf("key %v, val %v", key, val)
-			return true
-		}}},
-		{name: "002", args: args[string, int]{m: map[string]int{
+			return key != "key04"
+		}}, want: []entry{{"key01", 100}, {"key02", 200}, {"key03", 300}, {"key04", 400}}},
+		{name: "降序按值停止", args: args[string, int]{m: map[string]int{
 			"key01": 100,
 			"key02": 200,
 			"key03": 300,
 			"key04": 400,
 			"key05": 500,
 		}, f: func(key string, val int) bool {
-			if val == 200 {
-				return false
-			}
-			//t.Logf("key %v, val %v", key, val)
-			return true
-		}, isReverse: true}},
+			return val != 200
+		}, isReverse: true}, want: []entry{{"key05", 500}, {"key04", 400}, {"key03", 300}, {"key02", 200}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			utils.MapRange(tt.args.m, tt.args.f, tt.args.isReverse)
+			var got []entry
+			utils.MapRange(tt.args.m, func(key string, val int) bool {
+				// 返回 false 的当前项也已调用回调，记录后才停止。
+				got = append(got, entry{key, val})
+				return tt.args.f(key, val)
+			}, tt.args.isReverse)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("MapRange() = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }
 
+// TestMapRangeReadsUpdatedValue 确认排序只快照键，后续回调仍读取修改后的值。
+func TestMapRangeReadsUpdatedValue(t *testing.T) {
+	m := map[int]int{1: 10, 2: 20, 3: 30}
+	var got []int
+	utils.MapRange(m, func(key, val int) bool {
+		got = append(got, val)
+		if key == 1 {
+			// 键集合先固定，值应在各次回调前读取。
+			m[2] = 200
+		}
+		return true
+	})
+	if want := []int{10, 200, 30}; !reflect.DeepEqual(got, want) {
+		t.Errorf("MapRange() values = %v, want %v", got, want)
+	}
+}
+
 func TestSumMap(t *testing.T) {
-	// int 类型
 	t.Run("int", func(t *testing.T) {
 		m := map[string]int{"a": 1, "b": 2, "c": 3}
 		got := utils.SumMap(m)
@@ -328,7 +353,6 @@ func TestSumMap(t *testing.T) {
 		}
 	})
 
-	// float64 类型
 	t.Run("float64", func(t *testing.T) {
 		m := map[string]float64{"x": 1.5, "y": 2.5, "z": 3.0}
 		got := utils.SumMap(m)
@@ -337,7 +361,6 @@ func TestSumMap(t *testing.T) {
 		}
 	})
 
-	// 空 map
 	t.Run("empty", func(t *testing.T) {
 		m := map[string]int{}
 		got := utils.SumMap(m)

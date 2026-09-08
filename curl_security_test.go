@@ -1,6 +1,7 @@
 package utils_test
 
 import (
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"crypto/rsa"
@@ -8,8 +9,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,7 +33,7 @@ func TestFormReaderStreamsMultipartBody(t *testing.T) {
 	}
 
 	form := utils.NewForm().
-		SetParam("name", "codex").
+		SetParam("name", "alice").
 		SetFile("file", filePath)
 
 	body, contentType, err := form.Reader()
@@ -47,8 +51,72 @@ func TestFormReaderStreamsMultipartBody(t *testing.T) {
 	if !strings.Contains(string(readAll), "stream-body") {
 		t.Fatalf("multipart body = %q, want file content", readAll)
 	}
-	if !strings.Contains(string(readAll), `name="name"`) || !strings.Contains(string(readAll), "codex") {
+	if !strings.Contains(string(readAll), `name="name"`) || !strings.Contains(string(readAll), "alice") {
 		t.Fatalf("multipart body = %q, want form field", readAll)
+	}
+	// 完整解析到 EOF，确保文件正文之后还有合法的 multipart 终止边界。
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := multipart.NewReader(bytes.NewReader(readAll), params["boundary"])
+	var parts int
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("NextPart() error = %v", err)
+		}
+		if _, err := io.Copy(io.Discard, part); err != nil {
+			t.Fatal(err)
+		}
+		parts++
+	}
+	if parts != 2 {
+		t.Fatalf("multipart part count = %d, want 2", parts)
+	}
+}
+
+// TestFormReaderFileRemovedAfterValidation 覆盖预检成功后文件消失，消费者仍能收到原始访问错误。
+func TestFormReaderFileRemovedAfterValidation(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "upload.txt")
+	if err := os.WriteFile(filePath, []byte("file body"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// 普通字段先写入；尚未开始读取 pipe 时，生产者不能越过这个字段去打开文件。
+	form := utils.NewForm().SetParam("first", "field").SetFile("file", filePath)
+	body, _, err := form.Reader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := body.(io.ReadCloser)
+	defer reader.Close()
+	if err := os.Remove(filePath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadAll(reader); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("ReadAll() error = %v, want os.ErrNotExist", err)
+	}
+}
+
+// TestFormReaderCloseBeforeConsumption 覆盖调用方放弃上传时主动关闭 pipe，读取不能继续等待生产者。
+func TestFormReaderCloseBeforeConsumption(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "upload.txt")
+	if err := os.WriteFile(filePath, []byte("file body"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := utils.NewForm().SetParam("first", "field").SetFile("file", filePath).Reader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := body.(io.ReadCloser)
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadAll(reader); !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("ReadAll() error = %v, want io.ErrClosedPipe", err)
 	}
 }
 

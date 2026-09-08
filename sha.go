@@ -7,24 +7,19 @@ import (
 	"encoding/hex"
 )
 
-// SHA1 返回字符串的 SHA-1 十六进制摘要。
-//
-// 安全说明：SHA-1 已不适合签名、证书、密码存储等安全场景；
-// 该函数仅用于历史协议兼容或非安全哈希标识。
+// SHA1 返回 40 位小写十六进制摘要，仅用于旧协议或非安全哈希标识。
 func SHA1(str string) string {
 	sum := sha1.Sum([]byte(str))
 	return hex.EncodeToString(sum[:])
 }
 
-// SHA256 返回字符串的 SHA-256 十六进制摘要。
-// 适合普通摘要场景；密码存储仍应使用 bcrypt/argon2/scrypt 等专用算法。
+// SHA256 返回 64 位小写十六进制摘要，不进行加盐或密钥派生。
 func SHA256(str string) string {
 	sum := sha256.Sum256([]byte(str))
 	return hex.EncodeToString(sum[:])
 }
 
-// SHA512 返回字符串的 SHA-512 十六进制摘要。
-// 适合普通摘要场景；密码存储仍应使用 bcrypt/argon2/scrypt 等专用算法。
+// SHA512 返回 128 位小写十六进制摘要，不进行加盐或密钥派生。
 func SHA512(str string) string {
 	sum := sha512.Sum512([]byte(str))
 	return hex.EncodeToString(sum[:])

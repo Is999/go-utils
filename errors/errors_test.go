@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -160,18 +161,15 @@ func TestTag(t *testing.T) {
 			}
 
 			if !tt.wantNil && wrapped != nil {
-				// 验证错误消息是否正确保留
 				if wrapped.Error() != tt.err.Error() {
 					t.Errorf("Tag() error message = %v, want %v", wrapped.Error(), tt.err.Error())
 				}
 
-				// 验证是否包含追踪栈
 				hasStack := errors.HasStack(wrapped)
 				if hasStack != tt.shouldHaveStack {
 					t.Errorf("Tag() hasStack = %v, want %v", hasStack, tt.shouldHaveStack)
 				}
 
-				// 验证追踪输出不为空
 				trace := errors.TraceString(wrapped)
 				if trace == "" {
 					t.Error("Tag() should produce non-empty trace")
@@ -180,7 +178,6 @@ func TestTag(t *testing.T) {
 		})
 	}
 
-	// 测试重复包装已有追踪的错误不会重复创建
 	t.Run("005_no_double_stack", func(t *testing.T) {
 		first := errors.Tag(stdlibErr)
 		second := errors.Tag(first)
@@ -240,24 +237,26 @@ func TestErrorMessageChainSemantics(t *testing.T) {
 	})
 }
 
+// TestAs 提取具体错误对象，不能仅匹配所有包装层都实现的 error 接口。
 func TestAs(t *testing.T) {
-	err := errors.New("test error")
-	wrapErr := errors.Wrap(err, "wrapped")
-
-	// 测试 As 函数
-	t.Run("001", func(t *testing.T) {
-		var target interface{ Error() string }
-		if !errors.As(err, &target) {
-			t.Error("As() should return true for wrapError")
-		}
-	})
-
-	t.Run("002", func(t *testing.T) {
-		var target interface{ Error() string }
-		if !errors.As(wrapErr, &target) {
-			t.Error("As() should return true for wrapped wrapError")
-		}
-	})
+	source := &typedError{msg: "source"}
+	for _, tt := range []struct {
+		name string
+		err  error
+		want *typedError // 命中时必须返回原对象，未命中保持 nil。
+	}{
+		{name: "direct", err: source, want: source},
+		{name: "wrapped", err: errors.Wrap(source, "wrapped"), want: source},
+		{name: "missing", err: errors.Wrap(io.EOF, "read")},
+		{name: "nil"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var target *typedError
+			if ok := errors.As(tt.err, &target); ok != (tt.want != nil) || target != tt.want {
+				t.Fatalf("As() = (%p, %v), want (%p, %v)", target, ok, tt.want, tt.want != nil)
+			}
+		})
+	}
 }
 
 func TestTrace(t *testing.T) {
@@ -275,7 +274,6 @@ func TestTrace(t *testing.T) {
 			if trace == nil {
 				t.Error("Trace() returned nil")
 			}
-			// 验证实现了 slog.LogValuer 接口
 			var _ slog.LogValuer = trace
 		})
 	}
@@ -404,23 +402,24 @@ func TestJoinWrappingPreservesAllSentinelsForIs(t *testing.T) {
 	}
 }
 
+// TestUnwrap 只展开一层，叶子、nil 和多分支 Join 均不返回单一原因。
 func TestUnwrap(t *testing.T) {
-	err := fmt.Errorf("原始测试错误")
-	type args struct {
-		err error
-	}
+	source := stderrors.New("原始测试错误")
 	tests := []struct {
-		name    string
-		args    args
-		wantErr error
+		name string
+		err  error
+		want error // 精确的下一层对象，不能用 Is 的链上可达性替代。
 	}{
-		{name: "001", args: args{err: errors.Wrapf(io.EOF, "包装测试错误")}, wantErr: io.EOF},
-		{name: "002", args: args{err: errors.Wrapf(err, "包装测试错误")}, wantErr: err},
+		{name: "EOF", err: errors.Wrapf(io.EOF, "包装测试错误"), want: io.EOF},
+		{name: "source", err: errors.Wrapf(source, "包装测试错误"), want: source},
+		{name: "leaf", err: source},
+		{name: "nil"},
+		{name: "joined", err: errors.Join(source, io.EOF)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := errors.Unwrap(tt.args.err); !errors.Is(err, tt.wantErr) {
-				t.Errorf("Unwrap() error = %v, wantErr %v", err, tt.wantErr)
+			if got := errors.Unwrap(tt.err); got != tt.want {
+				t.Errorf("Unwrap() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -436,33 +435,25 @@ func TestSourceSourcesAndChain(t *testing.T) {
 	if !errors.Is(err, io.EOF) {
 		t.Fatal("Is() should match source in joined chain")
 	}
-	if got := errors.Source(err); !errors.Is(got, io.EOF) {
+	if got := errors.Source(err); got != io.EOF {
 		t.Fatalf("Source() = %v, want %v", got, io.EOF)
 	}
-	if got := errors.Cause(err); !errors.Is(got, io.EOF) {
+	if got := errors.Cause(err); got != io.EOF {
 		t.Fatalf("Cause() = %v, want %v", got, io.EOF)
 	}
-	if got := errors.Root(err); !errors.Is(got, io.EOF) {
+	if got := errors.Root(err); got != io.EOF {
 		t.Fatalf("Root() = %v, want %v", got, io.EOF)
 	}
 
-	sources := errors.Sources(err)
-	if len(sources) != 2 {
-		t.Fatalf("Sources() len = %d, want 2: %#v", len(sources), sources)
-	}
-	if !errors.Is(sources[0], io.EOF) {
-		t.Fatalf("Sources()[0] = %v, want %v", sources[0], io.EOF)
-	}
-	if sources[1] != rightSource {
-		t.Fatalf("Sources()[1] = %v, want %v", sources[1], rightSource)
+	wantSources := []error{io.EOF, rightSource}
+	if got := errors.Sources(err); !slices.Equal(got, wantSources) {
+		t.Fatalf("Sources() = %v, want %v", got, wantSources)
 	}
 
-	chain := errors.Chain(err)
-	if len(chain) < 6 {
-		t.Fatalf("Chain() len = %d, want at least 6", len(chain))
-	}
-	if chain[0] != err {
-		t.Fatalf("Chain()[0] = %v, want original err", chain[0])
+	// 深度优先展开先走完左分支，再访问右分支；所有节点都保留原身份。
+	wantChain := []error{err, joined, left, io.EOF, right, rightSource}
+	if got := errors.Chain(err); !slices.Equal(got, wantChain) {
+		t.Fatalf("Chain() = %v, want %v", got, wantChain)
 	}
 }
 
@@ -507,9 +498,9 @@ func TestTraceJSONIsValidJSON(t *testing.T) {
 }
 
 func TestTraceJSONEscapesControlAndInvalidUTF8(t *testing.T) {
-	// msg 是模拟外部系统返回的异常消息，包含控制字符和非法 UTF-8，TraceJSON 必须仍保持可解析。
+	// 控制字符和非法 UTF-8 不应破坏消息字段的 JSON。
 	msg := "outer\x00line\n" + string([]byte{0xff})
-	// ctx 带入请求上下文字段，覆盖 ctx key/value 与 msg 使用同一转义入口的边界。
+	// 上下文的键和值也需遵循同一转义规则。
 	ctx := errors.WithContextErr(context.Background(), "request\x00id", "value"+string([]byte{0xff}))
 	err := errors.WithContext(ctx, errors.New(msg))
 
@@ -825,21 +816,20 @@ func TestLayeredErrorFinalLogOutput(t *testing.T) {
 func TestRecommendedUsageWithTrace(t *testing.T) {
 	t.Helper()
 
-	// 推荐模式：
-	// 1. 真正失败点使用 New/Wrap 抓取栈。
-	// 2. 中间传播层使用 WithMessage/WithCode 补充业务语义，避免重复抓栈。
-	// 3. 出口层统一打印 Trace(err)。
+	// 失败点采集调用栈。
 	repository := func() error {
 		return errors.New("select order failed")
 	}
 	service := func() error {
 		if err := repository(); err != nil {
+			// 传播时补消息，保留首次失败位置。
 			return errors.Wrap(err, "load order failed")
 		}
 		return nil
 	}
 	handler := func() error {
 		if err := service(); err != nil {
+			// 出口补业务码和最终消息。
 			return errors.WithCode(errors.WithMessage(err, "create payment failed"), 40021)
 		}
 		return nil
@@ -859,6 +849,7 @@ func TestRecommendedUsageWithTrace(t *testing.T) {
 	if err == nil {
 		t.Fatal("handler() returned nil")
 	}
+	// 完整错误链在日志出口渲染。
 	logger.Error("checkout failed", "trace", errors.Trace(err))
 
 	logLine := strings.TrimSpace(buf.String())
@@ -1152,19 +1143,16 @@ func TestErrorFormat(t *testing.T) {
 	err := errors.New("test error")
 	wrapErr := errors.Wrap(fmt.Errorf("original"), "wrapped")
 
-	// 测试 %s 格式化
 	s := fmt.Sprintf("%s", err)
 	if s == "" {
 		t.Error("Error format with s returned empty string")
 	}
 
-	// 测试 %v 格式化
 	v := fmt.Sprintf("%v", err)
 	if v == "" {
 		t.Error("Error format with v returned empty string")
 	}
 
-	// 测试 %+v 格式化
 	pv := fmt.Sprintf("%+v", err)
 	if pv == "" {
 		t.Error("Error format with +v returned empty string")
@@ -1173,27 +1161,23 @@ func TestErrorFormat(t *testing.T) {
 		t.Errorf("Error format with +v should return JSON, got %s", pv)
 	}
 
-	// 测试 %#v 格式化
 	hv := fmt.Sprintf("%#v", wrapErr)
 	if hv == "" {
 		t.Error("Error format with #v returned empty string")
 	}
 
-	// 测试 %q 格式化
 	q := fmt.Sprintf("%q", err)
 	if q == "" {
 		t.Error("Error format with q returned empty string")
 	}
 }
 
-// lazyTracePayload 表示 TraceJSON 输出中与本用例相关的最小结构。
-// 只解析 trace 字段，是为了验证懒裁剪后的项目栈帧数量和路径格式，不绑定完整 JSON 协议。
+// lazyTracePayload 只解析 trace，避免栈裁剪测试绑定其他 JSON 字段。
 type lazyTracePayload struct {
-	Trace []string `json:"trace"` // Trace 是 JSON 输出中的栈帧数组，元素应为项目相对路径定位。
+	Trace []string `json:"trace"` // 项目相对路径形式的栈帧。
 }
 
-// TestLazyStackProjectFrameTrimming 验证创建错误时延迟解析栈帧后，最终链路追踪输出保持原有项目裁剪效果。
-// 文本、JSON、slog 三个入口都应只暴露项目内连续调用栈，不能泄露绝对路径或 runtime/testing 框架帧。
+// TestLazyStackProjectFrameTrimming 对照三种输出的连续项目帧裁剪。
 func TestLazyStackProjectFrameTrimming(t *testing.T) {
 	oldDepth := errors.StackDepth()
 	defer errors.SetStackDepth(oldDepth)
@@ -1204,11 +1188,11 @@ func TestLazyStackProjectFrameTrimming(t *testing.T) {
 		t.Fatal("lazyStackProjectEntry() returned nil")
 	}
 
-	// 文本入口常用于第三方日志库，必须保持首个业务位置为项目相对路径。
+	// 文本只需首个项目位置。
 	traceText := errors.TraceString(err)
 	assertProjectTraceNoFramework(t, traceText)
 
-	// JSON 入口会渲染完整 trace 数组，懒裁剪后仍应保留多层项目调用链。
+	// JSON 数组还应保留多层连续项目帧。
 	traceJSON := errors.TraceJSON(err)
 	assertProjectTraceNoFramework(t, traceJSON)
 	var payload lazyTracePayload
@@ -1224,7 +1208,7 @@ func TestLazyStackProjectFrameTrimming(t *testing.T) {
 		}
 	}
 
-	// slog 入口会通过 stackTrace.LogValue 延迟渲染，需复用同一套项目帧裁剪规则。
+	// slog 延迟渲染也须遵循相同裁剪规则。
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
@@ -1238,8 +1222,7 @@ func TestLazyStackProjectFrameTrimming(t *testing.T) {
 	assertProjectTraceNoFramework(t, buf.String())
 }
 
-// assertProjectTraceNoFramework 校验追踪输出的路径边界。
-// 数据来源可以是 TraceString、TraceJSON 或 slog JSON，统一要求只保留项目相对路径并过滤测试框架帧。
+// assertProjectTraceNoFramework 检查项目相对路径，并排除 runtime/testing 框架帧。
 func assertProjectTraceNoFramework(t *testing.T, output string) {
 	t.Helper()
 	if !strings.Contains(output, "errors/errors_test.go:") {
@@ -1253,20 +1236,17 @@ func assertProjectTraceNoFramework(t *testing.T, output string) {
 	}
 }
 
-// lazyStackProjectEntry 构造多层项目内调用栈的入口。
-// 通过固定的测试调用链模拟业务 handler 到 repository 的传播路径，便于验证连续项目帧裁剪。
+// lazyStackProjectEntry 与下层函数共同形成连续项目调用栈。
 func lazyStackProjectEntry() error {
 	return lazyStackProjectMiddle()
 }
 
-// lazyStackProjectMiddle 构造多层项目内调用栈的中间层。
-// 该层没有额外包装错误，确保测试关注点停留在栈帧采集和渲染边界。
+// lazyStackProjectMiddle 只增加调用帧，不增加错误包装层。
 func lazyStackProjectMiddle() error {
 	return lazyStackProjectLeaf()
 }
 
-// lazyStackProjectLeaf 构造多层项目内调用栈的失败点。
-// 这里使用 errors.New 采集栈，验证懒解析后首帧仍定位到真实业务失败位置。
+// lazyStackProjectLeaf 在链路最深处采集失败位置。
 func lazyStackProjectLeaf() error {
 	return errors.New("lazy stack failed")
 }

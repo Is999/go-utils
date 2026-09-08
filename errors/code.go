@@ -5,27 +5,14 @@ import (
 	"fmt"
 )
 
-// ============================ 错误码接口定义 ============================
-
-// Coder 表示携带业务错误码的错误接口。
-// 实现此接口的类型可以通过 Code() 方法提供业务错误码。
-//
-// 使用场景：
-//   - 用于业务层面的错误分类，如 10001=用户未找到、20002=余额不足
-//   - 便于日志检索和监控告警配置
+// Coder 提供调用方定义的业务错误码，也可通过错误的 As 方法对外暴露。
 type Coder interface {
-	// Code 返回业务错误码。
-	// 错误码应该全局唯一，建议使用 5 位数字格式（xxxxx）。
-	//
-	// 返回值：业务错误码
+	// Code 返回业务码，0 也可以是有效值。
 	Code() int
 }
 
-// ============================ 错误码操作函数 ============================
-
-// WithCode 为错误附加业务错误码，不采集调用栈。
-// 设计的轻量级包装器，仅在错误上附加 code 信息，适合在业务入口处统一打码。
-// 注意：即使多次 Wrap，错误码也不会覆盖，总是保留错误链中第一个 WithCode 设置的码。
+// WithCode 为错误附加业务错误码，不采集调用栈；err 为 nil 时返回 nil。
+// 多次包装时各层保留自己的码，Code 返回从外向内找到的第一个码。
 func WithCode(err error, code int) error {
 	if err == nil {
 		return nil
@@ -33,12 +20,13 @@ func WithCode(err error, code int) error {
 	return &codeError{code: code, err: err}
 }
 
-// Code 从错误链中提取第一个业务错误码。
-// 沿错误链向上遍历，返回遇到的第一个 WithCode 设置的错误码。
+// Code 从外向内提取第一个 Coder，Join 分支按从左到右的深度优先顺序查找。
+// 同时支持第三方错误通过 As 暴露的 Coder；未找到时返回 (0, false)。
 func Code(err error) (int, bool) {
 	if err == nil {
 		return 0, false
 	}
+	// Coder 不要求实现 error，且第三方 As 接收 *Coder，因此保留 errors.As 的目标类型。
 	var coder Coder
 	if errors.As(err, &coder) {
 		return coder.Code(), true
@@ -46,8 +34,7 @@ func Code(err error) (int, bool) {
 	return 0, false
 }
 
-// HasCode 检查错误链中是否包含指定的业务错误码。
-// 用于快速判断错误类型，如判断是否为"余额不足"错误。
+// HasCode 检查各层及 Join 分支中的业务码，外层码不同也继续向内查找。
 func HasCode(err error, code int) bool {
 	if err == nil {
 		return false
@@ -63,15 +50,18 @@ func HasCode(err error, code int) bool {
 			continue
 		}
 
-		coder, ok := current.(Coder)
-		if !ok {
-			// 保留第三方错误通过自定义 As 暴露 Coder 的既有语义。
-			if _, custom := current.(interface{ As(any) bool }); custom {
-				ok = errors.As(current, &coder)
+		switch e := current.(type) {
+		case Coder:
+			if e.Code() == code {
+				return true
 			}
-		}
-		if ok && coder.Code() == code {
-			return true
+		case interface{ As(any) bool }:
+			// 仅自定义 As 需要指针目标，避免普通节点的堆分配。
+			var coder Coder
+			// 标准库 As 继续查找原因，保留外层遍历预算之外的匹配结果。
+			if errors.As(current, &coder) && coder.Code() == code {
+				return true
+			}
 		}
 
 		children, next := unwrapNode(current)
@@ -85,12 +75,7 @@ func HasCode(err error, code int) bool {
 	return false
 }
 
-// ============================ codeError 错误码包装类型 ============================
-
-// codeError 仅附加业务错误码的轻量级错误包装类型。
-// 不采集调用栈，仅携带 code 信息，适合业务入口统一打码场景。
-//
-// 它保存业务错误码和被包装的底层错误。
+// codeError 保留本层业务码，不改变底层错误的消息和展开行为。
 type codeError struct {
 	code int   // 业务错误码
 	err  error // 被包装的底层错误
@@ -120,8 +105,7 @@ func (e *codeError) Code() int {
 	return e.code
 }
 
-// Is 实现 errors.Is 接口，支持错误比较。
-// 当目标错误也是 codeError 时，比较其 code 和 err 是否完全一致。
+// Is 只匹配同一个包装对象；按业务码比较应使用 HasCode。
 func (e *codeError) Is(target error) bool {
 	te, ok := target.(*codeError)
 	return ok && e == te

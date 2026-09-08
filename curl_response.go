@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httputil"
 	"slices"
@@ -13,26 +14,24 @@ import (
 	"github.com/Is999/go-utils/errors"
 )
 
-// ============================ Send 请求发送 ============================
-
-// Send 发起 HTTP 请求。
-// 封装完整请求生命周期：构建 Request、配置 Client/Transport、执行重试、处理响应。
-func (c *Curl) Send(method, url string, body io.Reader) (err error) {
+// Send 使用后台上下文发送指定 method、URL 和 body；生命周期与 SendContext 相同。
+func (c *Curl) Send(method, url string, body io.Reader) error {
 	return c.SendContext(context.Background(), method, url, body)
 }
 
 // SendContext 发起带 context 的 HTTP 请求。
-// 当 ctx 被取消时，会立即中断请求以及重试等待。
+// nil ctx 使用后台上下文；取消会传递给请求、回调和重试等待，不会强行中断用户回调。
+// 普通流式 io.ReadCloser 交由请求生命周期关闭，发送前失败也会释放；
+// 支持定位的 io.ReadSeekCloser 保留给调用方复用和关闭，但自动重试仍要求 Request.GetBody。
+// 回调在当前 goroutine 串行执行，重试期间不重复执行 BeforeRequest 和 BeforeClient。
 func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Reader) (err error) {
 	ctx = ensureContext(ctx)
 	start := time.Now()
 
-	// 设置请求 ID（未设置时自动生成）
 	if c.requestID == "" {
 		c.SetRequestID()
 	}
 
-	// 输出调试日志
 	if c.defLogOutput {
 		c.Logger.Debug("HTTP START", "time", start.Format(time.RFC3339Nano))
 	}
@@ -50,6 +49,10 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 		return err
 	}
 	if err := c.prepareClient(ctx); err != nil {
+		// 尚未交给 Transport 的流式请求体由这里释放，避免 multipart 写端一直等待。
+		if req.Body != nil {
+			_ = req.Body.Close()
+		}
 		return err
 	}
 	resp, err = c.sendWithRetry(ctx, req)
@@ -68,9 +71,9 @@ func (c *Curl) SendContext(ctx context.Context, method, url string, body io.Read
 	return nil
 }
 
-// finishRequest 执行完成回调并关闭响应体。
-// afterDone 先于 Body.Close 执行，保留调用方在完成回调中读取响应对象的旧边界。
+// finishRequest 在成功或失败后结束响应生命周期。
 func (c *Curl) finishRequest(ctx context.Context, req *http.Request, resp *http.Response) {
+	// 回调先于关闭执行，仍可读取前面未消费的正文。
 	if c.afterDone != nil {
 		if c.defLogOutput {
 			c.Logger.Debug("done()")
@@ -83,22 +86,35 @@ func (c *Curl) finishRequest(ctx context.Context, req *http.Request, resp *http.
 	if c.defLogOutput {
 		c.Logger.Debug("Close Response Body")
 	}
+	// 不排空未读正文，HTTP/1.x 连接可能无法复用。
 	if err := resp.Body.Close(); err != nil {
+		// 关闭错误仅记录，不覆盖请求结果。
 		if c.defLogOutput {
 			c.Logger.Error("Body.Close()", "err", err.Error())
 		}
 	}
 }
 
-// prepareRequest 构建请求并执行 Header、Cookie、认证、日志和发送前回调处理。
+// prepareRequest 按请求配置、BeforeRequest、日志预览的顺序准备请求。
 func (c *Curl) prepareRequest(ctx context.Context, method, rawURL string, body io.Reader) (*http.Request, error) {
 	req, err := buildHTTPRequest(ctx, method, rawURL, body)
 	if err != nil {
 		return nil, errors.Tag(err)
 	}
+	defer func() {
+		// 回调或日志准备失败时，net/http 尚未接管 Body 的关闭责任。
+		if err != nil && req.Body != nil {
+			_ = req.Body.Close()
+		}
+	}()
 	c.applyRequestOptions(req)
-	if err = c.runBeforeRequest(ctx, req); err != nil {
-		return nil, errors.Tag(err)
+	if c.beforeRequest != nil {
+		if c.defLogOutput {
+			c.Logger.Debug("request()")
+		}
+		if err = c.beforeRequest(ctx, req); err != nil {
+			return nil, errors.Tag(err)
+		}
 	}
 	if err = c.logPreparedRequest(ctx, method, rawURL, req); err != nil {
 		return nil, errors.Tag(err)
@@ -106,31 +122,30 @@ func (c *Curl) prepareRequest(ctx context.Context, method, rawURL string, body i
 	return req, nil
 }
 
-// buildHTTPRequest 构建可重放请求体的 HTTP Request。
+// buildHTTPRequest 重置可定位正文后创建 Request，普通流保留当前读取位置。
 func buildHTTPRequest(ctx context.Context, method, rawURL string, body io.Reader) (*http.Request, error) {
 	body, err := rewindRequestBody(body)
 	if err != nil {
 		return nil, errors.Tag(err)
 	}
+	// 标准库为 bytes.Reader 和 strings.Reader 设置 GetBody；其他 Reader 不会自动获得重试能力。
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
-		return nil, errors.Tag(err)
-	}
-	if err = setRequestGetBody(req, body); err != nil {
+		if closer, ok := body.(io.Closer); ok {
+			_ = closer.Close()
+		}
 		return nil, errors.Tag(err)
 	}
 	return req, nil
 }
 
-// applyRequestOptions 写入 Header、Cookie 和 BasicAuth。
+// applyRequestOptions 将请求头复制到本次 Request，再叠加 Cookie 和 BasicAuth。
 func (c *Curl) applyRequestOptions(req *http.Request) {
 	header := c.ensureDefaultContentType()
-	if len(header) > 0 {
-		if c.defLogOutput {
-			c.Logger.Debug("set header")
-		}
-		req.Header = header.Clone()
+	if c.defLogOutput {
+		c.Logger.Debug("set header")
 	}
+	req.Header = header.Clone()
 
 	if len(c.cookies) > 0 {
 		if c.defLogOutput {
@@ -141,7 +156,8 @@ func (c *Curl) applyRequestOptions(req *http.Request) {
 		}
 	}
 
-	if c.username != "" && c.password != "" {
+	// 两者均空时保持默认请求头；只填写账号或密码也属于有效的认证配置。
+	if c.username != "" || c.password != "" {
 		if c.defLogOutput {
 			c.Logger.Debug("SetBasicAuth()")
 		}
@@ -149,20 +165,7 @@ func (c *Curl) applyRequestOptions(req *http.Request) {
 	}
 }
 
-// runBeforeRequest 执行发送前请求回调。
-func (c *Curl) runBeforeRequest(ctx context.Context, req *http.Request) error {
-	if c.beforeRequest != nil {
-		if c.defLogOutput {
-			c.Logger.Debug("request()")
-		}
-		if err := c.beforeRequest(ctx, req); err != nil {
-			return errors.Tag(err)
-		}
-	}
-	return nil
-}
-
-// logPreparedRequest 输出请求日志或 dump 内容。
+// logPreparedRequest 仅在 Info 日志启用时预览请求；dump 失败会中止发送。
 func (c *Curl) logPreparedRequest(ctx context.Context, method, rawURL string, req *http.Request) error {
 	if c.defLogOutput && c.Logger.Enabled(ctx, LevelInfo) {
 		if c.dump {
@@ -178,7 +181,7 @@ func (c *Curl) logPreparedRequest(ctx context.Context, method, rawURL string, re
 	return nil
 }
 
-// prepareClient 初始化 HTTP Client、超时、Transport 和 client 回调。
+// prepareClient 为本次发送应用客户端配置，保留可复用的 Client 实例。
 func (c *Curl) prepareClient(ctx context.Context) error {
 	if c.cli == nil {
 		if c.defLogOutput {
@@ -191,8 +194,9 @@ func (c *Curl) prepareClient(ctx context.Context) error {
 		c.cli.Timeout = defaultTimeout
 	}
 	if err := c.initTransport(); err != nil {
-		return errors.Tag(err)
+		return err
 	}
+	// 回调最后执行，允许调用方覆盖已应用的超时和 Transport。
 	if c.beforeClient != nil {
 		if c.defLogOutput {
 			c.Logger.Debug("client()")
@@ -204,21 +208,10 @@ func (c *Curl) prepareClient(ctx context.Context) error {
 	return nil
 }
 
-// retryCount 返回本次请求最大尝试次数，包含首次请求。
-func (c *Curl) retryCount() int {
-	maxRetry := int(c.maxRetry)
-	if maxRetry <= 0 {
-		return 1
-	}
-	if maxRetry > defaultMaxRetries {
-		return defaultMaxRetries
-	}
-	return maxRetry
-}
-
-// sendWithRetry 执行 HTTP 请求，并在请求体可重放时按配置重试。
+// sendWithRetry 仅重试 Client.Do 返回的错误，不重试 HTTP 状态码或响应回调失败。
+// 有正文时从 GetBody 重建读取流；是否允许重复发送由调用方按业务语义决定。
 func (c *Curl) sendWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
-	maxRetry := c.retryCount()
+	maxRetry := max(1, min(int(c.maxRetry), defaultMaxRetries)) // 尝试次数包含首次请求，范围为 1 到 5。
 	start := time.Now()
 	if c.defLogOutput {
 		c.Logger.Debug("client start", "time", start.Format(time.RFC3339Nano))
@@ -230,15 +223,18 @@ func (c *Curl) sendWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 	)
 	for i := 1; i <= maxRetry; i++ {
 		if i > 1 && req.GetBody == nil && req.Body != nil && req.Body != http.NoBody {
-			return nil, errors.New("client.Do() retry body is not rewindable")
+			return nil, errors.Wrap(err, "client.Do() retry body is not rewindable")
 		}
+		// 每次复制请求和请求头，隔离异步 Transport 访问及 CookieJar 写入；Trailer 仍与正文共享。
+		attempt := *req
+		attempt.Header = req.Header.Clone()
 		if i > 1 && req.GetBody != nil {
-			req.Body, err = req.GetBody()
+			attempt.Body, err = req.GetBody()
 			if err != nil {
 				return nil, errors.Tag(err)
 			}
 		}
-		resp, err = c.cli.Do(req)
+		resp, err = c.cli.Do(&attempt)
 		if err == nil {
 			break
 		}
@@ -246,8 +242,9 @@ func (c *Curl) sendWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 			if c.defLogOutput {
 				c.Logger.Warn("client.Do()", "maxRetry", maxRetry, "currentRetry", i, "err", err.Error())
 			}
-			if err = waitRetry(ctx, i); err != nil {
-				return nil, errors.Tag(err)
+			// 等待成功不能覆盖发送错误，下一轮可能因正文无法重放而直接返回。
+			if waitErr := waitRetry(ctx, i); waitErr != nil {
+				return nil, waitErr
 			}
 		}
 	}
@@ -262,9 +259,8 @@ func (c *Curl) sendWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 }
 
 // handleResponse 记录响应、校验状态码，并执行响应回调。
-// 返回 done=true 表示 afterResponse 已接管后续处理，调用方应直接结束。
+// done=true 只跳过 afterBody；完成回调和响应体关闭仍由 SendContext 执行。
 func (c *Curl) handleResponse(ctx context.Context, resp *http.Response) (done bool, err error) {
-	var respBody []byte
 	if c.defLogOutput && c.Logger.Enabled(ctx, LevelInfo) {
 		if err = c.logResponse(resp); err != nil {
 			return false, errors.Tag(err)
@@ -289,12 +285,10 @@ func (c *Curl) handleResponse(ctx context.Context, resp *http.Response) (done bo
 		if c.defLogOutput {
 			c.Logger.Debug("resolve()")
 		}
-		if respBody == nil {
-			var buf bytes.Buffer
-			if _, err = buf.ReadFrom(resp.Body); err != nil {
-				return false, errors.Tag(err)
-			}
-			respBody = buf.Bytes()
+		// afterResponse 可以先消费部分内容，afterBody 接收当前流中剩余的数据。
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false, errors.Tag(err)
 		}
 		if err = c.afterBody(ctx, respBody); err != nil {
 			return false, errors.Tag(err)
@@ -303,103 +297,33 @@ func (c *Curl) handleResponse(ctx context.Context, resp *http.Response) (done bo
 	return false, nil
 }
 
-// rewindRequestBody 在请求发送前重置可回放请求体。
+// rewindRequestBody 从 bytes.Buffer 未读部分建立快照，其他可定位正文回到起点。
 func rewindRequestBody(body io.Reader) (io.Reader, error) {
 	if body == nil {
 		return nil, nil
 	}
 	if buffer, ok := body.(*bytes.Buffer); ok {
-		return bytes.NewReader(append([]byte(nil), buffer.Bytes()...)), nil
+		return bytes.NewReader(bytes.Clone(buffer.Bytes())), nil
 	}
-	if seeker, ok := body.(io.Seeker); ok {
+	if seeker, ok := body.(io.ReadSeeker); ok {
 		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
 			return nil, errors.Tag(err)
 		}
-	}
-	if readSeeker, ok := body.(io.ReadSeeker); ok {
+		// 可定位正文留给调用方重复使用，发送时隐藏其 Close。
 		if _, closes := body.(io.Closer); closes {
-			return reusableReadSeeker{ReadSeeker: readSeeker}, nil
+			return reusableReadSeeker{ReadSeeker: seeker}, nil
 		}
 	}
 	return body, nil
 }
 
-// reusableReadSeeker 隐藏底层 Close 方法，让 net/http 在重试前不会关闭调用方持有的可回放请求体。
+// reusableReadSeeker 隐藏 Close，避免 net/http 关闭调用方需要重复发送的文件等可定位正文。
+// 它不提供 GetBody，单次 Send 内自动重试需另外配置该能力。
 type reusableReadSeeker struct {
 	io.ReadSeeker // 可重复定位的请求体。
 }
 
-// setRequestGetBody 为可安全重放的请求体补充 GetBody，保证日志预览和传输重试不会共享读取游标。
-func setRequestGetBody(req *http.Request, body io.Reader) error {
-	if req.GetBody != nil || body == nil {
-		return nil
-	}
-
-	switch v := body.(type) {
-	case *bytes.Buffer:
-		// bytes.Buffer 暴露的 Bytes() 可能被调用方继续修改，复制一份快照可保证后续重试内容稳定。
-		setRequestGetBodyFromBytes(req, append([]byte(nil), v.Bytes()...))
-		return nil
-	case reusableReadSeeker:
-		return setRequestGetBodyFromReadSeeker(req, v.ReadSeeker)
-	case io.ReadSeeker:
-		return setRequestGetBodyFromReadSeeker(req, v)
-	default:
-		// 流式 body 无法无损重放；保持 GetBody 为空，让重试逻辑在需要重试时明确返回不可重放错误。
-		return nil
-	}
-}
-
-// setRequestGetBodyFromReadSeeker 为内存型 ReadSeeker 创建独立快照。
-//
-// 降级策略：
-//   - 只处理 bytes.Reader、strings.Reader 以及它们被 reusableReadSeeker 包装后的场景。
-//   - 其它 ReadSeeker 可能是大文件或外部流，避免为了重试把未知体积内容读入内存。
-func setRequestGetBodyFromReadSeeker(req *http.Request, readSeeker io.ReadSeeker) error {
-	switch readSeeker.(type) {
-	case *bytes.Reader, *strings.Reader:
-	default:
-		return nil
-	}
-
-	data, err := snapshotReadSeeker(readSeeker)
-	if err != nil {
-		return errors.Tag(err)
-	}
-	setRequestGetBodyFromBytes(req, data)
-	return nil
-}
-
-// snapshotReadSeeker 从头读取 ReadSeeker 内容并恢复原始游标。
-//
-// 该函数只供已知内存型 reader 使用，业务意图是让 GetBody 每次返回独立 bytes.Reader，
-// 避免日志预览、重试和实际发送共享同一个游标。
-func snapshotReadSeeker(readSeeker io.ReadSeeker) ([]byte, error) {
-	pos, err := readSeeker.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return nil, errors.Tag(err)
-	}
-	if _, err = readSeeker.Seek(0, io.SeekStart); err != nil {
-		return nil, errors.Tag(err)
-	}
-	data, err := io.ReadAll(readSeeker)
-	if err != nil {
-		return nil, errors.Tag(err)
-	}
-	if _, err = readSeeker.Seek(pos, io.SeekStart); err != nil {
-		return nil, errors.Tag(err)
-	}
-	return data, nil
-}
-
-// setRequestGetBodyFromBytes 基于不可变字节快照创建 GetBody。
-func setRequestGetBodyFromBytes(req *http.Request, data []byte) {
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(data)), nil
-	}
-}
-
-// logRequest 记录请求日志（非 dump 模式）。
+// logRequest 记录普通请求日志；预览失败只记错误，不阻止请求发送。
 func (c *Curl) logRequest(method, url string, req *http.Request) {
 	var b strings.Builder
 	b.Grow(len(method) + len(url) + 3)
@@ -420,7 +344,7 @@ func (c *Curl) logRequest(method, url string, req *http.Request) {
 	c.Logger.Info("Request", "body", b.String())
 }
 
-// logResponse 记录响应日志，并在读取预览后恢复 Body。
+// logResponse 记录响应日志；预览成功后恢复 Body，失败则交由请求结束路径关闭。
 func (c *Curl) logResponse(resp *http.Response) error {
 	if c.dump {
 		dump, err := dumpResponseSafe(resp, c.dumpBodyLimit)
@@ -439,12 +363,13 @@ func (c *Curl) logResponse(resp *http.Response) error {
 	return nil
 }
 
-// responseLogText 构造响应日志文本，并恢复被预览读取过的 Body。
+// responseLogText 在预览成功后拼回已读字节，后续回调仍能读取完整正文。
 func responseLogText(resp *http.Response, limit int64) (string, error) {
 	var b strings.Builder
 	b.WriteString("Response Status: ")
 	b.WriteString(resp.Status)
 	b.WriteByte('\n')
+	// 流式响应可用 SetLogBodyLimit(0) 跳过预读，避免等待正文填满预览。
 	if resp.Body == nil || resp.Body == http.NoBody || limit <= 0 {
 		return b.String(), nil
 	}
@@ -460,9 +385,8 @@ func responseLogText(resp *http.Response, limit int64) (string, error) {
 	return b.String(), nil
 }
 
-// ============================ 响应处理方法 ============================
-
-// BeforeRequest 请求发送前的回调。
+// BeforeRequest 在请求配置应用后、日志预览前执行；返回错误中止发送，nil 清除回调。
+// 替换 Request.Body 时，原正文的关闭与新正文的 GetBody 由回调负责。
 func (c *Curl) BeforeRequest(f func(request *http.Request) error) *Curl {
 	if f == nil {
 		c.beforeRequest = nil
@@ -474,13 +398,14 @@ func (c *Curl) BeforeRequest(f func(request *http.Request) error) *Curl {
 	return c
 }
 
-// BeforeRequestContext 请求发送前的上下文回调。
+// BeforeRequestContext 与 BeforeRequest 时机相同，并接收本次 SendContext 的上下文。
 func (c *Curl) BeforeRequestContext(f func(ctx context.Context, request *http.Request) error) *Curl {
 	c.beforeRequest = f
 	return c
 }
 
-// BeforeClient 请求发送前的 Client 回调。
+// BeforeClient 在超时和 Transport 初始化后执行，可覆盖 Client 配置；nil 清除回调。
+// 重试不重复执行此回调；返回错误时不进入网络请求。
 func (c *Curl) BeforeClient(f func(client *http.Client) error) *Curl {
 	if f == nil {
 		c.beforeClient = nil
@@ -492,13 +417,14 @@ func (c *Curl) BeforeClient(f func(client *http.Client) error) *Curl {
 	return c
 }
 
-// BeforeClientContext 请求发送前的 Client 上下文回调。
+// BeforeClientContext 与 BeforeClient 时机相同，并接收本次请求上下文。
 func (c *Curl) BeforeClientContext(f func(ctx context.Context, client *http.Client) error) *Curl {
 	c.beforeClient = f
 	return c
 }
 
-// AfterResponse 请求发送后的回调。
+// AfterResponse 在日志预览和状态校验通过后执行；nil 清除回调。
+// 返回 true 或错误会跳过 AfterBody，响应体仍在 AfterDone 之后关闭。
 func (c *Curl) AfterResponse(f func(response *http.Response) (isDone bool, err error)) *Curl {
 	if f == nil {
 		c.afterResponse = nil
@@ -510,13 +436,14 @@ func (c *Curl) AfterResponse(f func(response *http.Response) (isDone bool, err e
 	return c
 }
 
-// AfterResponseContext 请求发送后的上下文回调。
+// AfterResponseContext 与 AfterResponse 的顺序和关闭归属相同，并接收请求上下文。
 func (c *Curl) AfterResponseContext(f func(ctx context.Context, response *http.Response) (isDone bool, err error)) *Curl {
 	c.afterResponse = f
 	return c
 }
 
-// AfterBody 请求发送后对 Response.Body 的处理回调。
+// AfterBody 接收 AfterResponse 处理后剩余的完整正文；nil 清除回调。
+// 正文会一次读入内存，日志预览限额不限制这里的读取大小。
 func (c *Curl) AfterBody(f func(body []byte) error) *Curl {
 	if f == nil {
 		c.afterBody = nil
@@ -528,15 +455,15 @@ func (c *Curl) AfterBody(f func(body []byte) error) *Curl {
 	return c
 }
 
-// AfterBodyContext 请求发送后对 Response.Body 的上下文处理回调。
+// AfterBodyContext 与 AfterBody 的读取规则相同，并接收请求上下文。
 func (c *Curl) AfterBodyContext(f func(ctx context.Context, body []byte) error) *Curl {
 	c.afterBody = f
 	return c
 }
 
-// AfterDone 请求完成后的回调。
-// 用于资源清理，如关闭连接等。
-// 注意：client、request、response 有可能为 nil。
+// AfterDone 在成功或失败后执行，先于响应体关闭；nil 清除回调。
+// 准备或发送失败时部分参数可能为 nil；响应正文也可能已被前面的回调消费。
+// request 是准备阶段的原始请求；最终响应对应的请求可从非 nil 的 response.Request 获取。
 func (c *Curl) AfterDone(f func(client *http.Client, request *http.Request, response *http.Response)) *Curl {
 	if f == nil {
 		c.afterDone = nil
@@ -548,15 +475,14 @@ func (c *Curl) AfterDone(f func(client *http.Client, request *http.Request, resp
 	return c
 }
 
-// AfterDoneContext 请求完成后的上下文回调。
+// AfterDoneContext 与 AfterDone 的执行和关闭顺序相同，并接收请求上下文。
 func (c *Curl) AfterDoneContext(f func(ctx context.Context, client *http.Client, request *http.Request, response *http.Response)) *Curl {
 	c.afterDone = f
 	return c
 }
 
-// ============================ 内部工具函数 ============================
-
-// DrainBody 读取 body 内容并恢复原始流。
+// DrainBody 全量读取并关闭原 body，成功时返回正文和共享该字节切片的内存读取流。
+// 读取或关闭失败时返回原 body，其位置可能已改变，后续清理由调用方负责。
 func DrainBody(b io.ReadCloser) ([]byte, io.ReadCloser, error) {
 	if b == nil || b == http.NoBody {
 		return nil, http.NoBody, nil
@@ -572,9 +498,9 @@ func DrainBody(b io.ReadCloser) ([]byte, io.ReadCloser, error) {
 	return bodyBytes, io.NopCloser(bytes.NewReader(bodyBytes)), nil
 }
 
-// requestBodyPreview 获取请求体预览内容。
-// 仅对支持 GetBody 的请求体读取预览，避免阻塞流式 body。
+// requestBodyPreview 从 GetBody 创建预览流，不消费发送中的正文。
 func requestBodyPreview(req *http.Request, limit int64) ([]byte, bool, error) {
+	// 无法重放的流直接跳过，避免预览阻塞上传或提前消费正文。
 	if req.GetBody == nil {
 		return []byte("[skipped: non-rewindable]"), false, nil
 	}
@@ -583,11 +509,16 @@ func requestBodyPreview(req *http.Request, limit int64) ([]byte, bool, error) {
 		return nil, false, errors.Tag(err)
 	}
 	defer body.Close()
-	return readBodyPreview(body, limit)
+	buf, truncated, err := readPreviewChunk(body, limit)
+	if err != nil {
+		return nil, false, errors.Tag(err)
+	}
+	return trimPreview(buf, truncated, limit), truncated, nil
 }
 
-// dumpRequestSafe 安全地获取请求详情预览。
+// dumpRequestSafe 保留请求头并限长展示正文，不消费原请求体。
 func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
+	// 标准库会按正数 ContentLength 缓冲临时正文，内存开销不受展示上限控制。
 	dump, err := httputil.DumpRequestOut(req, false)
 	if err != nil {
 		return "", errors.Tag(err)
@@ -601,13 +532,7 @@ func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 		return string(dump) + "\nRequest Body: [skipped: non-rewindable]", nil
 	}
 
-	body, err := req.GetBody()
-	if err != nil {
-		return "", errors.Tag(err)
-	}
-	defer body.Close()
-
-	preview, truncated, err := readBodyPreview(body, limit)
+	preview, truncated, err := requestBodyPreview(req, limit)
 	if err != nil {
 		return "", errors.Tag(err)
 	}
@@ -615,7 +540,7 @@ func dumpRequestSafe(req *http.Request, limit int64) (string, error) {
 	return formatDumpWithBody(string(dump), "Request Body", preview, truncated), nil
 }
 
-// dumpResponseSafe 安全地获取响应详情预览。
+// dumpResponseSafe 保留响应头并限长展示正文，预览成功后恢复 Body。
 func dumpResponseSafe(resp *http.Response, limit int64) (string, error) {
 	dump, err := httputil.DumpResponse(resp, false)
 	if err != nil {
@@ -635,21 +560,14 @@ func dumpResponseSafe(resp *http.Response, limit int64) (string, error) {
 	return formatDumpWithBody(string(dump), "Response Body", preview, truncated), nil
 }
 
-// readBodyPreview 读取 body 预览内容。
-func readBodyPreview(r io.Reader, limit int64) ([]byte, bool, error) {
-	buf, truncated, err := readPreviewChunk(r, limit)
-	if err != nil {
-		return nil, false, errors.Tag(err)
-	}
-	return trimPreview(buf, truncated, limit), truncated, nil
-}
-
-// readBodyPreviewAndRestore 读取预览内容并恢复原始流。
+// readBodyPreviewAndRestore 将读出的字节拼回原流，Close 仍转发给原响应体。
 func readBodyPreviewAndRestore(body io.ReadCloser, limit int64) ([]byte, bool, io.ReadCloser, error) {
 	buf, truncated, err := readPreviewChunk(body, limit)
 	if err != nil {
+		// 读取失败不恢复正文，已消费部分内容的原流交给上层关闭。
 		return nil, false, body, errors.Tag(err)
 	}
+	// 探测截断的额外字节也必须拼回，不能只恢复展示片段。
 	restored := readCloser{
 		Reader: io.MultiReader(bytes.NewReader(buf), body),
 		Closer: body,
@@ -657,12 +575,13 @@ func readBodyPreviewAndRestore(body io.ReadCloser, limit int64) ([]byte, bool, i
 	return trimPreview(buf, truncated, limit), truncated, restored, nil
 }
 
-// readPreviewChunk 读取 limit+1 字节，用额外 1 字节判断是否截断。
+// readPreviewChunk 最多读取 limit+1 字节，用额外 1 字节判断是否截断。
 func readPreviewChunk(r io.Reader, limit int64) ([]byte, bool, error) {
 	if limit <= 0 {
 		return nil, false, nil
 	}
-	lr := &io.LimitedReader{R: r, N: limit + 1}
+	// 最大上限不再增加探测字节，避免整数溢出后被当作空流。
+	lr := &io.LimitedReader{R: r, N: min(limit, math.MaxInt64-1) + 1}
 	buf, err := io.ReadAll(lr)
 	if err != nil {
 		return nil, false, errors.Tag(err)

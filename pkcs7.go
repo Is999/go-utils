@@ -2,9 +2,8 @@ package utils
 
 import "github.com/Is999/go-utils/errors"
 
-// PKCS7Pad 按 PKCS#7 规则填充数据。
-//
-// 返回值总是新切片，避免 append 复用调用方底层数组导致原始数据被意外修改。
+// PKCS7Pad 返回独立的填充结果，已对齐的数据仍追加一整块。
+// blockSize 有效范围为 1～255；超出范围时仅复制 data。
 func PKCS7Pad(data []byte, blockSize int) []byte {
 	if blockSize <= 0 || blockSize > 255 {
 		return append([]byte(nil), data...)
@@ -18,9 +17,7 @@ func PKCS7Pad(data []byte, blockSize int) []byte {
 	return out
 }
 
-// PKCS7Unpad 去除 PKCS#7 填充。
-//
-// 会严格校验填充长度和每个填充字节，避免损坏密文被误当作合法明文。
+// PKCS7Unpad 校验并去除尾部填充值，成功结果与 data 共享底层数组；空输入报错。
 func PKCS7Unpad(data []byte) ([]byte, error) {
 	length := len(data)
 	if length == 0 {
@@ -31,6 +28,7 @@ func PKCS7Unpad(data []byte) ([]byte, error) {
 	if padding == 0 || padding > length {
 		return nil, errors.New("PKCS7Unpad() padding 长度异常")
 	}
+	// PKCS#7 要求每个填充字节都等于填充长度，不能只检查末字节。
 	for i := length - padding; i < length; i++ {
 		if int(data[i]) != padding {
 			return nil, errors.New("PKCS7Unpad() padding 内容异常")

@@ -2,7 +2,7 @@ package utils
 
 import "slices"
 
-// MapKeys 获取map的所有key
+// MapKeys 返回顺序未定的键切片；nil 或空 map 返回非 nil 空切片。
 func MapKeys[K Ordered, V any](m map[K]V) []K {
 	keys := make([]K, 0, len(m))
 	for key := range m {
@@ -11,11 +11,10 @@ func MapKeys[K Ordered, V any](m map[K]V) []K {
 	return keys
 }
 
-// MapValues 获取 map 的所有 value。
-//
-//	isReverse 是否降序排列：true 降序，false 升序，未指定则不排序直接返回所有 value
+// MapValues 返回值切片；不传 isReverse 时顺序未定，false 按键升序，true 按键降序。
+// 只使用 isReverse 第一项；排序时浮点键不能含 NaN，空 map 返回非 nil 空切片。
+// 仅复制值本身，不复制值引用的底层数据。
 func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V {
-	// 未指定排序则直接返回所有 value
 	if len(isReverse) == 0 {
 		vals := make([]V, 0, len(m))
 		for _, v := range m {
@@ -37,10 +36,9 @@ func MapValues[K Ordered, V any](m map[K]V, isReverse ...bool) []V {
 	return vals
 }
 
-// MapRange 有序遍历map元素，对map的key排序并按排序后的key遍历m
-//
-//	f 函数接收key与value，返回一个bool值，如果f函数返回false则终止遍历
-//	isReverse 是否降序排列：true 降序，false 升序
+// MapRange 按键升序调用 f；isReverse 第一项为 true 时降序，f 返回 false 时停止。
+// 开始前固定键集合，每次回调前读取当前值；回调增删元素不会更新键列表。
+// 浮点键不能含 NaN；空 map 不调用 f。
 func MapRange[K Ordered, V any](m map[K]V, f func(key K, value V) bool, isReverse ...bool) {
 	keys := MapKeys(m)
 	slices.Sort(keys)
@@ -55,9 +53,8 @@ func MapRange[K Ordered, V any](m map[K]V, f func(key K, value V) bool, isRevers
 	}
 }
 
-// MapFilter 使用回调函数过滤map的元素
-//
-//	f 函数接收key与value，返回一个bool值，如果f函数返回false则过滤掉该元素（删除该元素）
+// MapFilter 原地删除 f 返回 false 的元素，并返回同一个 map。
+// 回调顺序未定；nil map 原样返回且不调用 f。
 func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V {
 	for k, v := range m {
 		if !f(k, v) {
@@ -68,7 +65,7 @@ func MapFilter[K Ordered, V any](m map[K]V, f func(key K, value V) bool) map[K]V
 }
 
 // MapDiff 计算 m1 与 m2 的值差集，即 m1 中有但 m2 中没有的值。
-// 返回结果保留 m1 原有遍历结果中的重复值。
+// 结果顺序未定，保留来自不同键的重复值；空结果为非 nil 切片。
 func MapDiff[K comparable, V comparable](m1, m2 map[K]V) []V {
 	set := make(map[V]struct{}, len(m2))
 	for _, v := range m2 {
@@ -85,7 +82,7 @@ func MapDiff[K comparable, V comparable](m1, m2 map[K]V) []V {
 }
 
 // MapIntersect 计算 m1 与 m2 的值交集，即 m1 与 m2 都有的值。
-// 返回结果保留 m1 原有遍历结果中的重复值。
+// 结果顺序未定，保留来自不同键的重复值；空结果为非 nil 切片。
 func MapIntersect[K comparable, V comparable](m1, m2 map[K]V) []V {
 	set := make(map[V]struct{}, len(m2))
 	for _, v := range m2 {
@@ -101,7 +98,7 @@ func MapIntersect[K comparable, V comparable](m1, m2 map[K]V) []V {
 	return result
 }
 
-// MapDiffKey 计算m1与m2的键差集即m1中有但m2中没有的键
+// MapDiffKey 返回 m1 中有而 m2 中没有的键；顺序未定，空结果为非 nil 切片。
 func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	s := make([]K, 0, len(m1))
 	for k := range m1 {
@@ -112,7 +109,7 @@ func MapDiffKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	return s
 }
 
-// MapIntersectKey 计算m1与m2的键交集即m1与m2都有的键
+// MapIntersectKey 返回两者都有的键；顺序未定，空结果为非 nil 切片。
 func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	s := make([]K, 0, len(m1))
 	for k := range m1 {
@@ -123,7 +120,7 @@ func MapIntersectKey[K Ordered, V any](m1, m2 map[K]V) []K {
 	return s
 }
 
-// SumMap 计算 map 的值和。
+// SumMap 计算值的和，空 map 返回 0；浮点累加顺序随 map 遍历顺序而定。
 func SumMap[K comparable, V Number](m map[K]V) V {
 	var sum V
 	for _, v := range m {
