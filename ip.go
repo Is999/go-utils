@@ -83,10 +83,30 @@ func LocalIP() string {
 	return ""
 }
 
-// ClientIP 获取客户端 IP 地址。
-// 仅回环 RemoteAddr 会启用转发头解析；其他代理规则使用 ClientIPWithTrustedProxies 配置。
+// ClientIP 尽可能从转发头提取客户端 IP，不要求 RemoteAddr 命中代理规则。
+// 依次读取 X-Forwarded-For、X-Real-IP、RemoteAddr；转发头可伪造，鉴权和限流应使用 ClientIPWithTrustedProxies。
 func ClientIP(r *http.Request) string {
-	return clientIPByTrustChecker(r, netip.Addr.IsLoopback)
+	// 空请求没有客户端地址可供提取。
+	if r == nil {
+		return ""
+	}
+
+	// 转发链按客户端到代理的顺序查找，跳过非法节点并保留首个合法地址，包括内网客户端。
+	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
+		for _, value := range r.Header.Values(header) {
+			for part := range strings.SplitSeq(value, ",") {
+				if addr, ok := parseRequestAddr(part); ok {
+					return addr.String()
+				}
+			}
+		}
+	}
+
+	// 没有可用转发地址时才使用直连来源，无法解析则返回空串。
+	if addr, ok := parseRequestAddr(r.RemoteAddr); ok {
+		return addr.String()
+	}
+	return ""
 }
 
 // NewTrustedProxies 构造可信代理白名单。

@@ -29,7 +29,7 @@ go get github.com/Is999/go-utils
 | PKCS7 / Zero          | `PKCS7Unpad` 严格校验填充字节；`ZeroPad` 仅适合能接受尾部 0 歧义的旧协议。                                                                  |
 | Pool / Once           | `Pool[T]` 基于 `sync.Pool`，支持归还前 reset；`Once` 并发安全，失败按有限指数退避重试，结果会缓存，需重新执行时调用 `Reset`。                                        |
 | Retry                 | `Retry` 使用 capped exponential backoff + jitter：第一次失败后约 100ms~200ms，最多 3s；`maxRetries=0` 时只执行 1 次。                           |
-| IP / Logger           | `ClientIP` 仅在远端为可信代理时读取转发头；生产建议使用 `ClientIPWithTrustedProxies`。默认 logger 基于 `log/slog` 并发安全，自定义 logger 也应保证并发安全。            |
+| IP / Logger           | `ClientIP` 优先从转发头尽可能提取客户端 IP；鉴权、白名单和限流使用 `ClientIPWithTrustedProxies`。默认 logger 基于 `log/slog` 并发安全，自定义 logger 也应保证并发安全。            |
 | slices / string / map | `Unique/Diff/Intersect` 返回独立结果切片；传入的 slice/map 若被外部并发修改，调用方需自行加锁。重复字符串替换可复用 `NewReplacer`。              |
 | tar / zip             | 解压防 Zip Slip/Tar Slip，拒绝绝对路径、目录穿越、空字符、符号链接和特殊文件；限制条目数、单文件大小和总展开大小。                                                          |
 | errors                | 支持栈追踪、错误码、上下文键值、`errors.Join`、文本/JSON/slog 输出；全局配置使用原子变量并发安全。                                                               |
@@ -4286,8 +4286,18 @@ func LocalIP() string
 func ClientIP(r *http.Request) string
 ```
 
-备注：获取客户端 IP。默认仅在请求来自回环地址时信任 `X-Forwarded-For` / `X-Real-IP`，否则回退到 `RemoteAddr`，避免把所有私网来源都视为
-可信代理。生产环境建议优先使用 `ClientIPWithTrustedProxies` 显式配置白名单。
+备注：尽可能提取客户端 IP，不要求连接来源命中可信代理规则。按以下顺序返回首个合法地址：
+
+1. `X-Forwarded-For`：多个同名头按接收顺序读取，每个头从左向右扫描，跳过空项和非法节点。
+2. `X-Real-IP`：XFF 没有合法地址时读取，多个同名头与逗号分隔项同样按顺序扫描。
+3. `RemoteAddr`：所有转发头均不可用时读取直连来源；全部无法解析或请求为 nil 时返回空串。
+
+支持 IPv4、IPv6 和带端口地址，IPv4 映射地址规范化为 IPv4。合法内网客户端地址不会被跳过；没有头部时仍可能返回内网连接地址。
+例如 `RemoteAddr=10.0.0.10:443`、`X-Forwarded-For=203.0.113.10, 10.1.1.1` 时返回 `203.0.113.10`。
+
+转发头可由客户端伪造，此结果不能单独证明来源身份。鉴权、IP 白名单和限流使用 `ClientIPWithTrustedProxies`。
+从默认只信任回环代理的版本升级时，依赖旧信任规则的调用方必须显式构造 `NewTrustedProxies("127.0.0.0/8", "::1")` 并传给该安全入口；
+已有可信代理配置继续按实际代理 IP/CIDR 设置。
 
 ------
 
@@ -4309,6 +4319,7 @@ func ClientIPWithTrustedProxies(r *http.Request, trustedProxies *TrustedProxies)
 
 备注：使用显式可信代理白名单解析客户端 IP。生产环境建议按网关、负载均衡或 Ingress 固定地址配置可信代理；只有 `RemoteAddr`
 命中白名单时才读取转发头。多个同名 `X-Forwarded-For` 按接收顺序合并，再从右向左跳过可信代理。
+nil 或空名单不信任任何代理；直连来源未命中规则时忽略所有转发头，只返回 `RemoteAddr`。
 白名单只比较 IP，不按 IPv6 zone 区分网卡；匹配过程不移除最终 IPv6 地址中的 zone（如 `%en0`）。
 
 ------

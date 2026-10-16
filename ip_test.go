@@ -25,82 +25,86 @@ func TestLocalIP(t *testing.T) {
 	}
 }
 
+// TestClientIP 验证普通提取不依赖直连来源的信任规则，并按头优先级与链中顺序返回地址。
 func TestClientIP(t *testing.T) {
-	type args struct {
-		req *http.Request
-	}
+	// 用不同连接来源、转发链和无效输入覆盖代理后的真实调用方式。
 	tests := []struct {
-		name string
-		args args
-		want string
+		name   string   // 场景名称，标明本例覆盖的来源或回退规则。
+		remote string   // 连接来源，允许缺失或非法以验证头部独立解析。
+		xff    []string // 按接收顺序提供的 XFF 头，每项可包含多个代理节点。
+		realIP []string // XFF 不可用时读取的 X-Real-IP 头。
+		want   string   // 期望提取并规范化后的客户端地址。
 	}{
-		{name: "001", args: args{
-			req: &http.Request{
-				RemoteAddr: "127.0.0.1:80",
-			},
-		}, want: "127.0.0.1"},
-		{name: "002", args: args{
-			req: &http.Request{
-				Header: http.Header{
-					"X-Real-Ip": []string{"192.168.47.142"},
-				},
-				RemoteAddr: "127.0.0.1:80",
-			},
-		}, want: "192.168.47.142"},
-		{name: "003", args: args{
-			req: &http.Request{
-				Header: http.Header{
-					"X-Real-Ip":       []string{"192.168.47.141"},
-					"X-Forwarded-For": []string{"192.168.47.141, 192.168.47.142, 175.176.32.112, 192.168.47.143"},
-				},
-				RemoteAddr: "127.0.0.1:80",
-			},
-		}, want: "192.168.47.143"},
+		{name: "empty request"},
+		{name: "IPv4 connection", remote: "203.0.113.10:443", want: "203.0.113.10"},
+		{name: "IPv6 connection", remote: "[2001:db8::10]:443", want: "2001:db8::10"},
+		{name: "loopback connection", remote: "127.0.0.1:80", want: "127.0.0.1"},
+		{name: "invalid connection", remote: "not-an-address"},
+		{name: "private proxy XFF", remote: "10.0.0.10:443", xff: []string{"203.0.113.10"}, want: "203.0.113.10"},
+		{name: "public proxy XFF", remote: "8.8.8.8:443", xff: []string{"175.176.32.112"}, want: "175.176.32.112"},
+		{name: "private proxy real IP", remote: "192.168.1.1:443", realIP: []string{"203.0.113.10"}, want: "203.0.113.10"},
+		{name: "loopback proxy real IP", remote: "127.0.0.1:80", realIP: []string{"192.168.47.142"}, want: "192.168.47.142"},
+		{name: "XFF before real IP", remote: "10.0.0.10:443", xff: []string{"203.0.113.10"}, realIP: []string{"198.51.100.8"}, want: "203.0.113.10"},
+		{name: "client before proxies", remote: "10.0.0.10:443", xff: []string{"203.0.113.10, 192.168.1.1, 10.1.1.1"}, want: "203.0.113.10"},
+		{name: "private client retained", remote: "127.0.0.1:80", xff: []string{"192.168.47.141, 175.176.32.112, 192.168.47.143"}, want: "192.168.47.141"},
+		{name: "multiple XFF headers", remote: "10.0.0.10:443", xff: []string{"203.0.113.10", "198.51.100.8, 10.1.1.1"}, want: "203.0.113.10"},
+		{name: "invalid XFF header before valid", remote: "10.0.0.10:443", xff: []string{"invalid-ip", "203.0.113.10"}, want: "203.0.113.10"},
+		{name: "invalid XFF nodes skipped", remote: "10.0.0.10:443", xff: []string{" , unknown, 203.0.113.10 , 10.1.1.1"}, want: "203.0.113.10"},
+		{name: "IPv6 forwarded client", remote: "10.0.0.10:443", xff: []string{"2001:db8::10, 10.1.1.1"}, want: "2001:db8::10"},
+		{name: "forwarded IPv6 port", remote: "10.0.0.10:443", xff: []string{"[2001:db8::10]:8443"}, want: "2001:db8::10"},
+		{name: "mapped IPv4 forwarded client", remote: "10.0.0.10:443", xff: []string{"::ffff:203.0.113.10"}, want: "203.0.113.10"},
+		{name: "IPv4 real IP port", remote: "10.0.0.10:443", realIP: []string{"203.0.113.10:8443"}, want: "203.0.113.10"},
+		{name: "invalid XFF falls back to real IP", remote: "10.0.0.10:443", xff: []string{"unknown"}, realIP: []string{"203.0.113.10"}, want: "203.0.113.10"},
+		{name: "invalid real IP header before valid", remote: "10.0.0.10:443", realIP: []string{"unknown", "203.0.113.10"}, want: "203.0.113.10"},
+		{name: "headers fall back to connection", remote: "127.0.0.1:8080", xff: []string{"not-an-ip"}, realIP: []string{"invalid-ip"}, want: "127.0.0.1"},
+		{name: "all addresses invalid", remote: "not-an-address", xff: []string{"unknown"}, realIP: []string{"invalid-ip"}},
+		{name: "XFF without connection", xff: []string{"203.0.113.10"}, want: "203.0.113.10"},
+		{name: "XFF with invalid connection", remote: "not-an-address", xff: []string{"203.0.113.10"}, want: "203.0.113.10"},
+		{name: "real IP without connection", realIP: []string{"203.0.113.10"}, want: "203.0.113.10"},
 	}
+
+	// 经过公开入口断言结果，防止连接来源再次阻断头部提取。
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := utils.ClientIP(tt.args.req); got != tt.want {
-				t.Errorf("ClientIp() = %v, want %v", got, tt.want)
+			req := &http.Request{
+				RemoteAddr: tt.remote,
+				Header: http.Header{
+					"X-Forwarded-For": tt.xff,
+					"X-Real-Ip":       tt.realIP,
+				},
+			}
+			if got := utils.ClientIP(req); got != tt.want {
+				t.Fatalf("ClientIP() = %q, want %q", got, tt.want)
 			}
 		})
 	}
-}
 
-func TestClientIPRejectsSpoofedForwardHeader(t *testing.T) {
-	req := &http.Request{
-		Header: http.Header{
-			"X-Forwarded-For": []string{"175.176.32.112"},
-		},
-		RemoteAddr: "8.8.8.8:443",
-	}
-	if got := utils.ClientIP(req); got != "8.8.8.8" {
-		t.Fatalf("ClientIP() = %v, want %v", got, "8.8.8.8")
+	// nil 请求与空请求都没有地址，不能因读取头部而触发 panic。
+	if got := utils.ClientIP(nil); got != "" {
+		t.Fatalf("ClientIP(nil) = %q, want empty", got)
 	}
 }
 
-func TestClientIPDoesNotTrustPrivateRemoteByDefault(t *testing.T) {
-	req := &http.Request{
-		Header: http.Header{
-			"X-Forwarded-For": []string{"203.0.113.10"},
-			"X-Real-Ip":       []string{"198.51.100.8"},
-		},
-		RemoteAddr: "10.0.0.10:443",
+// TestClientIPWithTrustedProxiesWithoutRules 保留显式安全入口对伪造头部的拒绝规则。
+func TestClientIPWithTrustedProxiesWithoutRules(t *testing.T) {
+	// 空名单与 nil 名单均不信任代理，包含回环、内网和公网连接来源。
+	emptyProxies, err := utils.NewTrustedProxies()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := utils.ClientIP(req); got != "10.0.0.10" {
-		t.Fatalf("ClientIP() = %v, want %v", got, "10.0.0.10")
-	}
-}
-
-func TestClientIPIgnoresInvalidProxyHeader(t *testing.T) {
-	req := &http.Request{
-		Header: http.Header{
-			"X-Forwarded-For": []string{"not-an-ip"},
-			"X-Real-Ip":       []string{"invalid-ip"},
-		},
-		RemoteAddr: "127.0.0.1:8080",
-	}
-	if got := utils.ClientIP(req); got != "127.0.0.1" {
-		t.Fatalf("ClientIP() = %v, want %v", got, "127.0.0.1")
+	for _, proxies := range []*utils.TrustedProxies{nil, emptyProxies} {
+		for _, remote := range []string{"127.0.0.1", "10.0.0.10", "8.8.8.8"} {
+			req := &http.Request{
+				RemoteAddr: net.JoinHostPort(remote, "443"),
+				Header: http.Header{
+					"X-Forwarded-For": {"175.176.32.112"},
+					"X-Real-Ip":       {"198.51.100.8"},
+				},
+			}
+			if got := utils.ClientIPWithTrustedProxies(req, proxies); got != remote {
+				t.Fatalf("ClientIPWithTrustedProxies() = %q, want %q", got, remote)
+			}
+		}
 	}
 }
 
@@ -328,7 +332,7 @@ func BenchmarkClientIPRemoteOnly(b *testing.B) {
 	}
 }
 
-// BenchmarkClientIPLoopbackForwardedChain 计量默认回环信任规则下的转发链解析。
+// BenchmarkClientIPLoopbackForwardedChain 计量回环连接下从 XFF 链首提取客户端地址的路径。
 func BenchmarkClientIPLoopbackForwardedChain(b *testing.B) {
 	req := &http.Request{
 		Header: http.Header{
